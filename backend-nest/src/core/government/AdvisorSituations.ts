@@ -2,13 +2,10 @@
  * WS-CONSULENTE-SITUAZIONI — La SITUAZIONE è un oggetto di prima classe,
  * distinto dalla PROPOSTA (`CouncilIssue`).
  *
- * Una `AdvisorSituation` è ciò che merita attenzione nel paese: nasce SEMPRE da
- * una o più `RealitySignal` canoniche del `VerifiedWorldSnapshot`. Il modello
- * scrive titolo e sintesi e può raggruppare più segnali quando raccontano lo
- * stesso problema politico; il server risolve le `signalKeys` contro i segnali
- * REALI: una chiave ignota invalida la scheda. La derivazione deterministica
- * resta la base, così il modello non può far sparire un problema reale né
- * inventarne uno che il motore non ha misurato.
+ * Il modello interpreta uno StrategicThread da stato, storia e segnali nella
+ * stessa completion. Una situazione ha segnali canonici oppure prove del thread
+ * risolte dal server (baseline ammessa come base solo all'apertura). Una chiave
+ * ignota o scaduta invalida la scheda. Il fallback resta deterministico.
  *
  * `parseAdvisorResponse` è il punto unico che separa `situations` da `issues`:
  * una situazione NON crea automaticamente una CouncilIssue.
@@ -19,14 +16,15 @@ import { buildRealitySignals, type RealitySignal } from './RealitySignals';
 import { MAX_BRIEFING_COUNCIL_ISSUES, isPreparatoryCouncilIssue, parseCouncilIssues, type CouncilIssue, type CouncilIssueOrigin, type CouncilIssueParseOptions } from './CouncilIssue';
 import { buildCouncilProposalAnchors } from './CouncilProposalAnchors';
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
+import { resolveStrategicThreadEvidence, type StrategicThread, type StrategicThreadContext } from './StrategicThreads';
 
-export interface AdvisorSituation {
+export interface AdvisorSituation extends StrategicThread {
   id: string;
   title: string;
   summary: string;
   /** Chiavi dei segnali canonici: il server le ricalcola, mai il client. */
   signalKeys: string[];
-  /** 1 = marginale, 2 = rilevante, 3 = critico. Derivata dai segnali, non dal modello. */
+  /** Derivata dai segnali; senza alert: 2 per problemi, 1 per opportunità. */
   importance: number;
 }
 
@@ -35,7 +33,7 @@ export const MAX_ADVISOR_SITUATIONS = 24;
 
 const key = z.string().trim().min(1).max(240);
 /** Il modello fornisce titolo, sintesi e chiavi; la gravità è ricalcolata dal server.
- *  `signalKeys` va da 1 a 5: una situazione politica può nascere da più fatti
+ *  `signalKeys` va da 0 a 5 (zero richiede evidenceKeys verificate): una situazione politica può nascere da più fatti
  *  canonici (la sicurezza nel nord = stabilità + prontezza + rifornimenti +
  *  rapporti col Sudan), ma ogni chiave deve risolversi contro i `RealitySignals`.
  *  Due problemi distinti (Sudan e Congo) restano due situazioni. */
@@ -43,8 +41,10 @@ export const advisorSituationInputSchema = z.object({
   id: z.string().trim().min(1).max(160).optional(),
   title: z.string().trim().min(1).max(240),
   summary: z.string().trim().min(1).max(600),
-  signalKeys: z.array(key).min(1).max(5),
-});
+  signalKeys: z.array(key).max(5),
+  evidenceKeys: z.array(key).min(1).max(8).optional(),
+  kind: z.enum(['problem', 'opportunity']).optional(),
+}).refine(value => value.signalKeys.length > 0 || !!value.evidenceKeys?.length);
 
 /** WS-CONSULENTE-SITUAZIONI — Focus canonico di un approfondimento: UNA sola
  *  signalKey. Titolo e sintesi del client NON sono fonte di fatti. */
@@ -74,18 +74,22 @@ function resolveSignalLinks(snapshot: VerifiedWorldSnapshot, signalKeys: readonl
   return { signalKeys: resolved, signals };
 }
 
-export function resolveAdvisorSituation(snapshot: VerifiedWorldSnapshot, raw: unknown): AdvisorSituation {
+export function resolveAdvisorSituation(snapshot: VerifiedWorldSnapshot, raw: unknown, context: StrategicThreadContext = {}): AdvisorSituation {
   const parsed = advisorSituationInputSchema.safeParse(raw);
   if (!parsed.success) throw new InvalidAdvisorSituationError();
   const input = parsed.data;
   const { signalKeys, signals } = resolveSignalLinks(snapshot, input.signalKeys);
-  if (!signals.length) throw new InvalidAdvisorSituationError();
-  const importance = signals.reduce((max, signal) => Math.max(max, signal.importance), 1);
+  const evidence = resolveStrategicThreadEvidence(snapshot, input.evidenceKeys ?? [], context);
+  if (!signals.length && !evidence.length) throw new InvalidAdvisorSituationError();
+  const thread: StrategicThread = {
+    title: input.title, summary: input.summary, signalKeys,
+    ...(evidence.length ? { evidenceKeys: evidence.map(item => item.key) } : {}),
+    ...(input.kind ? { kind: input.kind } : {}),
+  };
+  const importance = signals.reduce((max, signal) => Math.max(max, signal.importance), signals.length || input.kind === 'opportunity' ? 1 : 2);
   return {
     id: input.id ?? `situation-${shortId()}`,
-    title: input.title,
-    summary: input.summary,
-    signalKeys,
+    ...thread,
     importance,
   };
 }
@@ -161,12 +165,12 @@ export function buildAdvisorSituations(snapshot: VerifiedWorldSnapshot, max = MA
 }
 
 /** Estrae e valida i blocchi `advisor_situation`; le chiavi ignote scartano la scheda. */
-export function parseAdvisorSituations(snapshot: VerifiedWorldSnapshot, text: string, options: CouncilIssueParseOptions = {}): { reply: string; situations: AdvisorSituation[] } {
+export function parseAdvisorSituations(snapshot: VerifiedWorldSnapshot, text: string, options: AdvisorResponseParseOptions = {}): { reply: string; situations: AdvisorSituation[] } {
   const situations: AdvisorSituation[] = [];
   const reply = text.replace(/```advisor_situation\b([^]*?)(?:```|$)/gi, (_block, json: string) => {
     try {
       if (situations.length < MAX_ADVISOR_SITUATIONS) {
-        const situation = resolveAdvisorSituation(snapshot, JSON.parse(json.trim()));
+        const situation = resolveAdvisorSituation(snapshot, JSON.parse(json.trim()), options.strategicContext);
         // Dedup sull'identità del problema (sovrapposizione di signalKeys), non sul titolo.
         if (!situations.some(existing => situationsOverlap(existing, situation))) situations.push(situation);
       }
@@ -185,7 +189,14 @@ export function parseAdvisorSituations(snapshot: VerifiedWorldSnapshot, text: st
  *  condividono ≥ 2 signalKeys con Jaccard ≥ 0.5. Una singola chiave generica
  *  condivisa (o un contenimento con una sola chiave) NON basta, e il titolo non
  *  conta: due situazioni diverse sulla stessa chiave generica restano distinte. */
-export function situationsOverlap(left: Pick<AdvisorSituation, 'signalKeys'>, right: Pick<AdvisorSituation, 'signalKeys'>): boolean {
+export function situationsOverlap(left: Pick<AdvisorSituation, 'signalKeys' | 'evidenceKeys'>, right: Pick<AdvisorSituation, 'signalKeys' | 'evidenceKeys'>): boolean {
+  // Distinct grounded political threads may share generic constraints.
+  if (left.evidenceKeys?.length || right.evidenceKeys?.length) {
+    const a = new Set(left.evidenceKeys ?? []);
+    const b = new Set(right.evidenceKeys ?? []);
+    return a.size > 0 && a.size === b.size && [...a].every(key => b.has(key))
+      && left.signalKeys.length === right.signalKeys.length && left.signalKeys.every(key => right.signalKeys.includes(key));
+  }
   const a = new Set(left.signalKeys);
   const b = new Set(right.signalKeys);
   if (a.size === 0 || b.size === 0) return false;
@@ -201,9 +212,10 @@ export function situationsOverlap(left: Pick<AdvisorSituation, 'signalKeys'>, ri
  *  primary della situazione, oppure se condividono ≥ 2 signalKeys con Jaccard
  *  ≥ 0.5. Una sola chiave generica condivisa non basta mai. */
 export function proposalMatchesSituation(
-  issue: Pick<CouncilIssue, 'signalKeys' | 'anchorKeys'>,
-  situation: Pick<AdvisorSituation, 'signalKeys'>,
+  issue: Pick<CouncilIssue, 'signalKeys' | 'anchorKeys' | 'situationId'>,
+  situation: Pick<AdvisorSituation, 'signalKeys'> & { id?: string },
 ): boolean {
+  if (issue.situationId) return issue.situationId === situation.id;
   const proposal = issue.signalKeys ?? [];
   if (proposal.length === 0) return false;
   if (proposal[0] === situation.signalKeys[0]) return true;
@@ -216,7 +228,8 @@ export function proposalMatchesSituation(
 
 /** Punteggio per scegliere LA situazione migliore di una proposta: primary
  *  (dominante), poi chiavi condivise, poi Jaccard. Numerico per confronto stabile. */
-function proposalMatchScore(issue: Pick<CouncilIssue, 'signalKeys'>, situation: Pick<AdvisorSituation, 'signalKeys'>): number {
+function proposalMatchScore(issue: Pick<CouncilIssue, 'signalKeys' | 'situationId'>, situation: Pick<AdvisorSituation, 'signalKeys' | 'id'>): number {
+  if (issue.situationId === situation.id) return 10_000;
   const proposal = issue.signalKeys ?? [];
   const situationKeys = new Set(situation.signalKeys);
   let shared = 0;
@@ -231,8 +244,8 @@ export function mergeAdvisorSituations(snapshot: VerifiedWorldSnapshot, model: r
   if (!model.length) return base;
   const covered = new Set(model.flatMap(situation => situation.signalKeys));
   const kept: AdvisorSituation[] = [];
-  return [...model, ...base.filter(situation => !situation.signalKeys.some(key => covered.has(key)))]
-    .sort((left, right) => right.importance - left.importance || left.title.localeCompare(right.title))
+  // Preserve the model's political ordering; append only important uncovered alerts.
+  return [...model, ...base.filter(situation => situation.importance >= 2 && !situation.signalKeys.some(key => covered.has(key)))]
     .filter(situation => {
       if (kept.some(existing => situationsOverlap(existing, situation))) return false;
       kept.push(situation);
@@ -271,7 +284,7 @@ export function withAdvisorBriefingCoverage(snapshot: VerifiedWorldSnapshot, res
   // Ordine stabile anche dopo la serializzazione: nessun avviso duplicato al round-trip.
   const missing = result.situations
     .filter((_, index) => !covered.has(index))
-    .sort((left, right) => left.signalKeys[0].localeCompare(right.signalKeys[0]));
+    .sort((left, right) => (left.signalKeys[0] ?? left.id).localeCompare(right.signalKeys[0] ?? right.id));
   const opportunityKeys = new Set(buildCouncilProposalAnchors(snapshot).filter(anchor => anchor.domain !== 'decision').map(anchor => anchor.key));
   const missingOpportunity = result.situations.length === 0
     && !result.issues.some(issue => issue.anchorKeys?.some(key => opportunityKeys.has(key)));
@@ -291,7 +304,7 @@ export function withAdvisorBriefingCoverage(snapshot: VerifiedWorldSnapshot, res
  *   situazioni emerse dal modello, oppure nessuna. Non si ripubblica la lista a
  *   ogni messaggio.
  */
-export type AdvisorResponseParseOptions = CouncilIssueParseOptions & { includeDeterministicSituations?: boolean };
+export type AdvisorResponseParseOptions = CouncilIssueParseOptions & { includeDeterministicSituations?: boolean; strategicContext?: StrategicThreadContext };
 
 /** Punto unico del Consulente: situazioni e proposte restano separate. */
 export function parseAdvisorResponse(snapshot: VerifiedWorldSnapshot, text: string, origin: CouncilIssueOrigin = 'advisor', options: AdvisorResponseParseOptions = {}): AdvisorResponse {
@@ -307,7 +320,8 @@ export function parseAdvisorResponse(snapshot: VerifiedWorldSnapshot, text: stri
       : parsedSituations.situations,
     // Il Consulente scarta le proposte solo istruttorie; i ministri restano invariati.
     issues: origin === 'advisor' || origin === 'president'
-      ? parsedIssues.issues.filter(issue => !isPreparatoryCouncilIssue(issue))
+      ? parsedIssues.issues.filter(issue => !isPreparatoryCouncilIssue(issue)
+        && (!issue.situationId || parsedSituations.situations.some(situation => situation.id === issue.situationId)))
       : parsedIssues.issues,
   };
   return briefing ? withAdvisorBriefingCoverage(snapshot, result) : result;

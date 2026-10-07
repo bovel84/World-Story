@@ -33,7 +33,7 @@ import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from './core/g
 import { readPreviousVerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshotHistory';
 import { derivedInfrastructureObjects } from './core/simulation/DerivedInfrastructure';
 import { renderRealityConcerns } from './core/government/RealitySignals';
-import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
+import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, isAdvisorBriefingRequest, withAdvisorStrategicContext, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { generateHistoricalBaseline, awaitHistoricalBaseline, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import { parseAdvisorResponse } from './core/government/AdvisorSituations';
 import type { CouncilIssue } from './core/government/CouncilIssue';
@@ -3551,6 +3551,7 @@ export class GameSession {
     });
     result.advisorContext.temporalScope = { initialDate: this.historicalStartDate || null, currentDate: this.currentDate };
     result.advisorContext.polityHistoricalBaselines = [...(own ? [own] : []), ...related];
+    result.advisorContext = withAdvisorStrategicContext(result.advisorContext, this.historicalStartDate, this.results, query);
     return result;
   }
 
@@ -3648,7 +3649,7 @@ export class GameSession {
     }
     this.assertFenceValid(fence);
     if (text === null || !text.trim()) return { ...this.advisorResult('', undefined, undefined, 'briefing'), fallback: true };
-    const result = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'advisor', { includeDeterministicSituations: true });
+    const result = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'advisor', { includeDeterministicSituations: true, strategicContext: context });
     return { ...result, advisorContext: context, fallback: false };
   }
 
@@ -3656,18 +3657,30 @@ export class GameSession {
   async getRealityAdvisor(message: string, history: any[] = [], focusIssue?: unknown, focusSituation?: unknown, signal?: AbortSignal): Promise<RealityAdvisorResult> {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const fence = this.fenceContext();
+    const mode = isAdvisorBriefingRequest(message) ? 'briefing' : 'conversation';
+    // A national refresh overrides a stale client focus; targeted follow-ups keep it.
+    if (mode === 'briefing') { focusIssue = undefined; focusSituation = undefined; }
     // Reject untrusted facts and impossible requests before spending on history.
-    const initial = this.advisorResult(message, focusIssue, focusSituation);
+    const initial = this.advisorResult(message, focusIssue, focusSituation, mode);
     const correction = verifiedRequestCorrection(initial.advisorContext.verifiedWorldSnapshot, message);
     // WS-CONSULENTE-SITUAZIONI — una correzione non ripubblica la lista nazionale.
     if (correction) return { ...initial, reply: correction, situations: [] };
     this.assertFenceValid(fence);
-    const context = this.advisorResult(message, focusIssue, focusSituation);
+    const context = initial;
     const gameData = this.buildGameData();
     gameData.advisorContext = context.advisorContext;
-    const text = await this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
+    let text: string;
+    try {
+      text = await this.gameController.getAdvisorWithPrompts(gameData, message, history, signal);
+    } catch (error) {
+      this.assertFenceValid(fence);
+      if (mode !== 'briefing' || signal?.aborted) throw error;
+      return context; // Safe deterministic recovery, no extra completion.
+    }
     this.assertFenceValid(fence);
-    const result = parseAdvisorResponse(context.advisorContext.verifiedWorldSnapshot, text, 'president');
+    const result = parseAdvisorResponse(context.advisorContext.verifiedWorldSnapshot, text, 'president', {
+      includeDeterministicSituations: mode === 'briefing', strategicContext: context.advisorContext,
+    });
     return { ...result, advisorContext: context.advisorContext };
   }
 

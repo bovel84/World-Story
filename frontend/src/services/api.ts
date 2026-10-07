@@ -2121,6 +2121,7 @@ export interface RealityAdvisorResponse {
   advisorContext: {
     verifiedWorldSnapshot: VerifiedWorldSnapshotView;
     governmentBrief: string;
+    mode?: 'briefing' | 'conversation';
     historicalBaseline?: string;
     focusIssue?: CouncilIssue;
   };

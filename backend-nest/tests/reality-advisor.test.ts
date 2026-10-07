@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 import { resolveCouncilIssue, parseCouncilIssues } from '../src/core/government/CouncilIssue';
-import { buildRealityAdvisorContext, verifiedRequestCorrection, guardRealityAdvisorOutput, buildRealityAdvisorPrompt, withAdvisorStrategicContext } from '../src/core/government/RealityAdvisor';
+import { isAdvisorBriefingRequest, buildRealityAdvisorContext, verifiedRequestCorrection, guardRealityAdvisorOutput, buildRealityAdvisorPrompt, withAdvisorStrategicContext } from '../src/core/government/RealityAdvisor';
 import { buildRealitySignals, renderRealityConcerns } from '../src/core/government/RealitySignals';
 
 const snapshot = () => buildVerifiedWorldSnapshot({ gameData: {
@@ -10,6 +10,53 @@ const snapshot = () => buildVerifiedWorldSnapshot({ gameData: {
   worldState: { resources: { stock: { money: 10, food: 0.8 }, needs: { food: 1 } }, accounts: { UGA: { socialTension: 25, nominalGdpUsdBillions: 100 } }, arsenal: { units: {} } },
 }, commitments: [], operationalRows: [] });
 const proposal = { title: 'Approvvigionamento alimentare', question: 'Come garantiamo le scorte?', factKeys: ['foodCoverageMonths', 'treasury'], suggestedMinisters: ['interno', 'tesoro', 'lavori'] };
+
+describe('briefing intent without an LLM classifier', () => {
+  it.each(['dammi la situazione strategica', 'fammi il quadro', 'cosa richiede attenzione?', 'aggiornami sulla situazione', 'quali sono le priorità?', 'briefing', 'fammi il punto'])('D: %s → briefing', message => {
+    expect(isAdvisorBriefingRequest(message)).toBe(true);
+  });
+  it.each(["approfondisci l'LRA", 'Approfondisci la situazione LRA', "Cosa possiamo fare sull'LRA?", 'fammi il punto sul Sudan', 'non voglio un briefing', 'quali sono le priorità per le scorte?'])('E: %s → focus/conversation', message => {
+    expect(isAdvisorBriefingRequest(message)).toBe(false);
+  });
+
+  it('il message handler sostituisce il focus con un briefing e recupera senza LLM aggiuntivo', async () => {
+    const { GameSession } = await import('../src/game-session');
+    const canonical = snapshot();
+    const getAdvisorWithPrompts = vi.fn(async () => 'Quadro aggiornato.\n```advisor_situation\n'
+      + JSON.stringify({ title: 'Fragilità degli approvvigionamenti', summary: 'Scorte limitate.', signalKeys: ['food-coverage'] }) + '\n```');
+    const advisorResult = vi.fn((_message, issue, focus, mode) => buildRealityAdvisorContext(canonical, issue, undefined, focus, mode));
+    const harness = { hasActiveRun: () => false, fenceContext: () => ({}), assertFenceValid: () => {}, advisorResult,
+      buildGameData: () => ({}), gameController: { getAdvisorWithPrompts } };
+    const reply = await GameSession.prototype.getRealityAdvisor.call(harness as never, 'dammi la situazione strategica', [], undefined, { signalKey: 'stale-focus' });
+    expect(reply.advisorContext.mode).toBe('briefing');
+    expect(reply.situations[0].title).toBe('Fragilità degli approvvigionamenti');
+    expect(advisorResult).toHaveBeenLastCalledWith('dammi la situazione strategica', undefined, undefined, 'briefing');
+    getAdvisorWithPrompts.mockResolvedValueOnce('Approfondiamo questo punto.');
+    const focus = await GameSession.prototype.getRealityAdvisor.call(harness as never, "approfondisci l'LRA");
+    expect(focus.advisorContext.mode).toBe('conversation');
+    expect(focus.situations).toEqual([]);
+    getAdvisorWithPrompts.mockRejectedValueOnce(new Error('provider unavailable'));
+    const fallback = await GameSession.prototype.getRealityAdvisor.call(harness as never, 'fammi il quadro');
+    expect(fallback.situations).toEqual(buildRealityAdvisorContext(canonical).situations);
+    expect(getAdvisorWithPrompts).toHaveBeenCalledTimes(3);
+  });
+
+  it('D/E: refresh rigenera card nella stessa completion, approfondimento no', async () => {
+    const { PromptEngine } = await import('../src/prompt-builder');
+    const canonical = snapshot();
+    const generate = vi.fn(async (_role, _system, prompt: string) => ({ content: prompt.includes('BRIEFING MODE:')
+      ? 'Il rifornimento alimentare richiede una decisione.\n```advisor_situation\n' + JSON.stringify({ title: 'Fragilità degli approvvigionamenti', summary: 'Scorte alimentari limitate.', signalKeys: ['food-coverage'] }) + '\n```'
+      : 'Approfondiamo la questione senza cambiare agenda.' }));
+    const engine = new PromptEngine({ generate } as never);
+    const game = { id: 'refresh', currentDate: canonical.date, currentTurn: 1,
+      world: { name: 'Uganda', startDate: canonical.date, prompts: {}, regions: { ug: { id: 'ug', name: 'Uganda', owner: 'UGA', objects: [] } } },
+      players: [{ id: 'p', name: 'Presidente', regionId: 'ug', polityId: 'UGA' }], playerPolityId: 'UGA', actions: [], results: [],
+      advisorContext: buildRealityAdvisorContext(canonical).advisorContext };
+    expect(await engine.getAdvisor(game as never, 'dammi la situazione strategica')).toContain('advisor_situation');
+    expect(await engine.getAdvisor(game as never, "approfondisci l'LRA")).not.toContain('advisor_situation');
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe('verified reality boundary', () => {
   it('Uganda: corrects expansion of absent ports before generation', () => {

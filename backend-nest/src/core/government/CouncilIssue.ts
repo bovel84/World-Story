@@ -16,6 +16,8 @@ export interface CouncilIssue {
   signalKeys?: string[];
   /** Chiavi degli anchor canonici (opportunità) che hanno originato la scheda. */
   anchorKeys?: string[];
+  /** Presentation link only; never a replacement for canonical proposal facts. */
+  situationId?: string;
   verifiedFacts: Array<{ key: string; label: string; value: string; source: string; sourceRef: string }>;
   suggestedMinisters: CabinetSeat[];
   origin: CouncilIssueOrigin;
@@ -30,6 +32,7 @@ export const councilIssueInputSchema = z.object({
   id: z.string().trim().min(1).max(160).optional(),
   title: z.string().trim().min(1).max(240),
   question: z.string().trim().min(1).max(600),
+  situationId: z.string().trim().min(1).max(160).optional(),
   // Liste vuote ammesse: una issue con soli signalKeys torna dal client con
   // `verifiedFacts: []`. La presence di almeno una fonte è richiesta dal refine.
   factKeys: z.array(key).max(24).optional(),
@@ -116,6 +119,7 @@ export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknow
     // del client non può aggiungere chiavi inventate.
     ...(linked.signalKeys.length ? { signalKeys: linked.signalKeys } : {}),
     ...(linkedAnchors.anchorKeys.length ? { anchorKeys: linkedAnchors.anchorKeys } : {}),
+    ...(input.situationId ? { situationId: input.situationId } : {}),
     verifiedFacts, suggestedMinisters: [...new Set(input.suggestedMinisters)],
     origin: origin ?? input.origin ?? 'advisor', sourceRefs,
     createdDate: snapshot.date ?? 'unknown',
@@ -162,15 +166,16 @@ export const SITUATION_BASE_PROTOCOL = [
  * Il server integra la base deterministica e segnala la copertura incompleta.
  */
 export const ADVISOR_BRIEFING_SITUATION_PROTOCOL = [
-  'BRIEFING MODE: produci almeno una proposta concreta per ogni situazione dei CURRENT STRATEGIC SIGNALS (escluse le decisioni già prese), oltre alla sua advisor_situation. Emetti le proposte in blocchi council_issue separati, usando come prima signalKey quella della situazione principale affrontata. Ogni situazione richiede una propria proposta: non usare una sola scheda con molti tag per coprire l’intera agenda. Una proposta principale specifica, eventualmente due o tre alternative strategiche REALMENTE diverse, non parafrasi. Nessun numero fisso globale: copri tutte le situazioni, non solo quelle che scegli di raccontare in prosa.',
-  'Se non ci sono situazioni rilevanti, interpreta almeno una opportunità reale dai COUNCIL PROPOSAL ANCHORS e produci una council_issue con anchorKeys canoniche. Descrivi l’opportunità nel testo senza inventare una signalKey o una crisi. Non copiare una soluzione generica per ogni segnale. Non riproporre atti firmati: solo modifiche o follow-up motivati da nuove esigenze.',
+  'BRIEFING MODE: produci almeno una proposta concreta per ogni situazione politica interpretata come STRATEGIC THREAD (escluse le decisioni già prese), oltre alla sua advisor_situation. Emetti le proposte in blocchi council_issue separati, usando come prima signalKey quella della situazione principale affrontata. Ogni situazione richiede una propria proposta: non usare una sola scheda con molti tag per coprire l’intera agenda. Una proposta principale specifica, eventualmente due o tre alternative strategiche REALMENTE diverse, non parafrasi. Nessun numero fisso globale: copri tutte le situazioni, non solo quelle che scegli di raccontare in prosa.',
+  'Se non ci sono crisi rilevanti, interpreta almeno una opportunità reale dai COUNCIL PROPOSAL ANCHORS e produci una council_issue con anchorKeys canoniche. Anche un’opportunità può avere una advisor_situation kind=opportunity fondata su evidenceKeys, senza inventare una signalKey o una crisi. Non copiare una soluzione generica per ogni segnale. Non riproporre atti firmati: solo modifiche o follow-up motivati da nuove esigenze.',
   'Il Presidente sceglie se approfondire la situazione o portare una proposta al Consiglio. Non aprire sedute, firmare atti o avanzare il tempo. Parla come un consigliere politico: collega fatti, alternative, vantaggi e vincoli; i blocchi servono alla UI, non recitare un elenco robotico.',
   'Non inventare costi, uomini, tempi operativi o risorse: senza cifre verificate formula un mandato condizionato alla copertura del Tesoro e alla disponibilità effettiva. Niente attacchi senza forze disponibili, porti in paesi senza accesso al mare, uso di infrastrutture inesistenti, interlocutori non presenti o tecnologie fuori epoca. Usa cronaca, programmi e atti firmati per distinguere una nuova esigenza da una decisione già presa.',
-  'BRIEFING MODE. Descrivi le SITUAZIONI correnti rilevanti: quante ne giustifica lo stato reale del paese, senza un numero fisso. Emetti per ogni situazione un blocco separato ```advisor_situation con JSON {"title":"...","summary":"...","signalKeys":["chiave-canonica-1","chiave-canonica-2"]}. Le signalKeys vanno da 1 a 5 e devono essere prese dai CURRENT STRATEGIC SIGNALS. Unisci più segnali in UNA sola situazione SOLO quando raccontano lo stesso problema politico concreto (es. insicurezza nel nord = stabilità interna + prontezza + rifornimenti + rapporti col vicino); non unire problemi distinti solo perché simili: due vicini ostili senza un nesso politico restano due situazioni.',
+  'BRIEFING MODE. Descrivi le SITUAZIONI correnti rilevanti: quante ne giustifica lo stato reale del paese, senza un numero fisso. Emetti per ogni situazione un blocco separato ```advisor_situation con JSON {"id":"tema-politico","title":"...","summary":"...","kind":"problem","signalKeys":["chiave-canonica-1","chiave-canonica-2"],"evidenceKeys":["chiave da STRATEGIC THREAD EVIDENCE"]}. Le signalKeys vanno da 0 a 5 e devono essere prese dai CURRENT STRATEGIC SIGNALS: zero è ammesso SOLO con evidenceKeys verificate. Quando ci sono segnali pertinenti collegali comunque. Per attori/luoghi/origini storiche cita evidenceKeys pertinenti, non usare un segnale generico come prova di una crisi specifica. Unisci più segnali in UNA sola situazione SOLO quando raccontano lo stesso problema politico concreto (es. insicurezza nel nord = stabilità interna + prontezza + rifornimenti + rapporti col vicino); non unire problemi distinti solo perché simili: due vicini ostili senza un nesso politico restano due situazioni.',
+  'Il thread nasce da CURRENT STATE + PLAYER HISTORY + baseline pertinente, poi diventa advisor_situation e infine proposta. Non emettere un blocco separato strategic_thread. Usa situationId nelle council_issue per collegarle alla id della situazione; conserva sempre signalKeys, anchorKeys o factKeys canoniche per vincoli e fattibilità: situationId non è una fonte di fatti. Una situazione priva di segnali non autorizza proposte prive di prove.',
   'Editoriale: normalmente organizza il quadro in circa 3-6 situazioni strategiche principali, raggruppando i segnali che descrivono lo stesso problema politico. Produci più di 6 situazioni solo quando esistono davvero più crisi indipendenti e importanti: non una scheda per indicatore.',
   'Ordina le situazioni per importanza politica e urgenza, non per categoria: prima la crisi principale, poi la seconda priorità, poi le altre situazioni e opportunità. Non organizzare automaticamente in economia, difesa, diplomazia, società.',
   'La SITUAZIONE è la storia politica che emerge dalle prove, non l’etichetta dell’indicatore: spiega cosa sta succedendo, chi o che cosa è coinvolto, perché conta e quale vincolo reale limita il Presidente. I numeri (scorte, prontezza, cassa) restano prove a supporto: non devono dominare il titolo né il corpo del testo. Quando la HISTORICAL BASELINE contiene attori o luoghi reali pertinenti (un gruppo armato, una città, un governo confinante), puoi usarli per dare concretezza, con prudenza e solo se non contraddicono il CURRENT STATE.',
-  'I titoli devono essere concreti e specifici, ancorati all\'entità reale (es. «Tensioni al confine con il Sudan», «Ritardo della ferrovia Kampala–Jinja»): evita titoli generici come «Situazione diplomatica», «Problema militare», «Economia» o «Difesa». Una scheda council_issue non sostituisce la sua situazione.',
+  'I titoli devono essere concreti e specifici, ancorati all\'entità reale (insurrezione documentata, impegno regionale, fragilità degli approvvigionamenti, opportunità di integrazione): evita titoli generici come «Situazione diplomatica», «Problema militare», «Economia» o «Difesa». Una scheda council_issue non sostituisce la sua situazione.',
   'Scrivi come un consigliere politico che conosce il paese, non come il report di un motore: collega i fatti al loro significato politico invece di annunciare «ho rilevato N situazioni». Le proposte restano opzioni politiche realistiche (militare, politica, diplomatica), mai nomi di missione arcade.',
 ].join('\n');
 

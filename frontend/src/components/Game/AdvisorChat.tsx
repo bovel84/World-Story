@@ -107,6 +107,17 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     try {
       const result = await advisorApi.reality(gameId, text, history, focus, controller.signal, focusPayload);
       if (!owns()) return;
+      if (result.advisorContext.mode === 'briefing') {
+        // Replace the current agenda, not the conversation or previous turns.
+        setAdvisorMessages(useChatStore.getState().advisorMessages.map(message =>
+          message.turn === currentTurn ? { ...message, situations: [], issues: [] } : message));
+        if (opening) {
+          const cleared = { ...opening, situations: [], issues: [] };
+          setOpening(cleared);
+          saveAdvisorOpening(advisorOpeningKey(gameId, branchId, scopeKey), cleared);
+        }
+        setSituationFocus(undefined); setFocus(undefined);
+      }
       addAdvisorMessage({ role: 'assistant', content: result.reply, issues: result.issues, situations: result.situations ?? [], turn: currentTurn });
     } catch {
       if (owns()) setError('Il Consulente non è raggiungibile. La domanda è conservata; riprova esplicitamente.');
