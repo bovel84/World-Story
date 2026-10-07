@@ -329,32 +329,35 @@ function clampEquipmentCrew(profile: Record<string, number>, activePersonnel: nu
   return profile;
 }
 
-const normalizedCount = (value: unknown): number | null => {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : null;
-};
+/** Campi militari FONDAMENTALI: veri numeri JSON, interi e non negativi. Niente
+ *  coercizione (`"45000"` o `45000.8` non diventano 45000): fail-closed. */
+const strictNonNegativeInteger = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && Number.isInteger(value)
+    ? value
+    : null;
 
-/** Pipeline militare: raw LLM → normalizzazione (struttura/equipment/derivati) →
- *  validazione. Restituisce `null` solo se i dati fondamentali sono assenti o non
- *  numerici: personale e formazioni restano fail-closed. */
+/** Pipeline militare: raw LLM → normalizzazione SOLO di struttura/equipment/
+ *  derivati → validazione. Personale, formazioni e percentuali restano valori
+ *  grezzi: se non sono già conformi, `militaryValidationReason` li rifiuta. */
 function normalizeMilitarySection(raw: unknown, input: CountryProfileInput, population: number): CountryInitialProfile['military'] | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const v = raw as Record<string, unknown>;
-  const activePersonnel = normalizedCount(v.activePersonnel);
-  const reservePersonnel = normalizedCount(v.reservePersonnel);
-  const formations = normalizedCount(v.formations);
+  const activePersonnel = strictNonNegativeInteger(v.activePersonnel);
+  const reservePersonnel = strictNonNegativeInteger(v.reservePersonnel);
+  const formations = strictNonNegativeInteger(v.formations);
   if (activePersonnel === null || reservePersonnel === null || formations === null) return null;
   // `averageFormationSize` non è più stimato dall'LLM: derivato qui.
+  // Le percentuali passano grezze: `Number(...)`/coercizione sono VIETATE.
   return {
     activePersonnel,
     reservePersonnel,
     formations,
     averageFormationSize: formations > 0 ? activePersonnel / formations : 0,
-    readinessPct: Number(v.readinessPct),
-    defenceBurdenPct: Number(v.defenceBurdenPct),
-    trainingPct: Number(v.trainingPct),
-    qualityPct: Number(v.qualityPct),
-    logisticsPct: Number(v.logisticsPct),
+    readinessPct: v.readinessPct as number,
+    defenceBurdenPct: v.defenceBurdenPct as number,
+    trainingPct: v.trainingPct as number,
+    qualityPct: v.qualityPct as number,
+    logisticsPct: v.logisticsPct as number,
     equipmentProfile: clampEquipmentCrew(sanitizeMilitaryEquipmentProfile(v.equipmentProfile, input, activePersonnel), activePersonnel),
   };
 }
@@ -682,7 +685,7 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
     if (requireEstimate && !stateValid) throw new CountryInitialProfileError('sezione stato nazionale non valida');
     if (requireEstimate && !militaryValid) {
       // Diagnostica senza dati sensibili: solo il codice del motivo.
-      console.warn(`[CountryInitialProfile] military validation failed: ${normalizedMilitary ? militaryValidationReason(normalizedMilitary, input, population) : 'invalid_shape'}`);
+      console.warn(`[CountryInitialProfile] military validation failed: ${normalizedMilitary ? militaryValidationReason(normalizedMilitary, input, population) : militaryValidationReason(militarySection.military, input, population) ?? 'invalid_shape'}`);
       throw new CountryInitialProfileError('sezione militare non valida');
     }
 
