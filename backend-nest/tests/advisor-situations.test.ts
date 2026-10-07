@@ -10,7 +10,8 @@ import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from '../src/c
 import { advisorBriefingSentences, buildRealitySignals } from '../src/core/government/RealitySignals';
 import {
   buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, parseAdvisorResponse, parseAdvisorSituations,
-  resolveAdvisorSituation, resolveFocusSituation, serializeAdvisorResponse, signalSituationTitle, situationsOverlap,
+  proposalMatchesSituation, resolveAdvisorSituation, resolveFocusSituation, serializeAdvisorResponse,
+  signalSituationTitle, situationsOverlap, withAdvisorBriefingCoverage,
 } from '../src/core/government/AdvisorSituations';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, withAdvisorStrategicContext } from '../src/core/government/RealityAdvisor';
 import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, ADVISOR_CONVERSATION_PROTOCOL } from '../src/core/government/CouncilIssue';
@@ -162,7 +163,7 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     const noIssues = parseAdvisorResponse(snapshot, `Solo situazioni.\n${modelSituation}`, 'advisor', { includeDeterministicSituations: true });
     expect(noIssues.issues).toEqual([]);
     expect(noIssues.situations.length).toBeGreaterThanOrEqual(4);
-    expect(noIssues.reply).toContain('Briefing incompleto');
+    expect(noIssues.reply).not.toContain('Briefing incompleto');
     expect(noIssues.briefingCoverage?.complete).toBe(false);
   });
 
@@ -235,7 +236,7 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     expect(result.issues.map(issue => issue.question)).toEqual(questions.slice(0, 2));
     expect(result.briefingCoverage?.missingSignalKeys).not.toContain('hostile-relations:SDN');
     expect(result.briefingCoverage?.missingSignalKeys).toContain('hostile-relations:COD');
-    expect(result.reply).toContain('Briefing incompleto');
+    expect(result.reply).not.toContain('Briefing incompleto');
     const roundTrip = parseAdvisorResponse(snapshot, serializeAdvisorResponse(result), 'advisor', { includeDeterministicSituations: true });
     expect(roundTrip.reply).toBe(result.reply);
     expect(roundTrip.briefingCoverage).toEqual(result.briefingCoverage);
@@ -263,7 +264,7 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     expect(result.briefingCoverage?.complete).toBe(true);
     const missing = parseAdvisorResponse(snapshot, 'Nessuna crisi.', 'advisor', { includeDeterministicSituations: true });
     expect(missing.briefingCoverage?.missingOpportunity).toBe(true);
-    expect(missing.reply).toContain('Briefing incompleto');
+    expect(missing.reply).not.toContain('Briefing incompleto');
     expect(missing.issues).toEqual([]);
   });
 
@@ -287,7 +288,7 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
       const result = buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing');
       expect(result.issues).toEqual([]);
       expect(result.briefingCoverage?.complete).toBe(false);
-      expect(result.reply).toContain('Briefing incompleto');
+      expect(result.reply).not.toContain('Briefing incompleto');
       expect(result.advisorContext.governmentBrief).not.toContain('Briefing incompleto');
     }
   });
@@ -420,11 +421,83 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     const result = buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing');
     expect(result.issues).toEqual([]);
     expect(result.briefingCoverage?.complete).toBe(false);
-    expect(result.reply).toContain('Briefing incompleto');
+    expect(result.reply).not.toContain('Briefing incompleto');
     const titles = result.situations.map(situation => situation.title);
     expect(titles).toContain('Tensioni con Sudan');
     expect(titles).not.toContain('Minaccia dell\'LRA nel nord');
     // Il fallback resta una scheda per segnale: nessuna narrazione inventata.
     for (const situation of result.situations) expect(situation.signalKeys).toHaveLength(1);
+  });
+
+  // --- PR #233 follow-up: matching proposta→situazione, dedup conservativa e
+  // prosa pulita (nessun «Briefing incompleto» al giocatore). ---
+  const situationWith = (id: string, signalKeys: string[]) => ({ id, title: id, summary: 'sintesi', signalKeys, importance: 2 });
+
+  it('COVERAGE-A: una chiave generica copre solo la situazione con quella primary', () => {
+    const situationA = situationWith('A', ['military-readiness', 'stability', 'hostile-relations:SDN']);
+    const situationB = situationWith('B', ['stability']);
+    const proposal = { signalKeys: ['stability'] };
+    // Una sola chiave generica condivisa non basta per A.
+    expect(proposalMatchesSituation(proposal, situationA)).toBe(false);
+    expect(proposalMatchesSituation(proposal, situationB)).toBe(true);
+    const coverage = withAdvisorBriefingCoverage(world(), { reply: 'Quadro politico.', situations: [situationA, situationB], issues: [proposal as never] });
+    expect(coverage.briefingCoverage?.missingSignalKeys).toContain('military-readiness');
+    expect(coverage.briefingCoverage?.complete).toBe(false);
+  });
+
+  it('COVERAGE-B: due chiavi condivise coprono una situazione multi-segnale', () => {
+    const situation = situationWith('nord', ['military-readiness', 'hostile-relations:SDN', 'stability']);
+    const proposal = { signalKeys: ['hostile-relations:SDN', 'military-readiness'] };
+    expect(proposalMatchesSituation(proposal, situation)).toBe(true);
+    const coverage = withAdvisorBriefingCoverage(world(), { reply: 'Quadro.', situations: [situation], issues: [proposal as never] });
+    expect(coverage.briefingCoverage?.missingSignalKeys).toEqual([]);
+    expect(coverage.briefingCoverage?.complete).toBe(true);
+    // Una proposta con una sola chiave qualunque non copre la situazione.
+    expect(proposalMatchesSituation({ signalKeys: ['stability'] }, situation)).toBe(false);
+  });
+
+  it('DEDUP-C: una chiave generica condivisa non rende duplicate due situazioni', () => {
+    expect(situationsOverlap(situationWith('a', ['stability']), situationWith('b', ['stability', 'hostile-relations:SDN']))).toBe(false);
+  });
+
+  it('DEDUP-D: stesso problema con primary condivisa è duplicato', () => {
+    expect(situationsOverlap(
+      situationWith('a', ['military-readiness', 'hostile-relations:SDN']),
+      situationWith('b', ['military-readiness', 'hostile-relations:SDN', 'stability']),
+    )).toBe(true);
+    expect(situationsOverlap(
+      situationWith('a', ['hostile-relations:SDN', 'food-coverage']),
+      situationWith('b', ['food-coverage', 'hostile-relations:SDN']),
+    )).toBe(true);
+    expect(situationsOverlap(situationWith('a', ['hostile-relations:SDN']), situationWith('b', ['hostile-relations:COD']))).toBe(false);
+  });
+
+  it('REPLY-E: coverage incompleta resta metadata interno, la prosa resta naturale', () => {
+    const result = withAdvisorBriefingCoverage(world(), {
+      reply: 'Presidente, il nord merita la nostra attenzione prima di tutto.',
+      situations: [situationWith('nord', ['military-readiness'])], issues: [],
+    });
+    expect(result.briefingCoverage?.complete).toBe(false);
+    expect(result.briefingCoverage?.missingSignalKeys).toEqual(['military-readiness']);
+    expect(result.reply).toBe('Presidente, il nord merita la nostra attenzione prima di tutto.');
+    expect(result.reply).not.toContain('Briefing incompleto');
+  });
+
+  it('FALLBACK-F: senza LLM la prosa resta naturale e le situazioni deterministiche restano', () => {
+    const result = buildRealityAdvisorContext(multi(), undefined, null, undefined, 'briefing');
+    expect(result.reply).toBe(result.advisorContext.governmentBrief);
+    expect(result.reply).not.toContain('Briefing incompleto');
+    expect(result.reply).not.toMatch(/signalKey|coverage|canonicalRealitySignal/i);
+    expect(result.briefingCoverage?.complete).toBe(false);
+    expect(result.situations.length).toBeGreaterThanOrEqual(4);
+    for (const situation of result.situations) expect(situation.signalKeys).toHaveLength(1);
+  });
+
+  it('PROMPT-G: il briefing preferisce 3-6 situazioni ordinate per priorità politica', () => {
+    const prompt = buildRealityAdvisorPrompt(buildRealityAdvisorContext(multi(), undefined, null, undefined, 'briefing').advisorContext, 'Apriamo il Governo.');
+    expect(prompt).toContain('circa 3-6 situazioni strategiche');
+    expect(prompt).toContain('raggruppando i segnali che descrivono lo stesso problema politico');
+    expect(prompt).toContain('importanza politica e urgenza');
+    expect(prompt).toContain('non per categoria');
   });
 });

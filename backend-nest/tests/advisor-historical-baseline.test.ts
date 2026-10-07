@@ -158,8 +158,8 @@ describe('WS-GOV-ADVISOR-HISTORICAL-BASELINE', () => {
     // La prosa generata resta il contenuto primario...
     expect(opening.reply).toContain(openingProse);
     expect(opening.reply).not.toContain(opening.advisorContext.governmentBrief);
-    // ...e il briefing dichiara esplicitamente le proposte mancanti, senza inventarne.
-    expect(opening.reply).toContain('Briefing incompleto');
+    // ...e la copertura incompleta resta un metadata interno, non inquinano la prosa.
+    expect(opening.reply).not.toContain('Briefing incompleto');
     expect(opening.briefingCoverage?.complete).toBe(false);
     expect(openingCalls).toBeGreaterThan(0);
     // 3-6 paragrafi brevi, nessuna sezione FACT visibile.
@@ -176,8 +176,8 @@ describe('WS-GOV-ADVISOR-HISTORICAL-BASELINE', () => {
       expect(opening.reply).toContain(opening.advisorContext.governmentBrief);
       expect(opening.reply.length).toBeGreaterThan(0);
       expect(opening.issues).toEqual([]);
-      // ...preceduto dall'avviso esplicito: nessuna proposta fabbricata.
-      expect(opening.reply).toContain('Briefing incompleto');
+      // ...senza avvisi tecnici: il giocatore vede solo il normale briefing.
+      expect(opening.reply).not.toContain('Briefing incompleto');
       expect(opening.briefingCoverage?.complete).toBe(false);
     } finally {
       failGeneration = false;
