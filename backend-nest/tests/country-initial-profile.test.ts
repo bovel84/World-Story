@@ -592,4 +592,104 @@ describe('CountryInitialProfile', () => {
       await rejected;
     } finally { vi.useRealTimers(); }
   });
+
+  // --- Repair della risposta vuota: max 2 tentativi per sezione, il secondo
+  // con budget maggiore (reasoning che esaurisce il budget del primo). ---
+  const EMPTY = () => new LLMError('openai-compatible: risposta vuota dal modello', { provider: 'openai-compatible', retriable: true });
+  const HTTP = () => new LLMError('openai-compatible: HTTP 503 — unavailable', { provider: 'openai-compatible', status: 503, retriable: true });
+
+  it('EMPTY-A — empty economy is repaired and succeeds with budgets [1200, 3000]', async () => {
+    const spec = input('UGA', 24_000_000);
+    const budgets: number[] = [];
+    let economyAttempts = 0;
+    const complete = vi.fn(async (_system: string, prompt: string, _signal: AbortSignal, options?: { maxTokens?: number }) => {
+      const { section, fallback, anchors } = readPrompt(prompt);
+      budgets.push(options?.maxTokens ?? 0);
+      if (section === 'economy' && ++economyAttempts === 1) throw EMPTY();
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
+    });
+    const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
+    expect(economyAttempts).toBe(2);
+    expect(complete).toHaveBeenCalledTimes(4);
+    expect(budgets.slice(0, 2)).toEqual([1_200, 3_000]);
+    expect(result.economy.debtRatioPct).toBe(30);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('EMPTY-B — empty national-state is repaired with budgets [1200, 3000]', async () => {
+    const spec = input('UGA', 24_000_000);
+    const budgets: number[] = [];
+    let stateAttempts = 0;
+    const complete = vi.fn(async (_system: string, prompt: string, _signal: AbortSignal, options?: { maxTokens?: number }) => {
+      const { section, fallback, anchors } = readPrompt(prompt);
+      budgets.push(options?.maxTokens ?? 0);
+      if (section === 'national-state' && ++stateAttempts === 1) throw EMPTY();
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
+    });
+    const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
+    expect(stateAttempts).toBe(2);
+    expect(budgets).toEqual([1_200, 1_200, 3_000, 1_800]);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('EMPTY-C — empty military-resources is repaired with budgets [1800, 4500]', async () => {
+    const spec = input('UGA', 24_000_000);
+    const budgets: number[] = [];
+    let militaryAttempts = 0;
+    const complete = vi.fn(async (_system: string, prompt: string, _signal: AbortSignal, options?: { maxTokens?: number }) => {
+      const { section, fallback, anchors } = readPrompt(prompt);
+      budgets.push(options?.maxTokens ?? 0);
+      if (section === 'military-resources' && ++militaryAttempts === 1) throw EMPTY();
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
+    });
+    const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
+    expect(militaryAttempts).toBe(2);
+    expect(budgets).toEqual([1_200, 1_200, 1_800, 4_500]);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('EMPTY-D — empty on both attempts fails closed with exactly two calls', async () => {
+    const complete = vi.fn(async () => { throw EMPTY(); });
+    await expect(generateCountryInitialProfile(input('UGA', 24_000_000), complete, { requireEstimate: true }))
+      .rejects.toThrow(/risposta vuota dal modello/);
+    expect(complete).toHaveBeenCalledTimes(2);
+  });
+
+  it('EMPTY-E — a transient HTTP 503 is retried once (max two calls)', async () => {
+    let economyAttempts = 0;
+    const complete = vi.fn(async (_system: string, prompt: string) => {
+      const { section, fallback, anchors } = readPrompt(prompt);
+      if (section === 'economy' && ++economyAttempts === 1) throw HTTP();
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
+    });
+    const result = await generateCountryInitialProfile(input('UGA', 24_000_000), complete, { requireEstimate: true });
+    expect(economyAttempts).toBe(2);
+    expect(complete).toHaveBeenCalledTimes(4);
+    expect(validateCountryInitialProfile(result, input('UGA', 24_000_000))).not.toBeNull();
+  });
+
+  it('EMPTY-F — 503 then empty never becomes a third attempt', async () => {
+    let economyAttempts = 0;
+    const complete = vi.fn(async (_system: string, prompt: string) => {
+      const { section, fallback, anchors } = readPrompt(prompt);
+      if (section === 'economy') {
+        economyAttempts++;
+        throw economyAttempts === 1 ? HTTP() : EMPTY();
+      }
+      return profileReply(section, fallback, anchors);
+    });
+    await expect(generateCountryInitialProfile(input('UGA', 24_000_000), complete, { requireEstimate: true }))
+      .rejects.toThrow(/risposta vuota dal modello/);
+    expect(economyAttempts).toBe(2);
+  });
+
+  it('EMPTY-G — invalid JSON is not retried', async () => {
+    const complete = vi.fn(async (_system: string, prompt: string, _signal: AbortSignal, _options?: unknown) => {
+      const { section } = readPrompt(prompt) as { section: string };
+      return section === 'economy' ? 'non-json' : '{}';
+    });
+    await expect(generateCountryInitialProfile(input('UGA', 24_000_000), complete, { requireEstimate: true }))
+      .rejects.toThrow(/JSON|profilo iniziale/i);
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
 });

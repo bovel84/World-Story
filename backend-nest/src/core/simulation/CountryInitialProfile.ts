@@ -65,6 +65,14 @@ export const COUNTRY_BOOTSTRAP_SECTION_MAX_TOKENS: Record<CountryProfileSection,
   'national-state': 1_200,
   'military-resources': 1_800,
 };
+/** Budget del secondo (e ultimo) tentativo quando il primo torna vuoto: nei
+ * modelli reasoning il thinking può consumare l'intero budget e lasciare
+ * `message.content` vuoto, quindi la sezione va rifatta con più spazio. */
+export const COUNTRY_BOOTSTRAP_SECTION_REPAIR_MAX_TOKENS: Record<CountryProfileSection, number> = {
+  economy: 3_000,
+  'national-state': 3_000,
+  'military-resources': 4_500,
+};
 /** Una completion per sezione; il quarto argomento porta budget e sezione. */
 export type CountryProfileCompleter = (
   system: string,
@@ -398,24 +406,29 @@ function safeFailureReason(error: unknown): string {
   return error instanceof LLMError && error.message ? error.message : 'completion LLM non riuscita';
 }
 
-/** Una sezione = una completion con il proprio AbortController/timeout. Se il
- * provider segnala un errore transitorio si ritenta SOLO questa sezione, una volta. */
+/** Riconosce la risposta vuota del provider (thinking che esaurisce il budget). */
+function isEmptyResponseError(error: unknown): boolean {
+  return error instanceof LLMError && /risposta vuota dal modello/i.test(error.message);
+}
+
+/** Una sezione = al massimo DUE completion, ciascuna col proprio AbortController/
+ * timeout. Primo tentativo col budget normale; secondo (e ultimo) tentativo solo
+ * se il primo è vuoto (budget repair maggiore) o transitorio (503/network).
+ * Mai un terzo tentativo. */
 async function completeSection(
   section: CountryProfileSection,
   prompt: string,
   complete: CountryProfileCompleter,
   deadline: number,
 ): Promise<string> {
-  const attempt = async (): Promise<string> => {
+  const attempt = async (maxTokens: number): Promise<string> => {
     const budget = Math.min(BOOTSTRAP_SECTION_TIMEOUT_MS, deadline - Date.now());
     if (budget <= 0) throw new CountryInitialProfileError('tempo limite complessivo del bootstrap superato');
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
-        complete(COUNTRY_BOOTSTRAP_SYSTEM, prompt, controller.signal, {
-          maxTokens: COUNTRY_BOOTSTRAP_SECTION_MAX_TOKENS[section], section,
-        }),
+        complete(COUNTRY_BOOTSTRAP_SYSTEM, prompt, controller.signal, { maxTokens, section }),
         new Promise<never>((_, reject) => {
           timeout = setTimeout(() => {
             controller.abort();
@@ -428,14 +441,20 @@ async function completeSection(
       controller.abort();
     }
   };
+
+  const normal = COUNTRY_BOOTSTRAP_SECTION_MAX_TOKENS[section];
+  const repair = COUNTRY_BOOTSTRAP_SECTION_REPAIR_MAX_TOKENS[section];
   try {
-    return await attempt();
+    return await attempt(normal);
   } catch (error) {
-    if (!isRetriableError(error)) throw error;
+    // Secondo tentativo ammesso solo per vuoto o transitorio, e solo col tempo residuo.
+    const empty = isEmptyResponseError(error);
+    if (!empty && !isRetriableError(error)) throw error;
     if (deadline - Date.now() <= 0) throw error;
-    const reason = error instanceof LLMError ? error.message : 'errore transitorio';
-    console.warn(`[CountryInitialProfile] sezione ${section}: ${reason}. Un solo retry della sola sezione.`);
-    return await attempt();
+    console.warn(empty
+      ? `[CountryInitialProfile] ${section}: risposta vuota, retry con maxTokens=${repair}`
+      : `[CountryInitialProfile] ${section}: errore transitorio, secondo tentativo (maxTokens=${repair})`);
+    return await attempt(repair);
   }
 }
 
