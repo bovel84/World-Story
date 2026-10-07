@@ -9,11 +9,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 import { advisorBriefingSentences, buildRealitySignals } from '../src/core/government/RealitySignals';
 import {
-  buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, parseAdvisorResponse, parseAdvisorSituations,
+  buildAdvisorSituations, mergeAdvisorSituations, MAX_ADVISOR_SITUATIONS, parseAdvisorResponse, parseAdvisorSituations,
   proposalMatchesSituation, resolveAdvisorSituation, resolveFocusSituation, serializeAdvisorResponse,
   signalSituationTitle, situationsOverlap, withAdvisorBriefingCoverage,
 } from '../src/core/government/AdvisorSituations';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, withAdvisorStrategicContext } from '../src/core/government/RealityAdvisor';
+import { buildStrategicThreadEvidence } from '../src/core/government/StrategicThreads';
 import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, ADVISOR_CONVERSATION_PROTOCOL } from '../src/core/government/CouncilIssue';
 
 const block = (kind: string, value: unknown) => `\`\`\`${kind}\n${JSON.stringify(value)}\n\`\`\``;
@@ -54,6 +55,95 @@ const multi = () => world({
     { id: 'p1', title: 'Ferrovia Kampala–Jinja', expectedDate: '2000-01-01' },
     { id: 'p2', title: 'Acquedotto del Nord', expectedDate: '2000-02-01' },
   ],
+});
+
+describe('Strategic threads grounded in server evidence', () => {
+  const baseline = "Alla vigilia della divergenza l'LRA era attivo nel nord, nelle aree di Gulu e Acholi. Il Sudan ne complicava la dimensione transfrontaliera.";
+  const opening = () => world({ date: '2000-01-01', turn: 1, relationships: { UGA: { SDN: 'hostile', COD: 'hostile' } } });
+  const context = { historicalBaseline: baseline, temporalScope: { initialDate: '2000-01-01', currentDate: '2000-01-01' } };
+  const thread = (evidenceKeys: string[], signalKeys: string[] = []) => block('advisor_situation', {
+    title: "Insurrezione dell'LRA nel nord", summary: 'Il controllo governativo a Gulu e Acholi resta il problema politico; risorse e rapporti regionali limitano le alternative.',
+    signalKeys, evidenceKeys,
+  });
+
+  it('A/B: baseline + segnali → una situazione narrativa, senza duplicare le card tecniche coperte', () => {
+    const snapshot = opening();
+    const evidence = buildStrategicThreadEvidence(snapshot, context).find(item => item.kind === 'historical');
+    expect(evidence).toBeDefined();
+    const signals = ['hostile-relations:SDN', 'stability'];
+    const parsed = parseAdvisorResponse(snapshot, thread([evidence!.key], signals), 'advisor', { strategicContext: context, includeDeterministicSituations: true });
+    const narrative = parsed.situations.find(item => item.title.includes('LRA'))!;
+    expect(narrative.signalKeys).toEqual(signals);
+    expect(narrative.evidenceKeys).toEqual([evidence!.key]);
+    expect(parsed.situations.filter(item => item.signalKeys.some(key => signals.includes(key)))).toEqual([narrative]);
+    expect(parsed.situations.some(item => item.signalKeys.includes('hostile-relations:COD'))).toBe(true);
+  });
+
+  it('la baseline pertinente può fondare un thread senza forzare una signalKey', () => {
+    const snapshot = opening();
+    const evidence = buildStrategicThreadEvidence(snapshot, context).find(item => item.kind === 'historical')!;
+    const result = parseAdvisorResponse(snapshot, thread([evidence.key]), 'advisor', { strategicContext: context, includeDeterministicSituations: true });
+    expect(result.situations.find(item => item.title.includes('LRA'))?.signalKeys).toEqual([]);
+    const again = parseAdvisorResponse(snapshot, serializeAdvisorResponse(result), 'advisor', { strategicContext: context });
+    expect(again.situations).toEqual(result.situations);
+  });
+
+  it('C: due problemi distinti restano due thread anche con segnali generici comuni', () => {
+    const snapshot = opening();
+    const evidence = buildStrategicThreadEvidence(snapshot, context).find(item => item.kind === 'historical')!;
+    const parsed = parseAdvisorSituations(snapshot, thread([evidence.key], ['hostile-relations:SDN']) + block('advisor_situation', {
+      title: 'Coinvolgimento nella guerra del Congo', summary: 'Il rapporto con il Congo richiede una scelta distinta.', signalKeys: ['hostile-relations:COD'],
+    }), { strategicContext: context });
+    expect(parsed.situations).toHaveLength(2);
+    expect(mergeAdvisorSituations(snapshot, parsed.situations).filter(item => /LRA|Congo/.test(item.title))).toHaveLength(2);
+  });
+
+  it('un’opportunità senza alert conserva la proposta e il collegamento nel doppio parsing', async () => {
+    const snapshot = opening();
+    const strategicContext = { ...context, historicalBaseline: 'Alla divergenza la cooperazione EAC offriva opportunità di integrazione regionale.' };
+    const evidence = buildStrategicThreadEvidence(snapshot, strategicContext).find(item => item.kind === 'historical')!;
+    const text = 'Possiamo discutere una cooperazione regionale subordinata alle risorse disponibili.\n'
+      + block('advisor_situation', { id: 'integrazione', title: 'Integrazione economica regionale', summary: 'La cooperazione regionale offre una direzione politica, non un accordo già concluso.', kind: 'opportunity', signalKeys: [], evidenceKeys: [evidence.key] })
+      + block('council_issue', { title: 'Mandato commerciale', question: 'Autorizzare Esteri a proporre un negoziato commerciale regionale subordinato alla copertura del Tesoro?', situationId: 'integrazione', factKeys: ['treasury'], suggestedMinisters: ['esteri', 'tesoro'] });
+    const { PromptEngine } = await import('../src/prompt-builder');
+    const generate = vi.fn(async () => ({ content: text }));
+    const engine = new PromptEngine({ generate } as never);
+    const serialized = await engine.getAdvisor({ id: 'threads', currentDate: snapshot.date, currentTurn: 1,
+      world: { name: 'Uganda', startDate: snapshot.date, prompts: {}, regions: { home: { id: 'home', name: 'Kampala', owner: 'UGA', objects: [] } } },
+      players: [{ id: 'p', name: 'Presidente', regionId: 'home', polityId: 'UGA' }], playerPolityId: 'UGA', actions: [], results: [],
+      advisorContext: { ...buildRealityAdvisorContext(snapshot).advisorContext, ...strategicContext } } as never, 'fammi il quadro');
+    const parsed = parseAdvisorResponse(snapshot, serialized, 'advisor', { strategicContext });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(parsed.situations[0].kind).toBe('opportunity');
+    expect(parsed.situations[0].importance).toBe(1);
+    expect(parsed.issues[0].situationId).toBe('integrazione');
+    expect(withAdvisorBriefingCoverage(snapshot, parsed).briefingCoverage?.complete).toBe(true);
+  });
+
+  it('F: una decisione risolta corrente impedisce di promuovere la baseline a presente', () => {
+    const snapshot = opening();
+    const key = buildStrategicThreadEvidence(snapshot, context).find(item => item.kind === 'historical')!.key;
+    snapshot.recent.decisions = [{ id: 'pace', title: 'Fine della crisi nel nord', status: 'resolved', resolution: 'LRA disarmato', resolvedDate: snapshot.date }];
+    const parsed = parseAdvisorSituations(snapshot, thread([key], ['stability']), { strategicContext: context, onDiscard: () => {} });
+    expect(parsed.situations).toEqual([]);
+  });
+
+  it('G: dopo i turni neppure un segnale generico riattiva una crisi della baseline', () => {
+    const key = buildStrategicThreadEvidence(opening(), context).find(item => item.kind === 'historical')!.key;
+    const snapshot = world({ date: '2005-01-01', turn: 9 });
+    const strategicContext = { ...context, strategicHistory: [{ id: 'pace', date: '2001-01-01', headline: 'LRA disarmato: crisi risolta', detail: null, sourceRef: 'results.pace', sourceActionIds: [] }] };
+    expect(parseAdvisorSituations(snapshot, thread([key], ['stability']), { strategicContext, onDiscard: () => {} }).situations).toEqual([]);
+    expect(buildStrategicThreadEvidence(snapshot, strategicContext).some(item => item.kind === 'history')).toBe(true);
+  });
+
+  it('H: senza risposta LLM il fallback resta esclusivamente deterministico', () => {
+    const snapshot = opening();
+    expect(parseAdvisorResponse(snapshot, '', 'advisor', { strategicContext: context, includeDeterministicSituations: true }).situations).toEqual(buildAdvisorSituations(snapshot));
+  });
+
+  it('riferimenti inventati non sono salvati da un segnale valido', () => {
+    expect(parseAdvisorSituations(opening(), thread(['historical:inventato'], ['stability']), { strategicContext: context, onDiscard: () => {} }).situations).toEqual([]);
+  });
 });
 
 describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {

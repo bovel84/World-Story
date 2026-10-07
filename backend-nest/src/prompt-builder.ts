@@ -31,7 +31,7 @@ import {
 import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
 import { renderRealityConcerns } from './core/government/RealitySignals';
 import { HISTORICAL_BASELINE_RULE, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
-import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
+import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, withAdvisorRequestMode, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
 import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat } from './core/government/NarrativeContextCompiler';
 import { COUNCIL_ISSUE_PROTOCOL, MAX_BRIEFING_COUNCIL_ISSUES, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { parseAdvisorResponse, serializeAdvisorResponse } from './core/government/AdvisorSituations';
@@ -485,9 +485,15 @@ async function advisorPresetStyle(builder: PromptBuilder, game: GameData, messag
   return { style: [preset, jevContext, world].filter(Boolean).join('\n\n'), history: jevContext ? [] : history };
 }
 
+function advisorRequestContext(game: GameData, message: string): RealityAdvisorContext {
+  const context = withAdvisorStrategicContext(realityContextFor(game), game.world.startDate, game.results ?? [], message);
+  return game.ministerDialogueSeat || game.ministerMemoryRequest ? context : withAdvisorRequestMode(context, message);
+}
+
 function validatedAdvisorText(context: RealityAdvisorContext, text: string): string {
   // WS-CONSULENTE-SITUAZIONI — Situazioni e proposte restano separate end-to-end.
   const parsed = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'president', {
+    strategicContext: context,
     // Il passaggio intermedio non deve troncare a otto le proposte del briefing.
     maxIssues: context.mode === 'briefing' ? MAX_BRIEFING_COUNCIL_ISSUES : undefined,
   });
@@ -1816,11 +1822,11 @@ export class PromptEngine {
       }, signal, realityContextFor(game).verifiedWorldSnapshot);
     }
 
-    const context = realityContextFor(game);
+    const context = advisorRequestContext(game, message);
     const correction = verifiedRequestCorrection(context.verifiedWorldSnapshot, message);
     if (correction) return correction;
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
-    const prompt = buildRealityAdvisorPrompt(withAdvisorStrategicContext(context, game.world.startDate, game.results ?? [], message), message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
+    const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
     const response = await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, { temperature: 0.5, signal });
     return validatedAdvisorText(context, response.content);
   }
@@ -1849,11 +1855,11 @@ export class PromptEngine {
         return response.content;
       }, signal, realityContextFor(game).verifiedWorldSnapshot);
     }
-    const context = realityContextFor(game);
+    const context = advisorRequestContext(game, message);
     const correction = verifiedRequestCorrection(context.verifiedWorldSnapshot, message);
     if (correction) return correction;
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
-    const prompt = buildRealityAdvisorPrompt(withAdvisorStrategicContext(context, game.world.startDate, game.results ?? [], message), message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
+    const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
     // Progress is observable, but no unvalidated prose is published. Even providers
     // emitting string chunks are buffered until the complete response is guarded.
     const response = await this.llm.stream('advisor', VERIFIED_FACT_POLICY, prompt, progress => {
