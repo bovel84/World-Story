@@ -86,6 +86,17 @@ export function plausiblePopulation(value: unknown, mapTotal: number): number | 
   if (mapTotal > 0 && (population < mapTotal * 0.1 || population > mapTotal * 5)) return null;
   return population;
 }
+
+/** Stima storica LLM della popolazione quando manca la reference. Oltre al range
+ * generale, rifiuta un valore indistinguibile (±5%) dal totale di mappa: il
+ * prompt dichiara mapPopulation come ordine di grandezza moderno, quindi una
+ * copia non è una ricostruzione storica. Non è hardcoded per paese. */
+export function historicalPopulationEstimate(value: unknown, mapTotal: number): number | null {
+  const population = plausiblePopulation(value, mapTotal);
+  if (population === null) return null;
+  if (mapTotal > 0 && Math.abs(population - mapTotal) <= mapTotal * 0.05) return null;
+  return population;
+}
 /** Costa marittima: una polity senza sbocco al mare non ha litorale, anche
  * quando la mappa marca `Coastal` una provincia lacustre (es. lago Vittoria). */
 const coast = (input: CountryProfileInput) => !isLandlockedPolity(input.polityId)
@@ -294,11 +305,15 @@ export function validateCountryInitialProfile(raw: unknown, input: CountryProfil
   if (p.version !== 1 || p.polityId !== input.polityId || p.startDate !== input.startDate) return null;
   const referencePopulation = referencePopulationForDate(input.polityId, input.startDate);
   const mapPopulation = input.regions.filter(r => r.owner === input.polityId).reduce((n, r) => n + r.population, 0);
-  // Popolazione: riferimento storico autorevole; senza di esso vale una stima
-  // LLM comunque plausibile rispetto alla mappa (mai un moderno non validato).
+  // Popolazione: riferimento storico autorevole; senza di esso una stima LLM
+  // deve essere plausibile e distinguibile dal valore moderno di mappa. Per le
+  // fonti deterministiche il totale di mappa resta il fallback dichiarato.
   if (referencePopulation !== null) {
     if (p.population !== referencePopulation) return null;
-  } else if (plausiblePopulation(p.population, mapPopulation) === null) return null;
+  } else {
+    const bound = p.provenance?.source === 'llm-estimate' ? historicalPopulationEstimate : plausiblePopulation;
+    if (bound(p.population, mapPopulation) === null) return null;
+  }
   const { economy: e, military: m, society: s, infrastructure: i } = p;
   const own = input.regions.filter(r => r.owner === input.polityId);
   if (!e || !m || !s || !i || !p.provenance || !p.mapBaseline
@@ -346,10 +361,13 @@ export const COUNTRY_BOOTSTRAP_SYSTEM = [
   'Non inventare precisione falsa: se un valore è incerto usa una stima prudente. Restituisci SOLO JSON conforme allo schema del fallback fornito: nessun testo, nessuna spiegazione narrativa.',
 ].join('\n');
 
-/** Deadline di UNA singola sezione: economia, stato nazionale o militare/risorse.
- * Tre call sequenziali hanno ciascuna il proprio timer; un timer globale unico
- * scadrebbe mentre siamo già alla seconda o terza sezione. */
-export const BOOTSTRAP_SECTION_TIMEOUT_MS = 60_000;
+/** Timeout di UNA singola sezione. Tre call sequenziali hanno ciascuna il
+ * proprio timer, ma il bootstrap ha anche un budget complessivo per non
+ * restare appeso minuti dentro una singola POST /games. */
+export const BOOTSTRAP_SECTION_TIMEOUT_MS = 35_000;
+/** Budget complessivo del bootstrap (baseline esclusa): sotto il limite proxy,
+ * così POST /games non può restare bloccata da 3 sezioni + retry. */
+export const BOOTSTRAP_TOTAL_TIMEOUT_MS = 80_000;
 
 export class CountryInitialProfileError extends Error {
   constructor(reason: string) {
@@ -386,8 +404,11 @@ async function completeSection(
   section: CountryProfileSection,
   prompt: string,
   complete: CountryProfileCompleter,
+  deadline: number,
 ): Promise<string> {
   const attempt = async (): Promise<string> => {
+    const budget = Math.min(BOOTSTRAP_SECTION_TIMEOUT_MS, deadline - Date.now());
+    if (budget <= 0) throw new CountryInitialProfileError('tempo limite complessivo del bootstrap superato');
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -398,8 +419,8 @@ async function completeSection(
         new Promise<never>((_, reject) => {
           timeout = setTimeout(() => {
             controller.abort();
-            reject(new CountryInitialProfileError(`tempo limite di ${BOOTSTRAP_SECTION_TIMEOUT_MS / 1000} secondi superato nella sezione ${section}`));
-          }, BOOTSTRAP_SECTION_TIMEOUT_MS);
+            reject(new CountryInitialProfileError(`tempo limite di ${Math.round(budget / 1000)} secondi superato nella sezione ${section}`));
+          }, budget);
         }),
       ]);
     } finally {
@@ -411,6 +432,7 @@ async function completeSection(
     return await attempt();
   } catch (error) {
     if (!isRetriableError(error)) throw error;
+    if (deadline - Date.now() <= 0) throw error;
     const reason = error instanceof LLMError ? error.message : 'errore transitorio';
     console.warn(`[CountryInitialProfile] sezione ${section}: ${reason}. Un solo retry della sola sezione.`);
     return await attempt();
@@ -431,14 +453,20 @@ function economyPrompt(input: CountryProfileInput, fallback: CountryInitialProfi
 }
 
 function nationalStatePrompt(input: CountryProfileInput, fallback: CountryInitialProfile, referencePopulation: number | null, mapPopulation: number): string {
+  const known = referencePopulation !== null;
   return JSON.stringify({
     section: 'national-state',
     country: input.countryName ?? input.polityId,
     startDate: input.startDate,
     historicalBaseline: input.historicalBaseline || '',
     anchors: { population: referencePopulation, mapPopulation },
-    missing: { population: referencePopulation === null },
-    fallback: { population: fallback.population, society: fallback.society, infrastructure: fallback.infrastructure },
+    missing: { population: !known },
+    // Senza reference NON suggerire il valore della mappa come popolazione
+    // storica: resta solo in `anchors.mapPopulation` come ordine di grandezza.
+    fallback: { population: known ? referencePopulation : null, society: fallback.society, infrastructure: fallback.infrastructure },
+    populationRule: known
+      ? 'Popolazione di riferimento storica autorevole: riportala invariata.'
+      : 'Popolazione storica sconosciuta. mapPopulation descrive la mappa corrente ed è solo un ordine di grandezza: NON copiarlo automaticamente come popolazione storica alla startDate. Produci una stima storica propria, coerente con paese e data.',
     infrastructureCaps: infrastructureCaps(input),
     schema: { population: 'number', society: { stability: '0-100', socialTension: '0-100' }, infrastructure: { factories: 'intero', ports: 'intero', universities: 'intero' } },
   });
@@ -473,9 +501,11 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
   const debt = referenceDebtToGdpPctForDate(input.polityId, input.startDate);
   const referencePopulation = referencePopulationForDate(input.polityId, input.startDate);
   const mapPopulation = input.regions.filter(r => r.owner === input.polityId).reduce((n, r) => n + r.population, 0);
+  // Budget globale: nessuna sezione può far restare POST /games appesa per minuti.
+  const deadline = Date.now() + BOOTSTRAP_TOTAL_TIMEOUT_MS;
   try {
     // --- CALL 1 — economia / debito / tesoreria ---
-    const economySection = parseSectionJson(await completeSection('economy', economyPrompt(input, fallback, gdp, debt), complete));
+    const economySection = parseSectionJson(await completeSection('economy', economyPrompt(input, fallback, gdp, debt), complete, deadline));
     const economy = mergeEconomySection(economySection.economy, fallback.economy, gdp, debt);
     if (requireEstimate) {
       const e = economySection.economy as Partial<CountryInitialProfile['economy']> | undefined;
@@ -488,8 +518,9 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
     }
 
     // --- CALL 2 — popolazione / società / infrastrutture ---
-    const stateSection = parseSectionJson(await completeSection('national-state', nationalStatePrompt(input, fallback, referencePopulation, mapPopulation), complete));
-    const llmPopulation = plausiblePopulation(stateSection.population, mapPopulation);
+    const stateSection = parseSectionJson(await completeSection('national-state', nationalStatePrompt(input, fallback, referencePopulation, mapPopulation), complete, deadline));
+    // Senza reference, una stima che copia la mappa moderna non è storica: rifiutata.
+    const llmPopulation = referencePopulation !== null ? null : historicalPopulationEstimate(stateSection.population, mapPopulation);
     const population = referencePopulation ?? llmPopulation ?? fallback.population;
     const society = validSocietySection(stateSection.society) ? stateSection.society : fallback.society;
     const caps = infrastructureCaps(input);
@@ -502,7 +533,7 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
     const infrastructure = { factories: pickInfra('factories'), ports: pickInfra('ports'), universities: pickInfra('universities') };
 
     // --- CALL 3 — militare / risorse ---
-    const militarySection = parseSectionJson(await completeSection('military-resources', militaryResourcesPrompt(input, fallback, population), complete));
+    const militarySection = parseSectionJson(await completeSection('military-resources', militaryResourcesPrompt(input, fallback, population), complete, deadline));
     const military = validMilitarySection(militarySection.military, input, population) ? militarySection.military : fallback.military;
     const resources = sanitizeInitialResources(militarySection.resources, input);
 

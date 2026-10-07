@@ -10,6 +10,19 @@ import { LLMError } from '../src/llm/types';
 const input = (polityId = 'BIH', population = 3_750_000) => ({
   polityId, startDate: '2000-01-01', regions: [{ id: polityId, owner: polityId, population, gdp: 10, militaryPower: 20, coastal: false, objects: [] }],
 });
+
+/** Smista un profilo "pieno" nelle tre call sequenziali. Per national-state,
+ * quando manca la reference, non ricopia il totale di mappa: usa una stima
+ * storica distinta (0.6x), altrimenti l'anti-copy la scarterebbe. */
+const testCompleter = (profile: any) => async (_system: string, prompt: string) => {
+  const { section, fallback } = JSON.parse(prompt) as { section: string; fallback: any };
+  if (section === 'economy') return JSON.stringify({ economy: profile.economy ?? fallback });
+  if (section === 'national-state') {
+    const population = fallback.population ?? Math.max(1, Math.round((profile.population ?? 1) * 0.6));
+    return JSON.stringify({ population, society: profile.society ?? fallback.society, infrastructure: profile.infrastructure ?? fallback.infrastructure });
+  }
+  return JSON.stringify({ military: profile.military ?? fallback.military, ...(profile.resources ? { resources: profile.resources } : {}) });
+};
 describe('CountryInitialProfile', () => {
   it('Bosnia 2000 never inherits the 2024 GDP/debt; USA and Bosnia have different economies/armies/readiness', () => {
     const bosnia = buildCountryInitialProfile(input());
@@ -85,7 +98,7 @@ describe('CountryInitialProfile', () => {
   it('a valid completion fills unknown rates/readiness once without changing map assets', async () => {
     const spec = input('ZETA', 5_000_000);
     const base = buildCountryInitialProfile(spec);
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+    const result = await generateCountryInitialProfile(spec, testCompleter({ ...base,
       military: { ...base.military, readinessPct: 66, trainingPct: 82 } }));
     expect(result.provenance.source).toBe('llm-estimate');
     expect(result.military.readinessPct).toBe(66);
@@ -106,7 +119,7 @@ describe('CountryInitialProfile', () => {
         averageFormationSize: activePersonnel / base.military.formations,
         readinessPct: 68, trainingPct: 82, logisticsPct: 71, reservePersonnel: 10_000 },
     };
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify(estimate));
+    const result = await generateCountryInitialProfile(spec, testCompleter(estimate));
     expect(result.provenance.source).toBe('llm-estimate');
     expect(result.military.activePersonnel).toBe(activePersonnel);
     expect(result.military.readinessPct).toBe(68);
@@ -160,8 +173,8 @@ describe('CountryInitialProfile', () => {
       const gate = new Promise<void>(resolve => { release = resolve; });
       const complete = vi.fn(async (_system: string, prompt: string) => {
         await gate;
-        const { section, fallback } = JSON.parse(prompt) as { section: string; fallback: any };
-        return JSON.stringify(section === 'economy' ? { economy: { ...fallback, debtRatioPct: 40 } } : fallback);
+        const { section, fallback, anchors } = readPrompt(prompt);
+        return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 40 } : raw);
       });
       const pending = generateCountryInitialProfile(spec, complete, { requireEstimate: true });
       await vi.advanceTimersByTimeAsync(30_000);
@@ -172,7 +185,7 @@ describe('CountryInitialProfile', () => {
       expect(complete).toHaveBeenCalledTimes(3);
     } finally { vi.useRealTimers(); }
   });
-  it('required player estimate times out after 60s without a retry or fallback', async () => {
+  it('required player estimate times out at the section deadline without a retry or fallback', async () => {
     vi.useFakeTimers();
     try {
       const complete = vi.fn(async () => new Promise<string>(() => {}));
@@ -187,12 +200,12 @@ describe('CountryInitialProfile', () => {
     const spec = input('ZETA', 5_000_000);
     const base = buildCountryInitialProfile(spec);
     const economy = { ...base.economy, [field]: undefined };
-    await expect(generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base, economy }), { requireEstimate: true })).rejects.toThrow(/profilo iniziale/i);
+    await expect(generateCountryInitialProfile(spec, testCompleter({ ...base, economy }), { requireEstimate: true })).rejects.toThrow(/profilo iniziale/i);
   });
   it('required estimate rejects the final firewall failure instead of returning fallback', async () => {
     const spec = input('ZETA', 5_000_000);
     const base = buildCountryInitialProfile(spec);
-    await expect(generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+    await expect(generateCountryInitialProfile(spec, testCompleter({ ...base,
       economy: { ...base.economy, nominalGdpUsdBillions: 999_999 } }), { requireEstimate: true })).rejects.toThrow(/profilo iniziale/i);
   });
   it('invalid or throwing optional LLM retains the deterministic NPC/internal path', async () => {
@@ -207,15 +220,15 @@ describe('CountryInitialProfile', () => {
   });
   it('historical and known map data prevail over an otherwise plausible LLM estimate', async () => {
     const base = buildCountryInitialProfile(input());
-    const result = await generateCountryInitialProfile(input(), async () => JSON.stringify({ ...base, economy: { ...base.economy, nominalGdpUsdBillions: 8 }, population: 4_000_000 }));
+    const result = await generateCountryInitialProfile(input(), testCompleter({ ...base, economy: { ...base.economy, nominalGdpUsdBillions: 8 }, population: 4_000_000 }));
     expect(result.economy.nominalGdpUsdBillions).toBe(5.5);
     expect(result.population).toBe(3_750_000);
   });
   it('two different countries in the same year get substantially different profiles and equipment', async () => {
     const usaSpec = input('USA', 282_000_000);
     const bihSpec = input('BIH', 3_750_000);
-    const usa = await generateCountryInitialProfile(usaSpec, async () => JSON.stringify(buildCountryInitialProfile(usaSpec)));
-    const bih = await generateCountryInitialProfile(bihSpec, async () => JSON.stringify(buildCountryInitialProfile(bihSpec)));
+    const usa = await generateCountryInitialProfile(usaSpec, testCompleter(buildCountryInitialProfile(usaSpec)));
+    const bih = await generateCountryInitialProfile(bihSpec, testCompleter(buildCountryInitialProfile(bihSpec)));
     expect(usa.provenance.source).toBe('llm-estimate');
     expect(bih.provenance.source).toBe('llm-estimate');
     expect(usa.economy.nominalGdpUsdBillions / bih.economy.nominalGdpUsdBillions).toBeGreaterThan(100);
@@ -240,7 +253,7 @@ describe('CountryInitialProfile', () => {
   it('a landlocked country gets no invented ports or navy even from the LLM bootstrap', async () => {
     const spec = input('BOL', 8_000_000);
     const base = buildCountryInitialProfile(spec);
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+    const result = await generateCountryInitialProfile(spec, testCompleter({ ...base,
       infrastructure: { ...base.infrastructure, ports: 5 },
       military: { ...base.military, equipmentProfile: { fregate: 3 } } }));
     expect(result.infrastructure.ports).toBe(base.infrastructure.ports);
@@ -254,7 +267,7 @@ describe('CountryInitialProfile', () => {
     const caps = infrastructureCaps(spec);
     expect(base.mapBaseline.factories).toBe(1);
     expect(base.mapBaseline.universities).toBe(2);
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+    const result = await generateCountryInitialProfile(spec, testCompleter({ ...base,
       mapBaseline: { ...base.mapBaseline, gdp: 9_999, militaryPower: 9_999 },
       population: base.population + 500_000,
       infrastructure: { factories: caps.factories, ports: caps.ports, universities: caps.universities } }));
@@ -271,7 +284,7 @@ describe('CountryInitialProfile', () => {
     cambodiaSpec.regions[0].coastal = true;
     const ugandaBase = buildCountryInitialProfile(ugandaSpec);
     const cambodiaBase = buildCountryInitialProfile(cambodiaSpec);
-    const uganda = await generateCountryInitialProfile(ugandaSpec, async () => JSON.stringify({ ...ugandaBase,
+    const uganda = await generateCountryInitialProfile(ugandaSpec, testCompleter({ ...ugandaBase,
       economy: { ...ugandaBase.economy, treasuryUsdBillions: 0.4 },
       military: { ...ugandaBase.military, activePersonnel: 45_000, reservePersonnel: 20_000, formations: 12,
         averageFormationSize: 3_750, readinessPct: 35, trainingPct: 30, logisticsPct: 28,
@@ -279,7 +292,7 @@ describe('CountryInitialProfile', () => {
       infrastructure: { factories: 6, ports: 0, universities: 4 },
       resources: { food: 1.5, clothing: 1, weapons: 2, fuel: 1.5, research: 30,
         technologies: ['agricoltura_meccanizzata', 'industria_tessile'] } }));
-    const cambodia = await generateCountryInitialProfile(cambodiaSpec, async () => JSON.stringify({ ...cambodiaBase,
+    const cambodia = await generateCountryInitialProfile(cambodiaSpec, testCompleter({ ...cambodiaBase,
       economy: { ...cambodiaBase.economy, treasuryUsdBillions: 1.2 },
       military: { ...cambodiaBase.military, activePersonnel: 90_000, reservePersonnel: 60_000, formations: 20,
         averageFormationSize: 4_500, readinessPct: 52, trainingPct: 48, logisticsPct: 44,
@@ -306,7 +319,7 @@ describe('CountryInitialProfile', () => {
     const spec = input('UGA', 24_000_000);
     const base = buildCountryInitialProfile(spec);
     expect(validateCountryInitialProfile({ ...base, resources: { technologies: ['intelligenza_artificiale'] } }, spec)).toBeNull();
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+    const result = await generateCountryInitialProfile(spec, testCompleter({ ...base,
       resources: { research: 10, technologies: ['intelligenza_artificiale'] } }));
     expect(result.provenance.source).toBe('llm-estimate');
     expect(result.resources?.technologies ?? []).not.toContain('intelligenza_artificiale');
@@ -317,7 +330,7 @@ describe('CountryInitialProfile', () => {
     const spec = input('UGA', 24_000_000);
     const base = buildCountryInitialProfile(spec);
     expect(validateCountryInitialProfile({ ...base, resources: { technologies: ['tecnologia_fantasma'] } }, spec)).toBeNull();
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+    const result = await generateCountryInitialProfile(spec, testCompleter({ ...base,
       resources: { research: 5, technologies: ['tecnologia_fantasma'] } }));
     expect(result.provenance.source).toBe('llm-estimate');
     expect(result.resources?.technologies ?? []).toEqual([]);
@@ -329,7 +342,7 @@ describe('CountryInitialProfile', () => {
     const base = buildCountryInitialProfile(spec);
     const account = WorldStateEngine.accounts(spec.regions, { startDate: spec.startDate, modernFacts: false }).UGA;
     const cap = storageCapacity(account);
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+    const result = await generateCountryInitialProfile(spec, testCompleter({ ...base,
       resources: { food: cap.food * 1000, clothing: cap.clothing * 1000, weapons: cap.weapons * 1000, fuel: cap.fuel * 1000 } }));
     expect(result.provenance.source).toBe('llm-estimate');
     expect(result.resources?.food).toBeCloseTo(cap.food, 3);
@@ -352,7 +365,7 @@ describe('CountryInitialProfile', () => {
     const base = buildCountryInitialProfile(spec);
     const account = WorldStateEngine.accounts(spec.regions, { startDate: spec.startDate, modernFacts: false }).UGA;
     const cap = initialResearchCap(account);
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+    const result = await generateCountryInitialProfile(spec, testCompleter({ ...base,
       resources: { research: 999_999_999 } }));
     expect(result.provenance.source).toBe('llm-estimate');
     expect(result.resources?.research).toBe(cap);
@@ -393,7 +406,7 @@ describe('CountryInitialProfile', () => {
     const spec = input('UGA', 24_000_000);
     const base = buildCountryInitialProfile(spec);
     expect(referenceDebtToGdpPctForDate('UGA', '2000-01-01')).toBeNull();
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+    const result = await generateCountryInitialProfile(spec, testCompleter({ ...base,
       economy: { ...base.economy, debtRatioPct: 42, treasuryUsdBillions: 0.4, taxRatePct: 25, monthlyExpenses: 999_999 } }), { requireEstimate: true });
     expect(result.economy.debtRatioPct).toBe(42);
     expect(result.economy.treasuryUsdBillions).toBe(0.4);
@@ -404,7 +417,7 @@ describe('CountryInitialProfile', () => {
   it('an incoherent revenue/expenses only falls back on that field, keeping the other LLM economy fields', async () => {
     const spec = input('UGA', 24_000_000);
     const base = buildCountryInitialProfile(spec);
-    const result = await generateCountryInitialProfile(spec, async () => JSON.stringify({ ...base,
+    const result = await generateCountryInitialProfile(spec, testCompleter({ ...base,
       economy: { ...base.economy, debtRatioPct: 42, treasuryUsdBillions: 0.4, taxRatePct: 25,
         monthlyRevenue: 999_999, monthlyExpenses: 999_999 } }));
     expect(result.economy.debtRatioPct).toBe(42);
@@ -423,22 +436,30 @@ describe('CountryInitialProfile', () => {
 
   // --- Split bootstrap: tre completion sequenziali per sezione (economia →
   // stato nazionale → militare/risorse), merge e fail-closed del player. ---
-  const sectionReply = (section: string, fallback: any, patch: (raw: any) => any = raw => raw) => {
-    const body = section === 'economy' ? { economy: patch(fallback) } : patch(fallback);
-    return JSON.stringify(body);
+  const readPrompt = (prompt: string) => JSON.parse(prompt) as { section: string; fallback: any; anchors?: any };
+  /** Risposta per sezione; per national-state senza reference inietta una
+   * popolazione storica distinta dalla mappa (altrimenti l'anti-copy scarta). */
+  const profileReply = (section: string, fallback: any, anchors: any, patch: (raw: any) => any = raw => raw) => {
+    if (section === 'economy') return JSON.stringify({ economy: patch(fallback) });
+    if (section === 'national-state') {
+      const raw = fallback.population == null
+        ? { ...fallback, population: Math.max(1, Math.round((anchors?.mapPopulation ?? 1) * 0.6)) }
+        : fallback;
+      return JSON.stringify(patch(raw));
+    }
+    return JSON.stringify(patch(fallback));
   };
-  const readPrompt = (prompt: string) => JSON.parse(prompt) as { section: string; fallback: any };
 
   it('A — three sections run as three sequential completions and merge into a valid profile', async () => {
     const spec = input('UGA', 24_000_000);
     const order: string[] = [];
     let active = 0, maxConcurrent = 0;
     const complete = vi.fn(async (_system: string, prompt: string) => {
-      const { section, fallback } = readPrompt(prompt);
+      const { section, fallback, anchors } = readPrompt(prompt);
       active++; maxConcurrent = Math.max(maxConcurrent, active);
       await new Promise<void>(resolve => setTimeout(resolve, 0));
       active--; order.push(section);
-      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
     });
     const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
     expect(complete).toHaveBeenCalledTimes(3);
@@ -452,8 +473,8 @@ describe('CountryInitialProfile', () => {
     const spec = input('UGA', 24_000_000);
     expect(referenceDebtToGdpPctForDate('UGA', '2000-01-01')).toBeNull();
     const complete = async (_system: string, prompt: string) => {
-      const { section, fallback } = readPrompt(prompt);
-      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 42 } : raw);
+      const { section, fallback, anchors } = readPrompt(prompt);
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 42 } : raw);
     };
     const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
     expect(result.economy.debtRatioPct).toBe(42);
@@ -464,17 +485,17 @@ describe('CountryInitialProfile', () => {
     const spec = input('UGA', 24_000_000);
     expect(referencePopulationForDate('UGA', '2000-01-01')).toBeNull();
     const complete = async (_system: string, prompt: string) => {
-      const { section, fallback } = readPrompt(prompt);
-      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 42 }
-        : section === 'national-state' ? { ...raw, population: 22_000_000 } : raw);
+      const { section, fallback, anchors } = readPrompt(prompt);
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 42 }
+        : section === 'national-state' ? { ...raw, population: 16_000_000 } : raw);
     };
     const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
-    expect(result.population).toBe(22_000_000);
+    expect(result.population).toBe(16_000_000);
     // Il riferimento storico (BIH 2000) vince su qualunque stima LLM.
     const bih = input('BIH', 3_750_000);
     const bihResult = await generateCountryInitialProfile(bih, async (_system: string, prompt: string) => {
-      const { section, fallback } = readPrompt(prompt);
-      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 42 }
+      const { section, fallback, anchors } = readPrompt(prompt);
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 42 }
         : section === 'national-state' ? { ...raw, population: 9_000_000 } : raw);
     }, { requireEstimate: true });
     expect(bihResult.population).toBe(3_750_000);
@@ -485,12 +506,12 @@ describe('CountryInitialProfile', () => {
     const calls: string[] = [];
     let militaryAttempts = 0;
     const complete = vi.fn(async (_system: string, prompt: string) => {
-      const { section, fallback } = readPrompt(prompt);
+      const { section, fallback, anchors } = readPrompt(prompt);
       calls.push(section);
       if (section === 'military-resources' && ++militaryAttempts === 1) {
         throw new LLMError('openai-compatible: HTTP 503 — unavailable', { provider: 'openai-compatible', status: 503, retriable: true });
       }
-      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
     });
     const result = await generateCountryInitialProfile(spec, complete, { requireEstimate: true });
     expect(calls).toEqual(['economy', 'national-state', 'military-resources', 'military-resources']);
@@ -502,10 +523,10 @@ describe('CountryInitialProfile', () => {
     const spec = input('UGA', 24_000_000);
     const calls: string[] = [];
     const complete = vi.fn(async (_system: string, prompt: string) => {
-      const { section, fallback } = readPrompt(prompt);
+      const { section, fallback, anchors } = readPrompt(prompt);
       calls.push(section);
       if (section === 'national-state') return 'non-json';
-      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw);
     });
     await expect(generateCountryInitialProfile(spec, complete, { requireEstimate: true })).rejects.toThrow(/profilo iniziale.*partita non creata/i);
     expect(complete).toHaveBeenCalledTimes(2);
@@ -525,10 +546,50 @@ describe('CountryInitialProfile', () => {
   it('G — an invalid required section never falls back to the deterministic profile for the player', async () => {
     const spec = input('UGA', 24_000_000);
     const complete = async (_system: string, prompt: string) => {
-      const { section, fallback } = readPrompt(prompt);
-      return sectionReply(section, fallback, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 }
+      const { section, fallback, anchors } = readPrompt(prompt);
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 }
         : section === 'military-resources' ? { ...raw, military: { ...raw.military, activePersonnel: 10_000_000 } } : raw);
     };
     await expect(generateCountryInitialProfile(spec, complete, { requireEstimate: true })).rejects.toThrow(/militare/i);
+  });
+
+  it('C2 — without a reference, a population that copies the modern map is rejected', async () => {
+    const mapPopulation = 50_000_000;
+    const spec = input('UGA', mapPopulation);
+    expect(referencePopulationForDate('UGA', '2000-01-01')).toBeNull();
+    const copied = async (_system: string, prompt: string) => {
+      const { section, fallback, anchors } = readPrompt(prompt);
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 }
+        : section === 'national-state' ? { ...raw, population: mapPopulation } : raw);
+    };
+    await expect(generateCountryInitialProfile(spec, copied, { requireEstimate: true }))
+      .rejects.toThrow(/stato nazionale/i);
+    // Una stima storica distinta e plausibile, invece, è accettata.
+    const distinct = async (_system: string, prompt: string) => {
+      const { section, fallback, anchors } = readPrompt(prompt);
+      return profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 }
+        : section === 'national-state' ? { ...raw, population: 30_000_000 } : raw);
+    };
+    const result = await generateCountryInitialProfile(spec, distinct, { requireEstimate: true });
+    expect(result.population).toBe(30_000_000);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('H — the total bootstrap budget bounds three slow sections inside one POST', async () => {
+    vi.useFakeTimers();
+    try {
+      const spec = input('UGA', 24_000_000);
+      // Ogni sezione risponde dopo 30s (< 35s): 3 × 30s = 90s > budget 80s.
+      const complete = vi.fn((_system: string, prompt: string) => new Promise<string>(resolve => {
+        setTimeout(() => {
+          const { section, fallback, anchors } = readPrompt(prompt);
+          resolve(profileReply(section, fallback, anchors, raw => section === 'economy' ? { ...raw, debtRatioPct: 30 } : raw));
+        }, 30_000);
+      }));
+      const pending = generateCountryInitialProfile(spec, complete, { requireEstimate: true });
+      const rejected = expect(pending).rejects.toThrow(/tempo limite|stato nazionale|profilo iniziale/i);
+      await vi.advanceTimersByTimeAsync(86_000);
+      await rejected;
+    } finally { vi.useRealTimers(); }
   });
 });

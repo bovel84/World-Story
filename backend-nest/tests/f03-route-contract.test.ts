@@ -26,8 +26,11 @@ const stubProvider: any = {
   async generate(mechanic: string, _system?: string, prompt?: string) {
     // Bootstrap del giocatore: serve una stima valida, non il fallback deterministico.
     if (typeof prompt === 'string' && prompt.includes('"fallback"')) {
-      const { section, fallback } = JSON.parse(prompt);
+      const { section, fallback, anchors } = JSON.parse(prompt);
       if (section === 'economy') return { content: JSON.stringify({ economy: { ...fallback, debtRatioPct: 30 } }) };
+      if (section === 'national-state' && fallback.population == null) {
+        return { content: JSON.stringify({ ...fallback, population: Math.max(1, Math.round((anchors?.mapPopulation ?? 1) * 0.6)) }) };
+      }
       return { content: JSON.stringify(fallback) };
     }
     if (mechanic === 'converter') {
