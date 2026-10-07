@@ -57,6 +57,102 @@ const multi = () => world({
   ],
 });
 
+describe('Country X — strategic focus and historical continuity', () => {
+  const context = {
+    historicalBaseline: 'Alla data di divergenza il movimento ALPHA era attivo nella regione NORTH e riceveva sostegno politico oltre il confine con Y.',
+    temporalScope: { initialDate: '2000-01-01', currentDate: '2000-01-01' },
+  };
+  const country = (turn = 1) => {
+    const snapshot = buildVerifiedWorldSnapshot({ gameData: {
+      id: 'country-x', playerPolityId: 'X', playerPolityName: 'Country X', currentDate: turn === 1 ? '2000-01-01' : '2000-02-01', currentTurn: turn,
+      world: { regions: { north: { id: 'north', name: 'NORTH', owner: 'X', coastal: false, objects: [] } } },
+      worldState: { accounts: { X: { population: 1_000_000, stability: 20 } }, resources: { stock: { food: 1 }, needs: { food: 1 } } },
+      relationships: { X: { Y: 'hostile', Z: 'hostile' } },
+    }, commitments: [], operationalRows: [] });
+    snapshot.military.initialReadinessPct = 20;
+    return snapshot;
+  };
+  const historicalKey = () => buildStrategicThreadEvidence(country(), context).find(item => item.kind === 'historical')!.key;
+  const proposal = (signalKeys = ['stability', 'hostile-relations:Y']) => ({ id: 'alpha-north',
+    title: 'Insurrezione di ALPHA nella regione NORTH', summary: 'Le tensioni oltre confine limitano la risposta alla crisi documentata nel nord.',
+    signalKeys, evidenceKeys: [historicalKey()] });
+  const event = (headline: string, id = 'event') => ({ id, date: '2000-02-01', headline, detail: null, sourceRef: `results.${id}`, sourceActionIds: [] });
+
+  it('accetta il thread generico Country X / ALPHA / NORTH senza dipendenze da paesi reali', () => {
+    const result = resolveAdvisorSituation(country(), proposal(), context);
+    expect(result.id).toBe('alpha-north');
+    expect(result.title).toBe('Insurrezione di ALPHA nella regione NORTH');
+    expect(result.evidenceKeys).toEqual([historicalKey()]);
+  });
+
+  it('focus multi-signal: schema route, resolver e prompt conservano TUTTE le fonti', async () => {
+    const { realityAdvisorSchema } = await import('../src/routes/games/schemas');
+    const snapshot = country();
+    const payload = { id: 'alpha-north', signalKeys: ['stability', 'hostile-relations:Y', 'hostile-relations:Z'], evidenceKeys: [historicalKey()] };
+    const body = realityAdvisorSchema.parse({ focusSituation: { ...payload, title: 'FATTO CLIENT INVENTATO', summary: 'Non fidarsi' } });
+    const focus = resolveFocusSituation(snapshot, body.focusSituation, context);
+    expect(focus.id).toBe(payload.id);
+    expect(focus.signalKeys).toEqual(payload.signalKeys);
+    expect(focus.evidenceKeys).toEqual(payload.evidenceKeys);
+    expect(focus.title).not.toBe('Stabilità interna');
+    const prompt = buildRealityAdvisorPrompt({ ...buildRealityAdvisorContext(snapshot).advisorContext, ...context, focusSituation: focus }, 'Approfondisci questa situazione');
+    expect(prompt).toContain('alpha-north');
+    expect(prompt).toContain(context.historicalBaseline);
+    for (const key of payload.signalKeys) expect(prompt).toContain(key);
+    expect(prompt).not.toContain('FATTO CLIENT INVENTATO');
+    expect(prompt).toContain('Non presentare nuovamente il quadro nazionale');
+  });
+
+  it('focus evidence-only è valido, ma fonti entrambe vuote o una chiave falsa falliscono chiuse', () => {
+    const snapshot = country();
+    const focus = resolveFocusSituation(snapshot, { id: 'constitutional-transition', signalKeys: [], evidenceKeys: [historicalKey()] }, context);
+    expect(focus.signalKeys).toEqual([]);
+    expect(focus.evidenceKeys).toEqual([historicalKey()]);
+    expect(() => resolveFocusSituation(snapshot, { id: 'empty', signalKeys: [], evidenceKeys: [] }, context)).toThrow();
+    expect(() => resolveFocusSituation(snapshot, { id: 'alpha', signalKeys: ['stability'], evidenceKeys: ['historical:inventato'] }, context)).toThrow();
+    expect(() => resolveFocusSituation(snapshot, { id: 'alpha', signalKeys: ['inventato'], evidenceKeys: [historicalKey()] }, context)).toThrow();
+  });
+
+  it('turno 2: la baseline resta, un evento scolastico indipendente non la disabilita', () => {
+    const snapshot = country(2);
+    snapshot.recent.events = [event('Costruita una scuola')];
+    expect(buildStrategicThreadEvidence(snapshot, context).some(item => item.key === historicalKey())).toBe(true);
+    expect(resolveAdvisorSituation(snapshot, proposal(), context).id).toBe('alpha-north');
+    expect(() => resolveAdvisorSituation(snapshot, proposal([]), context)).toThrow(/current|corrente|continu/i);
+    expect(() => resolveFocusSituation(snapshot, { id: 'alpha-north', evidenceKeys: [historicalKey()] }, context)).toThrow();
+    snapshot.recent.events.push(event('ALPHA continua le operazioni nella regione NORTH', 'continuity'));
+    const continuity = buildStrategicThreadEvidence(snapshot, context).find(item => item.kind === 'history' && item.text.includes('ALPHA'))!;
+    expect(resolveAdvisorSituation(snapshot, { ...proposal([]), evidenceKeys: [historicalKey(), continuity.key] }, context).id).toBe('alpha-north');
+    const current = buildStrategicThreadEvidence(snapshot, context).find(item => item.kind === 'current')!;
+    expect(resolveAdvisorSituation(snapshot, { ...proposal([]), evidenceKeys: [historicalKey(), current.key] }, context).id).toBe('alpha-north');
+  });
+
+  it('ALPHA disarmato: la sua vecchia evidence non viene riattivata da stability, altre baseline restano', () => {
+    const snapshot = country(2);
+    snapshot.recent.events = [event('ALPHA ha deposto le armi; crisi conclusa.')];
+    const richer = { ...context, historicalBaseline: context.historicalBaseline + '\nLa transizione BETA era in corso nella regione SOUTH.' };
+    expect(() => resolveAdvisorSituation(snapshot, proposal(['stability']), richer)).toThrow();
+    expect(() => resolveFocusSituation(snapshot, { id: 'alpha-north', signalKeys: ['stability'], evidenceKeys: [historicalKey()] }, richer)).toThrow();
+    expect(buildStrategicThreadEvidence(snapshot, richer).some(item => item.kind === 'historical' && item.text.includes('BETA'))).toBe(true);
+  });
+
+  it('una negazione o un proposito di disarmo non è una risoluzione', () => {
+    const snapshot = country(2);
+    snapshot.recent.events = [event('ALPHA non ha deposto le armi.')];
+    snapshot.recent.signedActs = [{ id: 'act', text: 'ALPHA va disarmato: autorizzato un negoziato', status: 'signed_pending_execution', createdAt: snapshot.date! }];
+    expect(resolveAdvisorSituation(snapshot, proposal(), context).id).toBe('alpha-north');
+  });
+
+  it('una risoluzione lontana non sparisce quando la cronaca recente viene troncata', () => {
+    const snapshot = country(30);
+    const base = { ...buildRealityAdvisorContext(snapshot).advisorContext, ...context };
+    const results = Array.from({ length: 25 }, (_, index) => ({ id: `r${index}`, date: '2000-01-15', turn: index + 2,
+      events: [index === 1 ? 'ALPHA ha deposto le armi; crisi conclusa.' : `Rapporto amministrativo ${index}`] }));
+    const enriched = withAdvisorStrategicContext(base, context.temporalScope.initialDate, results, 'quadro');
+    expect(() => resolveAdvisorSituation(snapshot, proposal(['stability']), enriched)).toThrow();
+  });
+});
+
 describe('Strategic threads grounded in server evidence', () => {
   const baseline = "Alla vigilia della divergenza l'LRA era attivo nel nord, nelle aree di Gulu e Acholi. Il Sudan ne complicava la dimensione transfrontaliera.";
   const opening = () => world({ date: '2000-01-01', turn: 1, relationships: { UGA: { SDN: 'hostile', COD: 'hostile' } } });

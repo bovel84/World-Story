@@ -46,15 +46,19 @@ export const advisorSituationInputSchema = z.object({
   kind: z.enum(['problem', 'opportunity']).optional(),
 }).refine(value => value.signalKeys.length > 0 || !!value.evidenceKeys?.length);
 
-/** WS-CONSULENTE-SITUAZIONI — Focus canonico di un approfondimento: UNA sola
- *  signalKey. Titolo e sintesi del client NON sono fonte di fatti. */
+/** WS-CONSULENTE-SITUAZIONI — Focus canonico di un approfondimento. Il client
+ *  invia solo riferimenti strutturali: id + signalKeys/evidenceKeys canoniche.
+ *  Titolo e sintesi del client NON sono fonte di fatti. `signalKey` resta solo
+ *  come compatibilità deprecata e viene unito a `signalKeys`. */
 export const focusSituationInputSchema = z.object({
   id: z.string().trim().min(1).max(160).optional(),
-  signalKey: key,
-});
+  signalKeys: z.array(key).max(5).optional(),
+  evidenceKeys: z.array(key).min(1).max(8).optional(),
+  signalKey: key.optional(),
+}).refine(value => (value.signalKeys?.length ?? 0) + (value.signalKey ? 1 : 0) > 0 || !!value.evidenceKeys?.length);
 
 export class InvalidAdvisorSituationError extends Error {
-  constructor(message = 'Situazione non valida: chiavi di segnale canoniche richieste') {
+  constructor(message = 'Situazione non valida: servono segnali canonici o prove del thread') {
     super(message); this.name = 'InvalidAdvisorSituationError';
   }
 }
@@ -79,7 +83,7 @@ export function resolveAdvisorSituation(snapshot: VerifiedWorldSnapshot, raw: un
   if (!parsed.success) throw new InvalidAdvisorSituationError();
   const input = parsed.data;
   const { signalKeys, signals } = resolveSignalLinks(snapshot, input.signalKeys);
-  const evidence = resolveStrategicThreadEvidence(snapshot, input.evidenceKeys ?? [], context);
+  const evidence = resolveStrategicThreadEvidence(snapshot, input.evidenceKeys ?? [], context, signals.length > 0);
   if (!signals.length && !evidence.length) throw new InvalidAdvisorSituationError();
   const thread: StrategicThread = {
     title: input.title, summary: input.summary, signalKeys,
@@ -95,22 +99,37 @@ export function resolveAdvisorSituation(snapshot: VerifiedWorldSnapshot, raw: un
 }
 
 /**
- * Risolve il focus dell'approfondimento sul SOLO segnale canonico: il client
- * manda una signalKey, il server ricostruisce titolo e sintesi dal motore. Una
- * chiave ignota (o assente) fallisce chiuso.
+ * Risolve il focus dell'approfondimento sulla STESSA Strategic Situation:
+ * id + più signalKeys/evidenceKeys canoniche, tutte verificate server-side.
+ * Una chiave ignota o scaduta invalida l'intero focus. Con evidenceKeys il
+ * titolo resta neutro: il thread NON viene rinominato col primo segnale.
  */
-export function resolveFocusSituation(snapshot: VerifiedWorldSnapshot, raw: unknown): AdvisorSituation {
+export function resolveFocusSituation(snapshot: VerifiedWorldSnapshot, raw: unknown, context: StrategicThreadContext = {}): AdvisorSituation {
   const parsed = focusSituationInputSchema.safeParse(raw);
   if (!parsed.success) throw new InvalidAdvisorSituationError();
-  const signal = buildRealitySignals(snapshot).find(candidate => candidate.key === parsed.data.signalKey);
-  if (!signal) throw new InvalidAdvisorSituationError(`Unknown reality signal key: ${parsed.data.signalKey}`);
+  const input = parsed.data;
+  const { signalKeys, signals } = resolveSignalLinks(snapshot, [...(input.signalKeys ?? []), ...(input.signalKey ? [input.signalKey] : [])]);
+  const evidence = resolveStrategicThreadEvidence(snapshot, input.evidenceKeys ?? [], context, signals.length > 0);
+  if (!signals.length && !evidence.length) throw new InvalidAdvisorSituationError();
   return {
-    id: parsed.data.id ?? `situation-${signal.key}`,
-    title: signalSituationTitle(signal),
-    summary: signal.reason,
-    signalKeys: [signal.key],
-    importance: signal.importance,
+    id: input.id ?? (signalKeys[0] ? `situation-${signalKeys[0]}` : `situation-${shortId()}`),
+    title: focusSituationTitle(signals, evidence),
+    summary: focusSituationSummary(signals, evidence),
+    signalKeys,
+    ...(evidence.length ? { evidenceKeys: evidence.map(item => item.key) } : {}),
+    importance: signals.reduce((max, signal) => Math.max(max, signal.importance), 2),
   };
+}
+
+/** Neutral fallback title: with evidence the thread keeps its own identity and
+ *  must not become the name of the first technical signal. */
+function focusSituationTitle(signals: RealitySignal[], evidence: readonly unknown[]): string {
+  if (evidence.length) return 'Situazione strategica in esame';
+  return signals.length === 1 ? signalSituationTitle(signals[0]) : 'Situazione strategica in esame';
+}
+
+function focusSituationSummary(signals: RealitySignal[], evidence: readonly { text: string }[]): string {
+  return (evidence.length ? evidence.map(item => item.text).join(' ') : signals.map(signal => signal.reason).join(' ')).slice(0, 600);
 }
 
 /**

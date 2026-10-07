@@ -2059,6 +2059,8 @@ export interface CouncilIssue {
   signalKeys?: string[];
   /** Chiavi degli anchor canonici: il server le ricalcola, mai il client. */
   anchorKeys?: string[];
+  /** Collegamento presentazionale alla situazione d'origine; mai fonte di fatti. */
+  situationId?: string;
   verifiedFacts: Array<{ key: string; label: string; value: string; source: string; sourceRef: string }>;
   suggestedMinisters: CabinetAddressView['seat'][];
   origin: 'advisor' | 'president' | 'minister' | 'event' | 'follow-up';
@@ -2080,15 +2082,24 @@ export interface AdvisorSituation {
   summary: string;
   /** Chiavi dei segnali canonici: il server le ricalcola, mai il client. */
   signalKeys?: string[];
+  /** Chiavi delle prove del thread strategico risolte dal server (0..8). */
+  evidenceKeys?: string[];
+  /** Natura della situazione: problema o opportunità (presentazione). */
+  kind?: 'problem' | 'opportunity';
   /** 1 = marginale, 2 = rilevante, 3 = critico. Derivata dai segnali dal server. */
   importance?: number;
 }
 
-/** Focus di un approfondimento: il client manda solo l'id e la signalKey; il
- *  server ricostruisce titolo e sintesi dal RealitySignal canonico. */
+/** Focus di un approfondimento: il client manda SOLO l'id e i riferimenti
+ *  canonici (signalKeys/evidenceKeys); il server ricostruisce titolo e sintesi
+ *  dalle fonti reali. `signalKey` resta opzionale per retrocompatibilità con i
+ *  chiamanti esistenti: il percorso nuovo usa gli array. */
 export interface AdvisorSituationFocus {
-  id?: string;
-  signalKey: string;
+  id: string;
+  signalKeys?: string[];
+  evidenceKeys?: string[];
+  /** @deprecated Usare `signalKeys`; mantenuto solo per i chiamanti esistenti. */
+  signalKey?: string;
 }
 
 /** Server-built read model. Unknown fields remain unknown, never inferred by the client. */
@@ -2286,7 +2297,9 @@ export const advisorApi = {
       body: JSON.stringify({
         message, history,
         ...(focusIssue ? { advisorContext: { focusIssue } } : {}),
-        ...(focusSituation?.signalKey ? { focusSituation } : {}),
+        // Non si fa più affidamento sulla sola `signalKey`: anche un focus
+        // evidence-only (o multi-segnale) va trasmesso al server.
+        ...(focusSituation ? { focusSituation } : {}),
       }),
     }),
   /**

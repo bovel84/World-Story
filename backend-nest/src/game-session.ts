@@ -35,7 +35,7 @@ import { derivedInfrastructureObjects } from './core/simulation/DerivedInfrastru
 import { renderRealityConcerns } from './core/government/RealitySignals';
 import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, isAdvisorBriefingRequest, withAdvisorStrategicContext, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { generateHistoricalBaseline, awaitHistoricalBaseline, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
-import { parseAdvisorResponse } from './core/government/AdvisorSituations';
+import { parseAdvisorResponse, resolveFocusSituation } from './core/government/AdvisorSituations';
 import type { CouncilIssue } from './core/government/CouncilIssue';
 import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
@@ -3545,13 +3545,16 @@ export class GameSession {
 
   private advisorResult(query = '', focusIssue?: unknown, focusSituation?: unknown, mode: 'briefing' | 'conversation' = 'conversation'): RealityAdvisorResult {
     const own = this.cachedHistoricalBaseline(this.playerPolityId);
-    const result = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue, own?.historicalBackground, focusSituation, mode);
+    // Il focus è risolto DOPO il contesto strategico: serve la cronaca completa
+    // (finestra + veto risoluzioni) per non riattivare una crisi già chiusa.
+    const result = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue, own?.historicalBackground, undefined, mode);
     const related = this.mentionedNpcPolityIds([query]).slice(0, 3).flatMap(id => {
       const baseline = this.cachedHistoricalBaseline(id); return baseline ? [baseline] : [];
     });
     result.advisorContext.temporalScope = { initialDate: this.historicalStartDate || null, currentDate: this.currentDate };
     result.advisorContext.polityHistoricalBaselines = [...(own ? [own] : []), ...related];
     result.advisorContext = withAdvisorStrategicContext(result.advisorContext, this.historicalStartDate, this.results, query);
+    if (focusSituation !== undefined) result.advisorContext.focusSituation = resolveFocusSituation(result.advisorContext.verifiedWorldSnapshot, focusSituation, result.advisorContext);
     return result;
   }
 

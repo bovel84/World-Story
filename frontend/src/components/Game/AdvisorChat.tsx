@@ -6,7 +6,7 @@ import { useSimulationStore } from '../../stores/simulationRuntime';
 import { useChatStore } from '../../stores';
 import { RichText } from './RichText';
 import { CouncilIssueInline } from './CouncilIssueInline';
-import { AdvisorSituationsPanel, buildSituationFocusMessage } from './AdvisorSituationsPanel';
+import { AdvisorSituationsPanel, buildSituationFocusMessage, buildSituationFocusPayload } from './AdvisorSituationsPanel';
 import { archivedTurns, currentTurnMessages } from './advisorTurns';
 import { advisorBucketKey, advisorOpeningKey, loadAdvisorArchive, loadAdvisorMessages, loadAdvisorOpening, saveAdvisorMessages, saveAdvisorOpening, type AdvisorOpening } from './advisorMemory';
 import { fetchAdvisorOpening } from './advisorOpening';
@@ -97,10 +97,10 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     const history = currentTurnMessages(advisorMessages, currentTurn)
       .filter(message => !message.proactive && message.content.trim()).slice(-20)
       .map(message => ({ role: message.role, content: message.content }));
-    // WS-CONSULENTE-SITUAZIONI — Focus canonico: al server va solo la signalKey.
+    // WS-CONSULENTE-SITUAZIONI — Focus canonico: al server vanno TUTTI i
+    // riferimenti (signalKeys + evidenceKeys), mai titolo o sintesi.
     const activeSituation = explicitSituation ?? situationFocus;
-    const situationKey = activeSituation?.signalKeys?.[0];
-    const focusPayload = situationKey ? { id: activeSituation.id, signalKey: situationKey } : undefined;
+    const focusPayload = activeSituation ? buildSituationFocusPayload(activeSituation) : undefined;
     addAdvisorMessage({ role: 'user', content: text, turn: currentTurn });
     if (raw === undefined) setInput('');
     setError(''); setAdvisorStreaming(true);
