@@ -155,8 +155,12 @@ describe('WS-GOV-ADVISOR-HISTORICAL-BASELINE', () => {
     const session = create('hb_khm');
     const opening = await session.getAdvisorOpening();
     expect(opening.fallback).toBe(false);
-    expect(opening.reply).toBe(openingProse);
-    expect(opening.reply).not.toBe(opening.advisorContext.governmentBrief);
+    // La prosa generata resta il contenuto primario...
+    expect(opening.reply).toContain(openingProse);
+    expect(opening.reply).not.toContain(opening.advisorContext.governmentBrief);
+    // ...e il briefing dichiara esplicitamente le proposte mancanti, senza inventarne.
+    expect(opening.reply).toContain('Briefing incompleto');
+    expect(opening.briefingCoverage?.complete).toBe(false);
     expect(openingCalls).toBeGreaterThan(0);
     // 3-6 paragrafi brevi, nessuna sezione FACT visibile.
     expect(opening.reply).not.toMatch(/(?:^|\n)\s*(?:FACT|INFERENCE|FORECAST|PROPOSAL)\s*[—–:-]/);
@@ -168,9 +172,13 @@ describe('WS-GOV-ADVISOR-HISTORICAL-BASELINE', () => {
     try {
       const opening = await session.getAdvisorOpening();
       expect(opening.fallback).toBe(true);
-      expect(opening.reply).toBe(opening.advisorContext.governmentBrief);
+      // Il testo deterministico resta la base del fallback...
+      expect(opening.reply).toContain(opening.advisorContext.governmentBrief);
       expect(opening.reply.length).toBeGreaterThan(0);
       expect(opening.issues).toEqual([]);
+      // ...preceduto dall'avviso esplicito: nessuna proposta fabbricata.
+      expect(opening.reply).toContain('Briefing incompleto');
+      expect(opening.briefingCoverage?.complete).toBe(false);
     } finally {
       failGeneration = false;
     }
