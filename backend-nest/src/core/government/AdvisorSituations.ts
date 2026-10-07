@@ -15,7 +15,8 @@
 import { z } from 'zod';
 import { shortId } from '../../utils/short-id';
 import { buildRealitySignals, type RealitySignal } from './RealitySignals';
-import { isPreparatoryCouncilIssue, parseCouncilIssues, type CouncilIssue, type CouncilIssueOrigin, type CouncilIssueParseOptions } from './CouncilIssue';
+import { MAX_BRIEFING_COUNCIL_ISSUES, isPreparatoryCouncilIssue, parseCouncilIssues, type CouncilIssue, type CouncilIssueOrigin, type CouncilIssueParseOptions } from './CouncilIssue';
+import { buildCouncilProposalAnchors } from './CouncilProposalAnchors';
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 
 export interface AdvisorSituation {
@@ -199,6 +200,35 @@ export interface AdvisorResponse {
   reply: string;
   situations: AdvisorSituation[];
   issues: CouncilIssue[];
+  /** Solo briefing: copertura ricalcolata dopo tutti i filtri, mai dichiarata dal modello. */
+  briefingCoverage?: { complete: boolean; missingSignalKeys: string[]; missingOpportunity: boolean };
+}
+
+/** Non fabbrica proposte: conserva il risultato parziale e rende visibile ciò che manca. */
+export function withAdvisorBriefingCoverage(snapshot: VerifiedWorldSnapshot, result: AdvisorResponse): AdvisorResponse {
+  // Ogni proposta copre la sua prima chiave (situazione principale), non un'intera
+  // agenda grazie a un elenco di tag. Tre situazioni richiedono tre proposte.
+  const covered = new Set(result.issues.flatMap(issue => issue.signalKeys?.slice(0, 1) ?? issue.anchorKeys?.slice(0, 1) ?? []));
+  // Ordine stabile anche dopo la serializzazione: nessun avviso duplicato al round-trip.
+  const missing = result.situations.filter(situation => !situation.signalKeys.some(key => covered.has(key)))
+    .sort((left, right) => left.signalKeys[0].localeCompare(right.signalKeys[0]));
+  const opportunityKeys = new Set(buildCouncilProposalAnchors(snapshot).filter(anchor => anchor.domain !== 'decision').map(anchor => anchor.key));
+  const missingOpportunity = result.situations.length === 0
+    && !result.issues.some(issue => issue.anchorKeys?.some(key => opportunityKeys.has(key)));
+  const briefingCoverage = {
+    complete: missing.length === 0 && !missingOpportunity,
+    missingSignalKeys: missing.flatMap(situation => situation.signalKeys),
+    missingOpportunity,
+  };
+  // Titoli dal motore, non dai claim del modello. Il testo passa nella UI già esistente.
+  const titles = new Map(buildRealitySignals(snapshot).map(signal => [signal.key, signalSituationTitle(signal)]));
+  const notice = briefingCoverage.complete ? '' : missing.length
+    ? `Briefing incompleto: manca una proposta valida per ${missing.map(situation => titles.get(situation.signalKeys[0]) ?? situation.title).join('; ')}. Le situazioni e le eventuali proposte disponibili restano sul tavolo.`
+    : opportunityKeys.size
+      ? 'Briefing incompleto: manca una proposta concreta sulle opportunità disponibili. Non sono state aggiunte proposte automatiche.'
+      : 'Briefing incompleto: non ho fatti sufficienti per formulare una proposta politica fondata. Non sono state inventate opportunità.';
+  return { ...result, briefingCoverage,
+    reply: notice && !result.reply.startsWith(notice) ? [notice, result.reply].filter(Boolean).join('\n\n') : result.reply };
 }
 
 /**
@@ -215,18 +245,21 @@ export type AdvisorResponseParseOptions = CouncilIssueParseOptions & { includeDe
 /** Punto unico del Consulente: situazioni e proposte restano separate. */
 export function parseAdvisorResponse(snapshot: VerifiedWorldSnapshot, text: string, origin: CouncilIssueOrigin = 'advisor', options: AdvisorResponseParseOptions = {}): AdvisorResponse {
   const parsedSituations = parseAdvisorSituations(snapshot, text, options);
-  const parsedIssues = parseCouncilIssues(snapshot, parsedSituations.reply, origin, options);
-  return {
+  const briefing = Boolean(options.includeDeterministicSituations) && (origin === 'advisor' || origin === 'president');
+  const parsedIssues = parseCouncilIssues(snapshot, parsedSituations.reply, origin, {
+    ...options, ...(briefing ? { maxIssues: MAX_BRIEFING_COUNCIL_ISSUES } : {}),
+  });
+  const result: AdvisorResponse = {
     reply: parsedIssues.reply,
     situations: options.includeDeterministicSituations
       ? mergeAdvisorSituations(snapshot, parsedSituations.situations)
       : parsedSituations.situations,
-    // Briefing is diagnostic even when the model ignores the prompt. Preserve
-    // every situation, but never offer automatic acts. Other speakers unchanged.
+    // Il Consulente scarta le proposte solo istruttorie; i ministri restano invariati.
     issues: origin === 'advisor' || origin === 'president'
-      ? options.includeDeterministicSituations ? [] : parsedIssues.issues.filter(issue => !isPreparatoryCouncilIssue(issue))
+      ? parsedIssues.issues.filter(issue => !isPreparatoryCouncilIssue(issue))
       : parsedIssues.issues,
   };
+  return briefing ? withAdvisorBriefingCoverage(snapshot, result) : result;
 }
 
 /** Serializza entrambi i tipi di blocco: il round-trip interno li conserva distinti. */

@@ -124,6 +124,8 @@ export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknow
 
 /** Cap tecnico di sicurezza: NON è una quota da riempire, solo un limite anti-abuso. */
 export const MAX_COUNCIL_ISSUES = 8;
+/** Briefing: fino a 24 situazioni con tre alternative ciascuna, mai una quota. */
+export const MAX_BRIEFING_COUNCIL_ISSUES = 72;
 
 export const COUNCIL_ISSUE_PROTOCOL = [
   'Puoi proporre questioni interministeriali, NON aprire una seduta o creare una crisi. Il Presidente decide se portarle al Consiglio.',
@@ -140,7 +142,7 @@ export const COUNCIL_ISSUE_PROTOCOL = [
  * prompt del ministro ha un budget di contesto stretto (JEV-W3).
  */
 export const COUNCIL_ANCHOR_PROTOCOL = [
-  'Una proposta può nascere da un PROBLEMA (aggancia `signalKeys` dai CURRENT STRATEGIC SIGNALS) oppure da un\'OPPORTUNITÀ concreta (aggancia `anchorKeys` dai COUNCIL PROPOSAL ANCHORS). I segnali dicono ciò che MERITA ATTENZIONE; gli anchor sono fatti canonici che POSSONO SOSTENERE una proposta. Nessuna quota: se non c\'è nulla di specifico, zero schede è una risposta corretta.',
+  'Una proposta può nascere da un PROBLEMA (aggancia `signalKeys` dai CURRENT STRATEGIC SIGNALS) oppure da un\'OPPORTUNITÀ concreta (aggancia `anchorKeys` dai COUNCIL PROPOSAL ANCHORS). I segnali dicono ciò che MERITA ATTENZIONE; gli anchor sono fatti canonici che POSSONO SOSTENERE una proposta. Nel BRIEFING MODE senza crisi scegli almeno un\'opportunità sostenuta dagli anchor disponibili e proponi una decisione concreta: cassa non significa surplus libero, capacità non significa fattibilità. Se mancano appigli non inventarli; dichiara il limite. Fuori dal briefing le proposte restano facoltative.',
   'Un atto GIÀ FIRMATO è una decisione presa: non riproporlo come se fosse ancora da decidere.',
 ].join('\n');
 
@@ -151,17 +153,19 @@ export const COUNCIL_ANCHOR_PROTOCOL = [
  */
 export const SITUATION_BASE_PROTOCOL = [
   'Distingui SITUAZIONE da PROPOSTA DI ATTO. Una SITUAZIONE è ciò che merita attenzione nel paese (dai segnali e dai fatti verificati): descrivila anche senza chiedere nulla. Una PROPOSTA DI ATTO è una decisione concreta che il Presidente o il Governo devono prendere: emetti la relativa scheda council_issue solo quando esiste davvero un atto da decidere.',
-  'Non trasformare ogni situazione in una proposta: una situazione può restare senza alcuna council_issue. Il numero di situazioni e di proposte dipende dallo stato reale della partita: possono essere nessuna, una o molte; non esiste un numero fisso da raggiungere e non riempire una quota.',
-  'Solo una decisione presidenziale concreta (autorizzare, finanziare, ordinare, modificare una politica, negoziare con mandato definito, avviare/sospendere un programma, mobilitare/dispiegare, approvare una misura) giustifica una council_issue. «Autorizzare una verifica» non basta: valutare, verificare, approfondire, monitorare, studiare o sondare informalmente restano attività istruttorie da lasciare nella conversazione col Consulente o col ministro.',
+  'Non fondere situazione e proposta: la prima descrive il presente, la seconda una possibile decisione. Nel briefing ogni situazione deve avere almeno una proposta collegata; in conversazione non occorre rigenerare le schede. Non esiste un numero fisso globale e non riempire artificialmente una quota.',
+  'Solo una decisione presidenziale concreta (autorizzare, finanziare, ordinare, modificare una politica, negoziare con mandato definito, avviare/sospendere un programma, mobilitare/dispiegare, approvare una misura) giustifica una council_issue. «Autorizzare una verifica» non basta: valutare, verificare, approfondire, monitorare, studiare o sondare informalmente restano attività istruttorie da lasciare nella conversazione col Consulente o col ministro. Un mandato istruttorio è una decisione solo se assegna a ministri identificati un risultato concreto e una scadenza (es. presentare un piano congiunto entro il prossimo turno).',
 ].join('\n');
 
 /**
- * BRIEFING MODE — apertura, nuovo turno, fallback briefing. Qui, e solo qui, il
- * modello è chiamato a descrivere le situazioni correnti con blocchi
- * `advisor_situation`; il server integra comunque la base deterministica.
+ * BRIEFING MODE — situazioni e risposte politiche separate ma collegate.
+ * Il server integra la base deterministica e segnala la copertura incompleta.
  */
 export const ADVISOR_BRIEFING_SITUATION_PROTOCOL = [
-  'BRIEFING MODE: council_issue = 0, senza eccezioni. Produci analisi, situazioni ed eventualmente priorità politiche, NON proposte di atto né blocchi council_issue. Il Presidente sceglie «Approfondisci» e discute col Consulente; solo in CONVERSATION MODE una decisione concreta può diventare proposta.',
+  'BRIEFING MODE: produci almeno una proposta concreta per ogni situazione dei CURRENT STRATEGIC SIGNALS (escluse le decisioni già prese), oltre alla sua advisor_situation. Emetti le proposte in blocchi council_issue separati, usando come prima signalKey quella della situazione principale affrontata. Ogni situazione richiede una propria proposta: non usare una sola scheda con molti tag per coprire l’intera agenda. Una proposta principale specifica, eventualmente due o tre alternative strategiche REALMENTE diverse, non parafrasi. Nessun numero fisso globale: copri tutte le situazioni, non solo quelle che scegli di raccontare in prosa.',
+  'Se non ci sono situazioni rilevanti, interpreta almeno una opportunità reale dai COUNCIL PROPOSAL ANCHORS e produci una council_issue con anchorKeys canoniche. Descrivi l’opportunità nel testo senza inventare una signalKey o una crisi. Non copiare una soluzione generica per ogni segnale. Non riproporre atti firmati: solo modifiche o follow-up motivati da nuove esigenze.',
+  'Il Presidente sceglie se approfondire la situazione o portare una proposta al Consiglio. Non aprire sedute, firmare atti o avanzare il tempo. Parla come un consigliere politico: collega fatti, alternative, vantaggi e vincoli; i blocchi servono alla UI, non recitare un elenco robotico.',
+  'Non inventare costi, uomini, tempi operativi o risorse: senza cifre verificate formula un mandato condizionato alla copertura del Tesoro e alla disponibilità effettiva. Niente attacchi senza forze disponibili, porti in paesi senza accesso al mare, uso di infrastrutture inesistenti, interlocutori non presenti o tecnologie fuori epoca. Usa cronaca, programmi e atti firmati per distinguere una nuova esigenza da una decisione già presa.',
   'BRIEFING MODE. Descrivi le SITUAZIONI correnti rilevanti: quante ne giustifica lo stato reale del paese, senza un numero fisso. Emetti per ogni situazione un blocco separato ```advisor_situation con JSON {"title":"...","summary":"...","signalKeys":["chiave-segnale canonica"]}. Una sola signalKey per scheda, presa dai CURRENT STRATEGIC SIGNALS: non accorpare problemi distinti (due vicini ostili restano due situazioni).',
   'I titoli devono essere concreti e specifici, ancorati all\'entità reale (es. «Tensioni al confine con il Sudan», «Ritardo della ferrovia Kampala–Jinja»): evita titoli generici come «Situazione diplomatica», «Problema militare», «Economia» o «Difesa». Una scheda council_issue non sostituisce la sua situazione.',
 ].join('\n');
@@ -177,7 +181,7 @@ export const ADVISOR_CONVERSATION_PROTOCOL = [
 
 /** Narrow advisor-only guard, not a semantic classifier. Ministers/council are unchanged. */
 export function isPreparatoryCouncilIssue(issue: Pick<CouncilIssue, 'question'>): boolean {
-  return /^(?:(?:si propone di|possiamo|vogliamo)\s+)?(?:valutare|verificare|approfondire|monitorare|studiare|sondare)\b/i.test(issue.question.trim())
+  return /^(?:(?:si propone di|proporre di|possiamo|vogliamo)\s+)?(?:valutare|verificare|approfondire|monitorare|studiare|sondare)\b/i.test(issue.question.trim())
     || /^(?:autorizzare|ordinare)\s+(?:(?:una?|la|lo|il)\s+)?(?:verifica|valutazione|approfondimento|monitoraggio|studio|sondaggio)\b/i.test(issue.question.trim());
 }
 
@@ -212,6 +216,8 @@ function duplicatesSignedAct(snapshot: VerifiedWorldSnapshot, issue: Pick<Counci
 
 /** Strip invalid/unfinished/duplicate proposals; model text never supplies canonical facts. */
 export interface CouncilIssueParseOptions {
+  /** Limite server-side; il briefing può coprire più delle otto questioni di una chat. */
+  maxIssues?: number;
   /** Motivo dello scarto: callback per i test, altrimenti il server logga. */
   onDiscard?: (reason: string) => void;
 }
@@ -219,9 +225,10 @@ export interface CouncilIssueParseOptions {
 export function parseCouncilIssues(snapshot: VerifiedWorldSnapshot, text: string, origin: CouncilIssueOrigin = 'advisor', options: CouncilIssueParseOptions = {}): { reply: string; issues: CouncilIssue[] } {
   const issues: CouncilIssue[] = [];
   const questions = new Set<string>();
+  const limit = Math.max(0, Math.min(options.maxIssues ?? MAX_COUNCIL_ISSUES, MAX_BRIEFING_COUNCIL_ISSUES));
   const reply = text.replace(/```council_issue\b([^]*?)(?:```|$)/gi, (_block, json: string) => {
     try {
-      if (issues.length < MAX_COUNCIL_ISSUES) {
+      if (issues.length < limit) {
         const issue = resolveCouncilIssue(snapshot, JSON.parse(json.trim()), origin);
         // Un atto già firmato è una decisione PRESA: riproporlo non è una nuova
         // questione. Deterministico, così il filtro non dipende dal prompt.

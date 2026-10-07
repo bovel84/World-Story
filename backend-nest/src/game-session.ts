@@ -3618,7 +3618,8 @@ export class GameSession {
   /** Read-only context; deterministic prose is recovery, not the primary opening. */
   getRealityAdvisorContext(): RealityAdvisorResult {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
-    return this.advisorResult();
+    // Anche il recupero via /advisor/context deve dichiarare le proposte mancanti.
+    return this.advisorResult('', undefined, undefined, 'briefing');
   }
 
   /**

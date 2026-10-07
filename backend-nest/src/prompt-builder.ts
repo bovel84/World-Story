@@ -33,7 +33,7 @@ import { renderRealityConcerns } from './core/government/RealitySignals';
 import { HISTORICAL_BASELINE_RULE, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
 import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat } from './core/government/NarrativeContextCompiler';
-import { COUNCIL_ISSUE_PROTOCOL, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
+import { COUNCIL_ISSUE_PROTOCOL, MAX_BRIEFING_COUNCIL_ISSUES, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { parseAdvisorResponse, serializeAdvisorResponse } from './core/government/AdvisorSituations';
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
@@ -487,7 +487,10 @@ async function advisorPresetStyle(builder: PromptBuilder, game: GameData, messag
 
 function validatedAdvisorText(context: RealityAdvisorContext, text: string): string {
   // WS-CONSULENTE-SITUAZIONI — Situazioni e proposte restano separate end-to-end.
-  const parsed = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'president');
+  const parsed = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'president', {
+    // Il passaggio intermedio non deve troncare a otto le proposte del briefing.
+    maxIssues: context.mode === 'briefing' ? MAX_BRIEFING_COUNCIL_ISSUES : undefined,
+  });
   const reply = guardRealityAdvisorOutput(context, parsed.reply);
   const unchanged = reply === parsed.reply;
   return serializeAdvisorResponse({ reply, situations: unchanged ? parsed.situations : [], issues: unchanged ? parsed.issues : [] });
