@@ -4,7 +4,8 @@ import { AnthropicProvider } from '../src/llm/anthropic';
 import { formationImpact } from '../src/core/simulation/OperationalObjects';
 import { seedStock, storageCapacity, initialResearchCap } from '../src/core/simulation/MaterialEconomy';
 import { WorldStateEngine } from '../src/core/simulation/WorldStateEngine';
-import { buildCountryInitialProfile, validateCountryInitialProfile, generateCountryInitialProfile, infrastructureCaps } from '../src/core/simulation/CountryInitialProfile';
+import { buildCountryInitialProfile, validateCountryInitialProfile, generateCountryInitialProfile, infrastructureCaps, militaryValidationReason } from '../src/core/simulation/CountryInitialProfile';
+import { EQUIPMENT_CREW } from '../src/core/simulation/MilitaryIndustry';
 import { referenceDebtToGdpPctForDate, referencePopulationForDate, isLandlockedPolity } from '../src/utils/country-facts';
 import { LLMError } from '../src/llm/types';
 const input = (polityId = 'BIH', population = 3_750_000) => ({
@@ -22,6 +23,14 @@ const testCompleter = (profile: any) => async (_system: string, prompt: string) 
     return JSON.stringify({ population, society: profile.society ?? fallback.society, infrastructure: profile.infrastructure ?? fallback.infrastructure });
   }
   return JSON.stringify({ military: profile.military ?? fallback.military, ...(profile.resources ? { resources: profile.resources } : {}) });
+};
+
+/** Sezione militare LLM controllata: economia e stato nazionale validi, military custom. */
+const militaryCompleter = (military: Record<string, unknown>) => async (_system: string, prompt: string) => {
+  const { section, fallback } = JSON.parse(prompt) as { section: string; fallback: any };
+  if (section === 'economy') return JSON.stringify({ economy: { ...fallback, debtRatioPct: 25 } });
+  if (section === 'national-state') return JSON.stringify({ population: fallback.population, society: fallback.society, infrastructure: fallback.infrastructure });
+  return JSON.stringify({ military });
 };
 describe('CountryInitialProfile', () => {
   it('Bosnia 2000 never inherits the 2024 GDP/debt; USA and Bosnia have different economies/armies/readiness', () => {
@@ -257,9 +266,161 @@ describe('CountryInitialProfile', () => {
       infrastructure: { ...base.infrastructure, ports: 5 },
       military: { ...base.military, equipmentProfile: { fregate: 3 } } }));
     expect(result.infrastructure.ports).toBe(base.infrastructure.ports);
-    expect(result.military).toEqual(base.military);
+    // L'asset navale viene scartato, ma la sezione resta quella dell'LLM (non un fallback totale).
+    expect(result.military.equipmentProfile).toEqual({});
+    expect(result.military.activePersonnel).toBe(base.military.activePersonnel);
+    expect(result.military.formations).toBe(base.military.formations);
     expect(result.provenance.source).toBe(base.provenance.source);
   });
+
+  // --- Bootstrap militare: normalizzazione prima della validazione. ---
+  const militaryBase = {
+    activePersonnel: 45000, reservePersonnel: 30000, formations: 16,
+    readinessPct: 45, defenceBurdenPct: 2, trainingPct: 45, qualityPct: 45, logisticsPct: 45,
+    equipmentProfile: { fucili: 45000 } as Record<string, number>,
+  };
+
+  it('A — averageFormationSize è derivato dal server, non richiesto all LLM', async () => {
+    const spec = input('BIH', 3_750_000);
+    const result = await generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase }));
+    expect(result.military.averageFormationSize).toBeCloseTo(45000 / 16);
+    expect(result.military.activePersonnel).toBe(45000);
+    expect(result.provenance.notes.join(' ')).toContain('military-resources: llm-estimate');
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('B — un ID equipment sconosciuto viene scartato, non fa fallire la sezione', async () => {
+    const spec = input('BIH', 3_750_000);
+    const result = await generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, equipmentProfile: { 'MiG-21': 12, fucili: 30000 } }));
+    expect(result.military.equipmentProfile['MiG-21']).toBeUndefined();
+    expect(result.military.equipmentProfile.fucili).toBe(30000);
+    expect(result.provenance.notes.join(' ')).toContain('military-resources: llm-estimate');
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('C — asset navale in paese senza costa viene scartato, sezione valida', async () => {
+    const spec = input('BIH', 3_750_000);
+    const result = await generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, equipmentProfile: { fregate: 2, fucili: 1000 } }));
+    expect(result.military.equipmentProfile.fregate).toBeUndefined();
+    expect(result.military.equipmentProfile.fucili).toBe(1000);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('D — equipment fuori epoca viene scartato', async () => {
+    const spec = input('BIH', 3_750_000);
+    const result = await generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, equipmentProfile: { sciame: 3, fucili: 1000 } }));
+    expect(result.military.equipmentProfile.sciame).toBeUndefined();
+    expect(result.military.equipmentProfile.fucili).toBe(1000);
+  });
+
+  it('E — quantità eccessiva clampata al limite server-side', async () => {
+    const spec = input('BIH', 3_750_000);
+    const result = await generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, equipmentProfile: { fucili: 10_000_000 } }));
+    expect(result.military.equipmentProfile.fucili).toBe(90000);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('F — equipaggio superiore agli effettivi ridotto deterministicamente', async () => {
+    const spec = input('USA', 282_000_000);
+    spec.regions[0].coastal = true;
+    const result = await generateCountryInitialProfile(spec, militaryCompleter({
+      ...militaryBase, activePersonnel: 200, reservePersonnel: 0, formations: 1,
+      equipmentProfile: { fregate: 10, fucili: 200 },
+    }));
+    const crew = Object.entries(result.military.equipmentProfile).reduce((sum, [id, quantity]) => sum + (EQUIPMENT_CREW[id] ?? 0) * quantity, 0);
+    expect(result.military.activePersonnel).toBe(200);
+    expect(crew).toBeLessThanOrEqual(result.military.activePersonnel);
+    expect(validateCountryInitialProfile(result, spec)).not.toBeNull();
+  });
+
+  it('G — activePersonnel oltre il 5% della popolazione fallisce chiuso', async () => {
+    const spec = input('BIH', 3_750_000);
+    await expect(generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, activePersonnel: 200_000, formations: 40 }), { requireEstimate: true }))
+      .rejects.toThrow(/sezione militare non valida/i);
+  });
+
+  it('H — active + reserve oltre il 20% fallisce chiuso', async () => {
+    const spec = input('BIH', 3_750_000);
+    await expect(generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, activePersonnel: 100_000, reservePersonnel: 700_000, formations: 20 }), { requireEstimate: true }))
+      .rejects.toThrow(/sezione militare non valida/i);
+  });
+
+  it('I — formazioni impossibili falliscono chiuse', async () => {
+    const spec = input('BIH', 3_750_000);
+    await expect(generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, activePersonnel: 1000, formations: 0 }), { requireEstimate: true }))
+      .rejects.toThrow(/sezione militare non valida/i);
+  });
+
+  it('J — diagnostica militare restituisce il motivo corretto', () => {
+    const spec = input('BIH', 3_750_000);
+    const base = { activePersonnel: 1000, reservePersonnel: 0, formations: 1, averageFormationSize: 1000, readinessPct: 50, defenceBurdenPct: 2, trainingPct: 50, qualityPct: 50, logisticsPct: 50, equipmentProfile: {} };
+    expect(militaryValidationReason(base, spec, 3_750_000)).toBeNull();
+    expect(militaryValidationReason({ ...base, activePersonnel: 200_000 }, spec, 3_750_000)).toBe('active_share_exceeded');
+    expect(militaryValidationReason({ ...base, activePersonnel: 1000, formations: 0, averageFormationSize: 0 }, spec, 3_750_000)).toBe('invalid_formations');
+  });
+
+  // --- Campi militari FONDAMENTALI: strict, nessuna coercizione. ---
+  it('STRICT-A — activePersonnel non intero non viene arrotondato: fail-closed', async () => {
+    const spec = input('BIH', 3_750_000);
+    await expect(generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, activePersonnel: 45000.7 }), { requireEstimate: true }))
+      .rejects.toThrow(/sezione militare non valida/i);
+  });
+
+  it('STRICT-B — activePersonnel stringa non viene convertito: fail-closed', async () => {
+    const spec = input('BIH', 3_750_000);
+    await expect(generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, activePersonnel: '45000' }), { requireEstimate: true }))
+      .rejects.toThrow(/sezione militare non valida/i);
+  });
+
+  it('STRICT-C — reservePersonnel non intero: fail-closed', async () => {
+    const spec = input('BIH', 3_750_000);
+    await expect(generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, reservePersonnel: 30000.5 }), { requireEstimate: true }))
+      .rejects.toThrow(/sezione militare non valida/i);
+  });
+
+  it('STRICT-D — formations non intere: fail-closed', async () => {
+    const spec = input('BIH', 3_750_000);
+    await expect(generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, formations: 16.5 }), { requireEstimate: true }))
+      .rejects.toThrow(/sezione militare non valida/i);
+  });
+
+  it('STRICT-E — readinessPct stringa non viene convertita: fail-closed', async () => {
+    const spec = input('BIH', 3_750_000);
+    await expect(generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, readinessPct: '45' }), { requireEstimate: true }))
+      .rejects.toThrow(/sezione militare non valida/i);
+  });
+
+  it('STRICT-F — readinessPct null: fail-closed', async () => {
+    const spec = input('BIH', 3_750_000);
+    await expect(generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, readinessPct: null }), { requireEstimate: true }))
+      .rejects.toThrow(/sezione militare non valida/i);
+  });
+
+  it('STRICT-G — valori number/interi corretti restano validi', async () => {
+    const spec = input('BIH', 3_750_000);
+    const result = await generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase }), { requireEstimate: true });
+    expect(result.military.activePersonnel).toBe(45000);
+    expect(result.military.readinessPct).toBe(45);
+    expect(result.provenance.notes.join(' ')).toContain('military-resources: llm-estimate');
+  });
+
+  it('STRICT-H — equipment resta sanitizzato (ID ignoto scartato, quantità clampata)', async () => {
+    const spec = input('BIH', 3_750_000);
+    const result = await generateCountryInitialProfile(spec, militaryCompleter({ ...militaryBase, equipmentProfile: { 'MiG-21': 12, fucili: 10_000_000 } }), { requireEstimate: true });
+    expect(result.military.equipmentProfile['MiG-21']).toBeUndefined();
+    expect(result.military.equipmentProfile.fucili).toBe(90000);
+  });
+
+  it('STRICT-I — diagnostica coerente sui nuovi casi strict', () => {
+    const spec = input('BIH', 3_750_000);
+    const base = { activePersonnel: 1000, reservePersonnel: 0, formations: 1, averageFormationSize: 1000, readinessPct: 50, defenceBurdenPct: 2, trainingPct: 50, qualityPct: 50, logisticsPct: 50, equipmentProfile: {} };
+    expect(militaryValidationReason({ ...base, activePersonnel: 45000.7 }, spec, 3_750_000)).toBe('personnel_not_integer');
+    expect(militaryValidationReason({ ...base, activePersonnel: '45000' }, spec, 3_750_000)).toBe('invalid_shape');
+    expect(militaryValidationReason({ ...base, formations: 16.5, averageFormationSize: 1000 / 16.5 }, spec, 3_750_000)).toBe('personnel_not_integer');
+    expect(militaryValidationReason({ ...base, readinessPct: '45' }, spec, 3_750_000)).toBe('invalid_percentage');
+    expect(militaryValidationReason({ ...base, readinessPct: null }, spec, 3_750_000)).toBe('invalid_percentage');
+  });
+
   it('explicit preset/map data is never overwritten, but a valid larger national infrastructure survives', async () => {
     const spec = input('BIH', 3_750_000);
     spec.regions[0].objects = [{ type: 'factory', level: 1 }, { type: 'university', level: 2 }] as never;

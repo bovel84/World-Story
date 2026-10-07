@@ -1,7 +1,7 @@
 import { WorldStateEngine, type WorldStateRegion, type NationalAccount } from './WorldStateEngine';
 import { coastalFromGeojson } from './NationCapacity';
 import { militaryManpower, arsenalSeedUnits, epochForDate, individualWeaponShareFor } from './MilitaryDoctrine';
-import { equipmentById, EQUIPMENT_CREW } from './MilitaryIndustry';
+import { equipmentById, EQUIPMENT_CATALOG, EQUIPMENT_CREW } from './MilitaryIndustry';
 import { storageCapacity, initialResearchCap, availableTechnologiesAt, technologyAvailableAt, closeTechnologySet, technologyById } from './MaterialEconomy';
 import { referenceGdpUsdBillionsForDate, referenceDebtToGdpPctForDate, referencePopulationForDate, isLandlockedPolity } from '../../utils/country-facts';
 import { LLMError } from '../../llm/types';
@@ -235,31 +235,131 @@ function validEconomySection(e: unknown): e is CountryInitialProfile['economy'] 
     && v.monthlyExpenses * 12 <= v.nominalGdpUsdBillions * 0.8;
 }
 
-function validMilitarySection(m: unknown, input: CountryProfileInput, population: number): m is CountryInitialProfile['military'] {
-  if (!m || typeof m !== 'object') return false;
+/** Diagnostica server-side (nessun dato sensibile): motivo del rifiuto della
+ *  sezione militare, senza esporre prompt/body/chiavi. `null` = valida. */
+export type MilitaryValidationReason =
+  | 'invalid_shape' | 'personnel_not_integer' | 'active_share_exceeded' | 'total_personnel_exceeded'
+  | 'invalid_formations' | 'personnel_formation_ratio' | 'invalid_percentage' | 'invalid_defence_burden'
+  | 'invalid_equipment' | 'crew_exceeds_active';
+
+/** Unico punto che decide la validità militare: `validMilitarySection` vi delega,
+ *  così firewall finale e composizione per sezioni non possono divergere. */
+export function militaryValidationReason(m: unknown, input: CountryProfileInput, population: number): MilitaryValidationReason | null {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return 'invalid_shape';
   const v = m as CountryInitialProfile['military'];
-  if (![v.activePersonnel, v.reservePersonnel, v.formations, v.averageFormationSize].every(positive)
-    || ![v.activePersonnel, v.reservePersonnel, v.formations].every(Number.isInteger)) return false;
-  if (v.activePersonnel > population * 0.05 || v.activePersonnel + v.reservePersonnel > population * 0.2
-    || v.formations > Math.max(1000, authored(input, 'army') + authored(input, 'battalion'))
-    || (v.activePersonnel > 0 && (v.formations < 1 || v.activePersonnel / v.formations < 1 || v.activePersonnel / v.formations > 50_000))) return false;
-  if (v.activePersonnel === 0 && v.formations > authored(input, 'army') + authored(input, 'battalion')) return false;
-  if (Math.abs(v.activePersonnel - v.formations * v.averageFormationSize) > 1
-    || ![v.readinessPct, v.defenceBurdenPct, v.trainingPct, v.qualityPct, v.logisticsPct].every(pct)
-    || v.defenceBurdenPct > 30) return false;
-  if (!v.equipmentProfile || typeof v.equipmentProfile !== 'object' || Array.isArray(v.equipmentProfile)) return false;
-  // Admission years conservative: le voci fuori catalogo o troppo antiche falliscono chiuse.
+  if (![v.activePersonnel, v.reservePersonnel, v.formations, v.averageFormationSize].every(positive)) return 'invalid_shape';
+  if (![v.activePersonnel, v.reservePersonnel, v.formations].every(Number.isInteger)) return 'personnel_not_integer';
+  if (v.activePersonnel > population * 0.05) return 'active_share_exceeded';
+  if (v.activePersonnel + v.reservePersonnel > population * 0.2) return 'total_personnel_exceeded';
+  if (v.formations > Math.max(1000, authored(input, 'army') + authored(input, 'battalion'))
+    || (v.activePersonnel > 0 && (v.formations < 1 || v.activePersonnel / v.formations < 1 || v.activePersonnel / v.formations > 50_000))) return 'invalid_formations';
+  if (v.activePersonnel === 0 && v.formations > authored(input, 'army') + authored(input, 'battalion')) return 'invalid_formations';
+  if (Math.abs(v.activePersonnel - v.formations * v.averageFormationSize) > 1) return 'personnel_formation_ratio';
+  if (![v.readinessPct, v.defenceBurdenPct, v.trainingPct, v.qualityPct, v.logisticsPct].every(pct)) return 'invalid_percentage';
+  if (v.defenceBurdenPct > 30) return 'invalid_defence_burden';
+  if (!v.equipmentProfile || typeof v.equipmentProfile !== 'object' || Array.isArray(v.equipmentProfile)) return 'invalid_equipment';
   let crew = 0;
   for (const [id, quantity] of Object.entries(v.equipmentProfile)) {
     const spec = equipmentById(id);
     if (!spec || ADMISSION_YEAR[id] === undefined || Number(input.startDate.slice(0, 4)) < ADMISSION_YEAR[id]
       || !positive(quantity) || !Number.isInteger(quantity) || quantity > Math.max(100, v.activePersonnel * 2)
-      || ((spec.domain === 'mare' || id === 'droni_navali') && quantity > 0 && !coast(input))) return false;
-    if (spec.domain === 'aria' && quantity > Math.max(20, v.activePersonnel / 100)) return false;
-    if (id !== 'fucili' && spec.domain === 'terra' && quantity > Math.max(10, v.activePersonnel / 2)) return false;
+      || ((spec.domain === 'mare' || id === 'droni_navali') && quantity > 0 && !coast(input))) return 'invalid_equipment';
+    if (spec.domain === 'aria' && quantity > Math.max(20, v.activePersonnel / 100)) return 'invalid_equipment';
+    if (id !== 'fucili' && spec.domain === 'terra' && quantity > Math.max(10, v.activePersonnel / 2)) return 'invalid_equipment';
     crew += (EQUIPMENT_CREW[id] || 0) * quantity;
   }
-  return crew <= v.activePersonnel;
+  return crew > v.activePersonnel ? 'crew_exceeds_active' : null;
+}
+
+function validMilitarySection(m: unknown, input: CountryProfileInput, population: number): m is CountryInitialProfile['military'] {
+  return militaryValidationReason(m, input, population) === null;
+}
+
+/** ID di equipaggiamento ammessi alla data e nella geografia: epoca (catalogo)
+ *  e assenza di asset esclusivamente navali per un paese senza costa. */
+function allowedEquipmentIds(input: CountryProfileInput): string[] {
+  const year = Number(input.startDate.slice(0, 4));
+  const coastal = coast(input);
+  return EQUIPMENT_CATALOG
+    .filter(spec => ADMISSION_YEAR[spec.id] !== undefined && year >= ADMISSION_YEAR[spec.id])
+    .filter(spec => coastal || (spec.domain !== 'mare' && spec.id !== 'droni_navali'))
+    .map(spec => spec.id);
+}
+
+/** Limite per singola voce, allineato al validator: oltre → clamp, mai fail. */
+function equipmentQuantityLimit(id: string, domain: string, activePersonnel: number): number {
+  const general = Math.max(100, Math.floor(activePersonnel * 2));
+  if (domain === 'aria') return Math.min(general, Math.max(20, Math.floor(activePersonnel / 100)));
+  if (id !== 'fucili' && domain === 'terra') return Math.min(general, Math.max(10, Math.floor(activePersonnel / 2)));
+  return general;
+}
+
+/** Normalizza SOLO struttura ed equipaggiamento: ID ignoti/fuori epoca/navali in
+ *  paese senza costa vengono scartati (mai convertiti per supposizione), le
+ *  quantità eccedenti clampate. Non inventa mai personale o forza. */
+function sanitizeMilitaryEquipmentProfile(raw: unknown, input: CountryProfileInput, activePersonnel: number): Record<string, number> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const year = Number(input.startDate.slice(0, 4));
+  const coastal = coast(input);
+  const profile: Record<string, number> = {};
+  for (const [id, rawQuantity] of Object.entries(raw as Record<string, unknown>)) {
+    const spec = equipmentById(id);
+    if (!spec || ADMISSION_YEAR[id] === undefined || year < ADMISSION_YEAR[id]) continue;
+    if ((spec.domain === 'mare' || id === 'droni_navali') && !coastal) continue;
+    const quantity = Math.floor(Number(rawQuantity));
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    profile[id] = Math.min(quantity, equipmentQuantityLimit(id, spec.domain, activePersonnel));
+  }
+  return profile;
+}
+
+/** Se l'equipaggio supera gli effettivi, riduce in modo deterministico le
+ *  quantità (id ordinati) fino a rientrare. Non aumenta mai activePersonnel. */
+function clampEquipmentCrew(profile: Record<string, number>, activePersonnel: number): Record<string, number> {
+  const totalCrew = () => Object.entries(profile).reduce((sum, [id, quantity]) => sum + (EQUIPMENT_CREW[id] || 0) * quantity, 0);
+  if (totalCrew() <= activePersonnel) return profile;
+  for (const id of Object.keys(profile).sort()) {
+    const perUnit = EQUIPMENT_CREW[id] || 0;
+    if (perUnit <= 0) continue;
+    const excess = totalCrew() - activePersonnel;
+    if (excess <= 0) break;
+    profile[id] -= Math.min(profile[id], Math.ceil(excess / perUnit));
+    if (profile[id] <= 0) delete profile[id];
+  }
+  return profile;
+}
+
+/** Campi militari FONDAMENTALI: veri numeri JSON, interi e non negativi. Niente
+ *  coercizione (`"45000"` o `45000.8` non diventano 45000): fail-closed. */
+const strictNonNegativeInteger = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && Number.isInteger(value)
+    ? value
+    : null;
+
+/** Pipeline militare: raw LLM → normalizzazione SOLO di struttura/equipment/
+ *  derivati → validazione. Personale, formazioni e percentuali restano valori
+ *  grezzi: se non sono già conformi, `militaryValidationReason` li rifiuta. */
+function normalizeMilitarySection(raw: unknown, input: CountryProfileInput, population: number): CountryInitialProfile['military'] | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const v = raw as Record<string, unknown>;
+  const activePersonnel = strictNonNegativeInteger(v.activePersonnel);
+  const reservePersonnel = strictNonNegativeInteger(v.reservePersonnel);
+  const formations = strictNonNegativeInteger(v.formations);
+  if (activePersonnel === null || reservePersonnel === null || formations === null) return null;
+  // `averageFormationSize` non è più stimato dall'LLM: derivato qui.
+  // Le percentuali passano grezze: `Number(...)`/coercizione sono VIETATE.
+  return {
+    activePersonnel,
+    reservePersonnel,
+    formations,
+    averageFormationSize: formations > 0 ? activePersonnel / formations : 0,
+    readinessPct: v.readinessPct as number,
+    defenceBurdenPct: v.defenceBurdenPct as number,
+    trainingPct: v.trainingPct as number,
+    qualityPct: v.qualityPct as number,
+    logisticsPct: v.logisticsPct as number,
+    equipmentProfile: clampEquipmentCrew(sanitizeMilitaryEquipmentProfile(v.equipmentProfile, input, activePersonnel), activePersonnel),
+  };
 }
 
 /** Composizione per campo dell'economia: riferimento storico > stima LLM
@@ -492,16 +592,32 @@ function nationalStatePrompt(input: CountryProfileInput, fallback: CountryInitia
 }
 
 function militaryResourcesPrompt(input: CountryProfileInput, fallback: CountryInitialProfile, population: number): string {
+  const landlocked = isLandlockedPolity(input.polityId);
+  // `averageFormationSize` è derivato dal server: non lo si chiede più all'LLM.
+  const { averageFormationSize: _derivedByServer, ...militaryFallback } = fallback.military;
   return JSON.stringify({
     section: 'military-resources',
     country: input.countryName ?? input.polityId,
     startDate: input.startDate,
     historicalBaseline: input.historicalBaseline || '',
     anchors: { population, mapBaseline: fallback.mapBaseline, authoredFormations: authored(input, 'army') + authored(input, 'battalion') },
-    fallback: { military: fallback.military, ...(fallback.resources ? { resources: fallback.resources } : {}) },
-    limits: { landlocked: isLandlockedPolity(input.polityId), epoch: epochForDate(input.startDate), maxActiveShare: 0.05 },
+    fallback: { military: militaryFallback, ...(fallback.resources ? { resources: fallback.resources } : {}) },
+    limits: {
+      landlocked, epoch: epochForDate(input.startDate),
+      maxActivePersonnel: Math.floor(population * 0.05),
+      maxTotalPersonnel: Math.floor(population * 0.2),
+      maxActiveShare: 0.05, maxTotalShare: 0.2,
+    },
+    allowedEquipmentIds: allowedEquipmentIds(input),
+    militaryRules: [
+      'Usa SOLO gli ID in allowedEquipmentIds per equipmentProfile (id → quantità intera); non inventare nomi commerciali o descrittivi: un ID sconosciuto viene scartato.',
+      'NON restituire averageFormationSize: il server lo deriva da activePersonnel / formations.',
+      'activePersonnel ≤ maxActivePersonnel e activePersonnel + reservePersonnel ≤ maxTotalPersonnel.',
+      'Se activePersonnel > 0 serve almeno una formazione; activePersonnel / formations resta entro limiti plausibili.',
+      'readinessPct, trainingPct, qualityPct, logisticsPct sono 0-100; defenceBurdenPct è 0-30.',
+    ],
     availableTechnologies: availableTechnologiesAt(input.startDate).map(({ id, name }) => `${id} (${name})`),
-    schema: { military: { activePersonnel: 'intero', reservePersonnel: 'intero', formations: 'intero', averageFormationSize: 'number', readinessPct: '0-100', defenceBurdenPct: '0-30', trainingPct: '0-100', qualityPct: '0-100', logisticsPct: '0-100', equipmentProfile: 'id->intero' }, resources: { food: 'number?', clothing: 'number?', weapons: 'number?', fuel: 'number?', research: 'number?', technologies: 'string[]?' } },
+    schema: { military: { activePersonnel: 'intero', reservePersonnel: 'intero', formations: 'intero', readinessPct: '0-100', defenceBurdenPct: '0-30', trainingPct: '0-100', qualityPct: '0-100', logisticsPct: '0-100', equipmentProfile: 'id (allowedEquipmentIds) -> intero' }, resources: { food: 'number?', clothing: 'number?', weapons: 'number?', fuel: 'number?', research: 'number?', technologies: 'string[]?' } },
   });
 }
 
@@ -553,7 +669,12 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
 
     // --- CALL 3 — militare / risorse ---
     const militarySection = parseSectionJson(await completeSection('military-resources', militaryResourcesPrompt(input, fallback, population), complete, deadline));
-    const military = validMilitarySection(militarySection.military, input, population) ? militarySection.military : fallback.military;
+    // Normalizzazione prima della validazione: deriva `averageFormationSize` e
+    // sanifica l'equipment (ID, epoca, geografia, quantità, equipaggio) senza
+    // inventare personale o forza. Personale/formazioni restano fail-closed.
+    const normalizedMilitary = normalizeMilitarySection(militarySection.military, input, population);
+    const militaryValid = normalizedMilitary !== null && validMilitarySection(normalizedMilitary, input, population);
+    const military = normalizedMilitary && militaryValid ? normalizedMilitary : fallback.military;
     const resources = sanitizeInitialResources(militarySection.resources, input);
 
     // Fail-closed del player: una sezione obbligatoria invalida non ripiega mai
@@ -561,9 +682,12 @@ export async function generateCountryInitialProfile(input: CountryProfileInput, 
     const economyValid = validEconomySection(economySection.economy);
     const stateValid = validSocietySection(stateSection.society) && validInfrastructureSection(stateSection.infrastructure, input)
       && (referencePopulation !== null || llmPopulation !== null);
-    const militaryValid = validMilitarySection(militarySection.military, input, population);
     if (requireEstimate && !stateValid) throw new CountryInitialProfileError('sezione stato nazionale non valida');
-    if (requireEstimate && !militaryValid) throw new CountryInitialProfileError('sezione militare non valida');
+    if (requireEstimate && !militaryValid) {
+      // Diagnostica senza dati sensibili: solo il codice del motivo.
+      console.warn(`[CountryInitialProfile] military validation failed: ${normalizedMilitary ? militaryValidationReason(normalizedMilitary, input, population) : militaryValidationReason(militarySection.military, input, population) ?? 'invalid_shape'}`);
+      throw new CountryInitialProfileError('sezione militare non valida');
+    }
 
     const failed: string[] = [];
     if (!economyValid) failed.push('economy');
