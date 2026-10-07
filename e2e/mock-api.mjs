@@ -1124,8 +1124,14 @@ export function installMockApi(page, opts = {}) {
       game_id: MOCK_GAME_ID,
       player_id: MOCK_PLAYER_ID,
       region: { id: MOCK_REGION_ID, name: 'Alfa' },
+      bootstrap_status: 'initializing',
     });
   });
+
+  // ASYNC BOOTSTRAP: il client fa polling finché il Dossier non è pronto. Nel
+  // mock la preparazione è istantanea: il primo poll risponde `ready`.
+  page.route(`${API_BASE}/games/${MOCK_GAME_ID}/bootstrap-status`, (route) =>
+    json(route, { status: 'ready' }));
 
   // Il server è autorevole: dopo un avanzamento il giocatore rilegge lo stato e
   // deve vedere il turno nuovo (non quello del fixture statico).

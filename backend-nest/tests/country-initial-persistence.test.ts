@@ -45,7 +45,9 @@ describe('bootstrap canonical persistence', () => {
     await expect(pending.ready).rejects.toThrow(/profilo iniziale/i);
     expect(pendingRegistry.getSession(pending.gameId)).toBeNull();
     expect(profiles.get(pending.gameId, 'BIH')).toBeNull();
-    expect(db.prepare('SELECT id FROM games WHERE id=?').get(pending.gameId)).toBeUndefined();
+    // ASYNC BOOTSTRAP: la riga games resta, così la partita è diagnosticabile
+    // e ritentabile; non è però caricabile finché il profilo non è pronto.
+    expect(db.prepare('SELECT id FROM games WHERE id=?').get(pending.gameId)).toBeTruthy();
   });
   it('mock-only estimate once; reads/reload never generate; separate games bootstrap independently', async () => {
     const callsBefore = providerCalls;
@@ -153,7 +155,7 @@ describe('bootstrap canonical persistence', () => {
     expect(await session.getHistoricalBaseline()).toBe(background);
     expect(calls).toEqual(['profile', 'profile', 'profile']);
   });
-  it('player profile failure persists no false profile and leaves no reloadable game', async () => {
+  it('player profile failure persists no false profile and keeps the game row, not reloadable', async () => {
     const calls: string[] = [];
     const mock = { ...provider, generate: async (_mechanic: string, system: string) => {
       calls.push(system === HISTORICAL_BASELINE_SYSTEM ? 'history' : 'profile');
@@ -166,7 +168,8 @@ describe('bootstrap canonical persistence', () => {
     expect(calls).toEqual(['history', 'profile']);
     expect(profiles.get(first.gameId, 'BIH')).toBeNull();
     expect(localRegistry.getSession(first.gameId)).toBeNull();
-    expect(db.prepare('SELECT id FROM games WHERE id=?').get(first.gameId)).toBeUndefined();
+    // La partita NON viene più cancellata da un fallimento del profilo LLM.
+    expect(db.prepare('SELECT id FROM games WHERE id=?').get(first.gameId)).toBeTruthy();
   });
   it('removing all mapless units is a durable known empty registry, not a new bootstrap', async () => {
     const first = registry.createSession('profile-world', '', 'profile-BIH'); await first.ready;

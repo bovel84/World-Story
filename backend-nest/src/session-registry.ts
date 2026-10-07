@@ -16,6 +16,22 @@ import db from './database';
 import path from 'path';
 import { loadSimulationCatalog } from './scenario/loader';
 import { semanticStateHash } from './domain/semantic-hash';
+import { CountryInitialProfileError } from './core/simulation/CountryInitialProfile';
+
+/** Stato runtime del bootstrap del Dossier nazionale: nessuna migrazione DB. */
+export type GameBootstrapStatus =
+  | { status: 'initializing' }
+  | { status: 'ready' }
+  | { status: 'failed'; error: string };
+
+/** Il profilo LLM non crea la partita e non la distrugge: l'errore è reso
+ *  leggibile e gli si toglie la vecchia coda «Partita non creata», ora falsa. */
+function bootstrapFailureMessage(error: unknown): string {
+  if (error instanceof CountryInitialProfileError) {
+    return error.message.replace(/\s*Partita non creata\.\s*$/i, '');
+  }
+  return 'Inizializzazione del profilo nazionale non riuscita.';
+}
 
 /**
  * Stato di sessione di una regione: geometria, adiacenza e stato statico dal
@@ -51,7 +67,9 @@ function regionStatesFromDb(worldId: string, gameId: string): [string, any][] {
 
 class SessionRegistry {
   private sessions: Map<string, GameSession> = new Map();
-  private pendingCreations = new Set<string>();
+  /** Sessioni il cui bootstrap del Dossier è inizializzato in background. */
+  private bootstrapSessions: Map<string, GameSession> = new Map();
+  private bootstrapStates: Map<string, GameBootstrapStatus> = new Map();
   private provider: LLMRouter;
 
   constructor(provider: LLMRouter) {
@@ -116,30 +134,47 @@ class SessionRegistry {
     const session = new GameSession(gameId, worldId, this.provider);
 
     // Initialize session (sets up agents, loads regions)
-    if (estimateInitialProfile) this.pendingCreations.add(gameId);
     const initialization = session.initialize(playerRegionId, nationalName, playerColor, difficulty, estimateInitialProfile);
-    const ready = estimateInitialProfile ? initialization.then(player => {
-      this.pendingCreations.delete(gameId);
+    let ready: Promise<string>;
+    if (estimateInitialProfile) {
+      // ASYNC BOOTSTRAP — la sessione resta viva mentre il Dossier LLM lavora.
+      // POST /games non attende: la partita esiste già e non viene cancellata
+      // se la stima del profilo fallisce.
+      this.bootstrapSessions.set(gameId, session);
+      this.bootstrapStates.set(gameId, { status: 'initializing' });
+      ready = initialization.then(player => {
+        this.bootstrapStates.set(gameId, { status: 'ready' });
+        this.bootstrapSessions.delete(gameId);
+        this.sessions.set(gameId, session);
+        return player;
+      }, (error: unknown) => {
+        this.bootstrapStates.set(gameId, { status: 'failed', error: bootstrapFailureMessage(error) });
+        throw error;
+      });
+      // Nessun lettore HTTP attende `ready`: evita un unhandled rejection.
+      ready.catch(() => {});
+    } else {
+      ready = initialization;
       this.sessions.set(gameId, session);
-      return player;
-    }, error => {
-      // Never leave an incomplete bootstrap reloadable as a synthetic game.
-      // Existing foreign-key cascades remove its profiles/history/player too.
-      db.prepare('DELETE FROM games WHERE id = ?').run(gameId);
-      this.pendingCreations.delete(gameId);
-      throw error;
-    }) : initialization;
-    if (!estimateInitialProfile) this.sessions.set(gameId, session);
+    }
 
     console.log('[SessionRegistry] Created session:', gameId);
     return { session, playerId, gameId, ready };
+  }
+
+  /** Stato del bootstrap del Dossier nazionale (null per partite senza stima). */
+  getBootstrapStatus(gameId: string): GameBootstrapStatus | null {
+    return this.bootstrapStates.get(gameId) ?? null;
   }
 
   /**
    * Get existing session from memory or load from DB
    */
   getSession(gameId: string): GameSession | null {
-    if (this.pendingCreations.has(gameId)) return null;
+    // Finché il Dossier non è pronto la partita non è caricabile: il client
+    // mostra l'attesa o l'errore, mai uno stato interno a metà.
+    const bootstrap = this.bootstrapStates.get(gameId);
+    if (bootstrap && bootstrap.status !== 'ready') return null;
     // Check memory first
     if (this.sessions.has(gameId)) {
       return this.sessions.get(gameId)!;
@@ -346,6 +381,8 @@ class SessionRegistry {
    */
   removeSession(gameId: string): void {
     this.sessions.delete(gameId);
+    this.bootstrapSessions.delete(gameId);
+    this.bootstrapStates.delete(gameId);
     console.log('[SessionRegistry] Removed session:', gameId);
   }
 

@@ -93,6 +93,16 @@ function callRoute(method: string, url: string, body?: any, headers?: Record<str
   });
 }
 
+/** POST /games non attende più il Dossier: qui si aspetta la fine del bootstrap. */
+async function awaitBootstrap(gameId: string): Promise<any> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const res = await callRoute('GET', `/games/${gameId}/bootstrap-status`);
+    if (res.status === 200 && res.body.status !== 'initializing') return res.body;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  throw new Error(`bootstrap non concluso per ${gameId}`);
+}
+
 beforeAll(async () => {
   const dbModule = await import('../src/database');
   db = dbModule.default;
@@ -130,6 +140,7 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
   it('time-skip → awaiting_next → next → run_completed; 409 su nuovo salto in pausa', async () => {
     const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
     const gameId = created.body.game_id || created.body.game?.id || created.body.id;
+    await awaitBootstrap(gameId);
 
     // Registra un ordine: nessun tempo passa (G04).
     const queued = await callRoute('POST', `/games/${gameId}/actions/queue`, { text: 'Direttiva di prova' });
@@ -204,6 +215,7 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
   it('playback scaglionato: il tratto finale porta la crisi alla destinazione', async () => {
     const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
     const gameId = created.body.game_id || created.body.game?.id || created.body.id;
+    await awaitBootstrap(gameId);
     const repos = await import('../src/repositories');
     seedCrisis57(gameId, repos);
     const session = getSessionRegistry().getSession(gameId);
@@ -244,6 +256,7 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
   it('playback scaglionato: «Intervieni» non simula il tempo fino alla destinazione', async () => {
     const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
     const gameId = created.body.game_id || created.body.game?.id || created.body.id;
+    await awaitBootstrap(gameId);
     const repos = await import('../src/repositories');
     seedCrisis57(gameId, repos);
     const session = getSessionRegistry().getSession(gameId);
@@ -272,6 +285,7 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
   it('intervene in pausa chiude il run al checkpoint mostrato', async () => {
     const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
     const gameId = created.body.game_id || created.body.game?.id || created.body.id;
+    await awaitBootstrap(gameId);
     await callRoute('POST', `/games/${gameId}/actions/queue`, { text: 'Direttiva da interrompere' });
 
     const skip = await callRoute('POST', `/games/${gameId}/time-skip`, { jump_days: 90 });
@@ -307,18 +321,69 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
   });
 });
 /**
- * BOOTSTRAP-FAIL-CLOSED — la creazione della partita non ripiega su un profilo
- * deterministico falso: l'errore leggibile arriva al client come 503, non 500.
+ * BOOTSTRAP-ASYNC — POST /games non attende più il Dossier nazionale: la
+ * partita nasce subito, il client fa polling su /bootstrap-status, e un
+ * fallimento del profilo NON cancella la partita.
  */
-describe('BOOTSTRAP-FAIL-CLOSED — errore leggibile alla creazione partita', () => {
-  it('LLM del bootstrap indisponibile → 503 con messaggio e nessuna partita', async () => {
+describe('BOOTSTRAP-ASYNC — creazione partita non bloccante', () => {
+  it('A/B: LLM indisponibile → 200 initializing subito, poi failed sanitizzato e partita conservata', async () => {
     const failing = { ...stubProvider, async generate() { throw new Error('llm offline'); } };
     initSessionRegistry(failing);
-    const res = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
-    expect(res.status).toBe(503);
-    expect(res.body.game_id).toBeUndefined();
-    expect(res.body.error).toMatch(/profilo iniziale/i);
-    expect(res.body.error).toMatch(/partita non creata/i);
+    const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
+    expect(created.status).toBe(200);
+    expect(created.body.game_id).toBeTruthy();
+    expect(created.body.bootstrap_status).toBe('initializing');
+
+    const failed = await awaitBootstrap(created.body.game_id);
+    expect(failed.status).toBe('failed');
+    expect(failed.error).toMatch(/profilo iniziale/i);
+    expect(failed.error).not.toMatch(/partita non creata/i);
+    expect(failed.error).not.toMatch(/llm offline|node_modules|\/Users\//);
+    // La partita NON è stata cancellata dal fallimento del profilo.
+    expect(gameRepository.findById(created.body.game_id)).toBeTruthy();
+    // GET /games/:id su failed → 409 con stato, mai un fallback legacy.
+    const gate = await callRoute('GET', `/games/${created.body.game_id}`);
+    expect(gate.status).toBe(409);
+    expect(gate.body.bootstrap_status).toBe('failed');
+    initSessionRegistry(stubProvider);
+  });
+
+  it('C: bootstrap riuscito → initializing poi ready, e GET /games/:id torna a rispondere', async () => {
+    initSessionRegistry(stubProvider);
+    const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_POL` });
+    expect(created.body.bootstrap_status).toBe('initializing');
+    const ready = await awaitBootstrap(created.body.game_id);
+    expect(ready.status).toBe('ready');
+    const game = await callRoute('GET', `/games/${created.body.game_id}`);
+    expect(game.status).toBe(200);
+  });
+
+  it('D: GET /games/:id durante initializing → 425 con bootstrap_status', async () => {
+    // Provider lento: il bootstrap resta `initializing` nella finestra osservata.
+    const slow = {
+      ...stubProvider,
+      async generate(mechanic: string, system?: string, prompt?: string) {
+        if (typeof prompt === 'string' && prompt.includes('"fallback"')) await new Promise(resolve => setTimeout(resolve, 60));
+        return stubProvider.generate(mechanic, system, prompt);
+      },
+    };
+    initSessionRegistry(slow);
+    const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_POL` });
+    const gate = await callRoute('GET', `/games/${created.body.game_id}`);
+    expect(gate.status).toBe(425);
+    expect(gate.body.bootstrap_status).toBe('initializing');
+    await awaitBootstrap(created.body.game_id);
+    initSessionRegistry(stubProvider);
+  });
+
+  it('E: mondo/regione inesistenti falliscono subito, senza creare partite', async () => {
+    initSessionRegistry(stubProvider);
+    const badWorld = await callRoute('POST', '/games', { world_id: 'no_such_world', player_name: 'P', player_region_id: 'x' });
+    expect(badWorld.status).toBe(404);
+    expect(badWorld.body.game_id).toBeUndefined();
+    const badRegion = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'P', player_region_id: 'no_such_region' });
+    expect(badRegion.status).toBe(404);
+    expect(badRegion.body.game_id).toBeUndefined();
   });
 });
 /**

@@ -90,6 +90,16 @@ function callRoute(method: string, url: string, body?: any, headers?: Record<str
   });
 }
 
+/** POST /games non attende più il Dossier: qui si aspetta la fine del bootstrap. */
+async function awaitBootstrap(gameId: string): Promise<any> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const res = await callRoute('GET', `/games/${gameId}/bootstrap-status`);
+    if (res.status === 200 && res.body.status !== 'initializing') return res.body;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  throw new Error(`bootstrap non concluso per ${gameId}`);
+}
+
 beforeAll(async () => {
   const dbModule = await import('../src/database');
   db = dbModule.default;
@@ -131,6 +141,7 @@ describe('A03 — GET /simulations/:runId non espone lo stato interno', () => {
     ];
     const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_DEU` });
     const gameId = created.body.game_id || created.body.game?.id || created.body.id;
+    await awaitBootstrap(gameId);
     await callRoute('POST', `/games/${gameId}/actions/queue`, { text: 'Direttiva di prova' });
     const skip = await callRoute('POST', `/games/${gameId}/time-skip`, { jump_days: 90 }, { 'idempotency-key': 'test-key-a03' });
     const runId = skip.body.simulationId || skip.body.simulation_id;
@@ -160,6 +171,7 @@ describe('A10 — il salto senza eventi non inferisce l’esito dall’ultima cr
   it('un run senza eventi risponde no_event_found, non con la cronaca precedente', async () => {
     const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: `${WORLD_ID}_POL` });
     const gameId = created.body.game_id || created.body.game?.id || created.body.id;
+    await awaitBootstrap(gameId);
 
     // Run 1: un evento → cronaca esistente nel gioco.
     jumpEvents = [{ headline: 'Evento', description: 'Svolta.', date: '1951-01-20', mapChanges: [] }];

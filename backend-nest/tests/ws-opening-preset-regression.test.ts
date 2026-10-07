@@ -79,6 +79,12 @@ async function createGame(regionId: string): Promise<string> {
   const created = await callRoute('POST', '/games', { world_id: WORLD_ID, player_name: 'Player', player_region_id: regionId });
   const gameId = created.body.game_id || created.body.id;
   expect(gameId).toBeTruthy();
+  // POST /games non attende più il Dossier: si aspetta il bootstrap async.
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const status = await callRoute('GET', `/games/${gameId}/bootstrap-status`);
+    if (status.status === 200 && status.body.status !== 'initializing') break;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
   return gameId;
 }
 

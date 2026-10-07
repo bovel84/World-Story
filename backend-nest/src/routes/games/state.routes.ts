@@ -51,7 +51,7 @@ router.post('/', async (req, res) => {
   const playerRegionId = req.body.playerRegionId || req.body.player_region_id;
 
   try {
-    const { session, playerId, gameId, ready } = getSessionRegistry().createSession(
+    const { session, playerId, gameId } = getSessionRegistry().createSession(
       worldId,
       playerName || '',
       playerRegionId,
@@ -59,16 +59,18 @@ router.post('/', async (req, res) => {
       req.body.difficulty,
       true, // Server-owned: at most one bootstrap estimate, never a Government read.
     );
-    await ready;
-
+    // ASYNC BOOTSTRAP — non si attende il Dossier LLM: la partita esiste già,
+    // il client fa polling su /bootstrap-status. Player e regione sono noti dal
+    // setup sincrono della sessione.
     const player = session.getPlayer();
     const region = session.getRegion(playerRegionId);
 
     res.json({
       game_id: gameId,
       player_id: playerId,
-      player_polity_id: player?.polityId,
-      region: { id: region?.id, name: region?.name },
+      player_polity_id: player?.polityId ?? region?.owner,
+      region: { id: region?.id ?? playerRegionId, name: region?.name },
+      bootstrap_status: 'initializing',
     });
   } catch (e: any) {
     if (e instanceof CountryInitialProfileError) {
@@ -84,7 +86,37 @@ router.post('/', async (req, res) => {
   }
 });
 
+/**
+ * BOOTSTRAP-STATUS — stato runtime del Dossier iniziale. `ready` per le partite
+ * senza stima (legacy/salvataggi) o con bootstrap concluso; `failed` porta un
+ * errore già sanitizzato, senza stack/prompt/body del provider.
+ */
+router.get('/:id/bootstrap-status', (req, res) => {
+  const status = getSessionRegistry().getBootstrapStatus(req.params.id);
+  if (status) {
+    res.json(status);
+    return;
+  }
+  if (gameRepository.findById(req.params.id)) {
+    res.json({ status: 'ready' });
+    return;
+  }
+  res.status(404).json({ error: 'Game not found' });
+});
+
 router.get('/:id', (req, res) => {
+  // Un Dossier ancora in preparazione o fallito non è un gioco caricabile:
+  // niente fallback legacy su una sessione incompleta.
+  const bootstrap = getSessionRegistry().getBootstrapStatus(req.params.id);
+  if (bootstrap?.status === 'initializing') {
+    res.status(425).json({ error: 'Game initialization in progress', bootstrap_status: 'initializing' });
+    return;
+  }
+  if (bootstrap?.status === 'failed') {
+    res.status(409).json({ error: bootstrap.error, bootstrap_status: 'failed' });
+    return;
+  }
+
   // Leggere o riaprire una partita non deve mai far scorrere il calendario.
   const game = gameRepository.findById(req.params.id);
   if (!game) {

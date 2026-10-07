@@ -13,7 +13,7 @@
  *    codice paese nudo;
  *  - un errore di generazione riporta alla landing senza lasciare stati a metà.
  */
-import { gameApi, readableApiError, worldApi } from '../../services/api';
+import { gameApi, ReadableJobError, readableApiError, worldApi } from '../../services/api';
 import type { Game, WorldTemplate } from '../../types';
 import { useGameStore } from '../../stores';
 import { CountrySelector } from './CountrySelector';
@@ -32,11 +32,33 @@ export interface CountryStageProps {
   onDifficultyChange: (value: string) => void;
   onBack: () => void;
   /** Avanzamento reale (0..1) della generazione del mondo. */
-  onProgress: (ratio: number) => void;
+  onProgress: (ratio: number, phase?: string) => void;
   /** La partita è pronta: `App` pubblica game, mondo e regione selezionata. */
   onGenerated: (game: Game, regionId: string) => void;
   onFailure: (message?: string) => void;
   setLoading: (loading: boolean) => void;
+}
+
+const BOOTSTRAP_POLL_MS = 1_500;
+const BOOTSTRAP_TIMEOUT_MS = 120_000;
+
+/**
+ * ASYNC BOOTSTRAP — `POST /games` risponde subito; il Dossier LLM del paese
+ * viene preparato in background. Qui si aspetta `ready` con polling, oppure si
+ * propaga l'errore sanitizzato se lo stato diventa `failed`.
+ */
+async function waitForBootstrap(gameId: string, onPhase: (phase: string) => void): Promise<void> {
+  const deadline = Date.now() + BOOTSTRAP_TIMEOUT_MS;
+  onPhase('Preparazione del Dossier nazionale…');
+  while (Date.now() < deadline) {
+    const status = await gameApi.bootstrapStatus(gameId);
+    if (status.status === 'ready') return;
+    if (status.status === 'failed') {
+      throw new ReadableJobError(status.error || 'Impossibile completare il Dossier iniziale.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, BOOTSTRAP_POLL_MS));
+  }
+  throw new ReadableJobError('Preparazione del Dossier iniziale troppo lunga. Riprova.');
 }
 
 export function CountryStage({
@@ -92,12 +114,15 @@ export function CountryStage({
               difficulty,
             });
 
+            // ASYNC BOOTSTRAP — POST /games non attende più il Dossier LLM.
+            // Si resta nel loader finché la partita non è `ready`.
+            await waitForBootstrap(gameResponse.game_id, (phase) => onProgress(0.97, phase));
             const game = await gameApi.get(gameResponse.game_id);
             onGenerated(game, actualRegionId);
           } catch (e) {
             console.error('[Game] Failed to generate world:', e);
-            // Il fail-closed del bootstrap risponde 503 con un messaggio leggibile:
-            // mostrarlo invece del generico «Riprova».
+            // La creazione non è più hard-blocking: il bootstrap async può
+            // fallire con un errore leggibile, che va mostrato all'utente.
             onFailure(readableApiError(e, 'Generazione del mondo fallita. Riprova.'));
           } finally {
             setLoading(false);

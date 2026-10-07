@@ -8,6 +8,7 @@ import type {
   CreateWorldResponse,
   CreateGameRequest,
   CreateGameResponse,
+  GameBootstrapStatus,
   SubmitActionRequest,
   SubmitActionResponse,
   AdvisorResponse,
@@ -1202,6 +1203,14 @@ export const gameApi = {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  },
+
+  /**
+   * Stato del Dossier iniziale: la creazione partita non attende più il LLM.
+   * `ready` = giocabile; `failed` = errore sanitizzato da mostrare.
+   */
+  bootstrapStatus: (gameId: string): Promise<GameBootstrapStatus> => {
+    return fetchApi(`/games/${gameId}/bootstrap-status`);
   },
   
   /**

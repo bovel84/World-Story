@@ -208,10 +208,19 @@ export interface CreateGameRequest {
 export interface CreateGameResponse {
   game_id: string;
   player_id: string;
+  player_polity_id?: string;
   region: {
     id: string;
     name: string;
   };
+  /** Il Dossier nazionale è preparato in background: il client fa polling. */
+  bootstrap_status?: 'initializing' | 'ready' | 'failed';
+}
+
+/** Stato del bootstrap asincrono del Dossier iniziale. */
+export interface GameBootstrapStatus {
+  status: 'initializing' | 'ready' | 'failed';
+  error?: string;
 }
 
 export interface SubmitActionRequest {
