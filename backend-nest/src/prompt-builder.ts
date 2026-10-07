@@ -35,6 +35,7 @@ import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvi
 import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat } from './core/government/NarrativeContextCompiler';
 import { COUNCIL_ISSUE_PROTOCOL, MAX_BRIEFING_COUNCIL_ISSUES, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { parseAdvisorResponse, serializeAdvisorResponse } from './core/government/AdvisorSituations';
+import { ADVISOR_BRIEFING_REPAIR_SYSTEM } from './core/government/AdvisorBriefingRepair';
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
@@ -1829,6 +1830,17 @@ export class PromptEngine {
     const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
     const response = await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, { temperature: 0.5, signal });
     return validatedAdvisorText(context, response.content);
+  }
+
+  /**
+   * UNA sola completion di riparazione del briefing: chiede esclusivamente i
+   * blocchi `council_issue` mancanti, senza prosa e senza rigenerare le
+   * situazioni. La risposta viene poi validata canonicamente da
+   * `repairAdvisorBriefing` lato sessione.
+   */
+  async repairAdvisorBriefing(prompt: string, signal?: AbortSignal): Promise<string> {
+    const response = await this.llm.generate('advisor', ADVISOR_BRIEFING_REPAIR_SYSTEM, prompt, { temperature: 0.35, signal });
+    return response.content;
   }
 
   /**

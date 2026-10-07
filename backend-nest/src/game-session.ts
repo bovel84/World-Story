@@ -36,6 +36,7 @@ import { renderRealityConcerns } from './core/government/RealitySignals';
 import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, isAdvisorBriefingRequest, withAdvisorStrategicContext, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { generateHistoricalBaseline, awaitHistoricalBaseline, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import { parseAdvisorResponse, resolveFocusSituation } from './core/government/AdvisorSituations';
+import { repairAdvisorBriefing } from './core/government/AdvisorBriefingRepair';
 import type { CouncilIssue } from './core/government/CouncilIssue';
 import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
@@ -3560,6 +3561,21 @@ export class GameSession {
 
   private advisorContext(query = '', focusIssue?: unknown, focusSituation?: unknown, mode: 'briefing' | 'conversation' = 'conversation'): RealityAdvisorContext { return this.advisorResult(query, focusIssue, focusSituation, mode).advisorContext; }
 
+  /**
+   * BRIEFING MODE — se una o più situazioni restano senza proposta, esegue AL
+   * MASSIMO una completion breve che chiede solo le `council_issue` mancanti. Le
+   * situazioni già generate non vengono toccate; se il repair fallisce, la
+   * copertura resta incompleta e viene loggata (nessuna proposta fabbricata).
+   */
+  private async repairIncompleteBriefing(response: RealityAdvisorResult, signal?: AbortSignal): Promise<RealityAdvisorResult> {
+    if (!response.briefingCoverage || response.briefingCoverage.complete) return response;
+    const outcome = await repairAdvisorBriefing(response.advisorContext.verifiedWorldSnapshot, response, {
+      complete: prompt => this.promptEngine.repairAdvisorBriefing(prompt, signal),
+      onDiscard: (reason, situationId) => console.warn(`[AdvisorBriefing] advisor briefing incomplete situation=${situationId ?? 'opportunity'} reason=${reason}`),
+    });
+    return { ...outcome.response, advisorContext: response.advisorContext };
+  }
+
   /** One immutable background per polity/divergence, not one per player or branch. */
   async getPolityHistoricalBaseline(polityId: string, signal?: AbortSignal): Promise<PolityHistoricalBaseline | null> {
     const cached = this.cachedHistoricalBaseline(polityId);
@@ -3653,7 +3669,7 @@ export class GameSession {
     this.assertFenceValid(fence);
     if (text === null || !text.trim()) return { ...this.advisorResult('', undefined, undefined, 'briefing'), fallback: true };
     const result = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'advisor', { includeDeterministicSituations: true, strategicContext: context });
-    return { ...result, advisorContext: context, fallback: false };
+    return { ...(await this.repairIncompleteBriefing({ ...result, advisorContext: context }, signal)), fallback: false };
   }
 
   /** Client context supplies only a discussion focus; every fact is rebuilt from the server snapshot. */
@@ -3684,7 +3700,14 @@ export class GameSession {
     const result = parseAdvisorResponse(context.advisorContext.verifiedWorldSnapshot, text, 'president', {
       includeDeterministicSituations: mode === 'briefing', strategicContext: context.advisorContext,
     });
-    return { ...result, advisorContext: context.advisorContext };
+    if (mode !== 'briefing' || !result.briefingCoverage || result.briefingCoverage.complete) {
+      return { ...result, advisorContext: context.advisorContext };
+    }
+    const outcome = await repairAdvisorBriefing(context.advisorContext.verifiedWorldSnapshot, result, {
+      complete: prompt => this.promptEngine.repairAdvisorBriefing(prompt, signal),
+      onDiscard: (reason, situationId) => console.warn(`[AdvisorBriefing] advisor briefing incomplete situation=${situationId ?? 'opportunity'} reason=${reason}`),
+    });
+    return { ...outcome.response, advisorContext: context.advisorContext };
   }
 
   /**

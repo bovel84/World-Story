@@ -25,8 +25,10 @@ describe('briefing intent without an LLM classifier', () => {
     const getAdvisorWithPrompts = vi.fn(async () => 'Quadro aggiornato.\n```advisor_situation\n'
       + JSON.stringify({ title: 'Fragilità degli approvvigionamenti', summary: 'Scorte limitate.', signalKeys: ['food-coverage'] }) + '\n```');
     const advisorResult = vi.fn((_message, issue, focus, mode) => buildRealityAdvisorContext(canonical, issue, undefined, focus, mode));
+    // Il briefing con una situazione scoperta richiede UNA sola completion di repair.
+    const repairAdvisorBriefing = vi.fn(async () => '');
     const harness = { hasActiveRun: () => false, fenceContext: () => ({}), assertFenceValid: () => {}, advisorResult,
-      buildGameData: () => ({}), gameController: { getAdvisorWithPrompts } };
+      buildGameData: () => ({}), gameController: { getAdvisorWithPrompts }, promptEngine: { repairAdvisorBriefing } };
     const reply = await GameSession.prototype.getRealityAdvisor.call(harness as never, 'dammi la situazione strategica', [], undefined, { signalKey: 'stale-focus' });
     expect(reply.advisorContext.mode).toBe('briefing');
     expect(reply.situations[0].title).toBe('Fragilità degli approvvigionamenti');
@@ -39,6 +41,8 @@ describe('briefing intent without an LLM classifier', () => {
     const fallback = await GameSession.prototype.getRealityAdvisor.call(harness as never, 'fammi il quadro');
     expect(fallback.situations).toEqual(buildRealityAdvisorContext(canonical).situations);
     expect(getAdvisorWithPrompts).toHaveBeenCalledTimes(3);
+    // Solo il primo briefing scoperto chiama il repair; il focus e il fallback no.
+    expect(repairAdvisorBriefing).toHaveBeenCalledTimes(1);
   });
 
   it('D/E: refresh rigenera card nella stessa completion, approfondimento no', async () => {
