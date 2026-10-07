@@ -205,6 +205,8 @@ function App() {
     setGenPhase,
     genProgress,
     setGenProgress,
+    genPhaseText,
+    setGenPhaseText,
     showLLMSettings,
     setShowLLMSettings,
     showRewindConfirm,
@@ -267,7 +269,7 @@ function App() {
       {loading && currentView === 'select-country' && (
         <GameLoader
           title="Creazione del mondo…"
-          phase={WORLD_GEN_PHASES[genPhase]}
+          phase={genPhaseText ?? WORLD_GEN_PHASES[genPhase]}
           progress={genProgress ?? undefined}
         />
       )}
@@ -292,8 +294,9 @@ function App() {
           difficulty={difficulty}
           onDifficultyChange={setDifficulty}
           onBack={() => setCurrentView('select-template')}
-          onProgress={(ratio) => {
+          onProgress={(ratio, phase) => {
             setGenProgress(ratio);
+            setGenPhaseText(phase ?? null);
             setGenPhase(Math.min(WORLD_GEN_PHASES.length - 1, Math.floor(ratio * WORLD_GEN_PHASES.length)));
           }}
           onGenerated={(game, actualRegionId) => {

@@ -30,6 +30,9 @@ export interface ShellState {
   setGenPhase: React.Dispatch<React.SetStateAction<number>>;
   genProgress: number | null;
   setGenProgress: React.Dispatch<React.SetStateAction<number | null>>;
+  /** Testo fase del loader (es. «Preparazione del Dossier nazionale…»), se sovrascritto. */
+  genPhaseText: string | null;
+  setGenPhaseText: React.Dispatch<React.SetStateAction<string | null>>;
   showLLMSettings: boolean;
   setShowLLMSettings: React.Dispatch<React.SetStateAction<boolean>>;
   showRewindConfirm: boolean;
@@ -53,6 +56,8 @@ export function useShellState(): ShellState {
   const [genPhase, setGenPhase] = useState(0);
   // Avanzamento reale (0..1) della generazione del mondo, dal polling del job
   const [genProgress, setGenProgress] = useState<number | null>(null);
+  // Fase testuale esplicita (bootstrap del Dossier) che vince sulle fasi a timer
+  const [genPhaseText, setGenPhaseText] = useState<string | null>(null);
   // Menu di scelta del modello IA (landing + pannello di gioco)
   const [showLLMSettings, setShowLLMSettings] = useState(false);
   // Dialog di conferma per azioni distruttive
@@ -79,6 +84,7 @@ export function useShellState(): ShellState {
     if (!loading || currentView !== 'select-country') return;
     setGenPhase(0);
     setGenProgress(null);
+    setGenPhaseText(null);
     const t = setInterval(() => {
       setGenPhase(p => Math.min(p + 1, WORLD_GEN_PHASES.length - 1));
     }, 12000);
@@ -106,6 +112,7 @@ export function useShellState(): ShellState {
     showSavePicker, setShowSavePicker,
     genPhase, setGenPhase,
     genProgress, setGenProgress,
+    genPhaseText, setGenPhaseText,
     showLLMSettings, setShowLLMSettings,
     showRewindConfirm, setShowRewindConfirm,
     showLoadSaveConfirm, setShowLoadSaveConfirm,
