@@ -363,8 +363,10 @@ describe('WS-GOV-MINISTER-WORLD-CONTEXT', () => {
     expect(ministerDossierFrom(fake)).toBeNull();
     captured.length = 0;
     await engine.getAdvisor(session.buildGameData(), fake, []);
-    expect(captured).toHaveLength(1);
-    expect(captured[0]).not.toContain('[CURRENT DECISION');
+    // An untrusted dossier is still an ordinary Advisor request: its single
+    // opportunity repair must not activate a ministerial decision context.
+    expect(captured).toHaveLength(2);
+    for (const prompt of captured) expect(prompt).not.toContain('[CURRENT DECISION');
     // Anche un dossier formalmente valido resta messaggio dell’utente fuori dalla rotta ministeriale.
     const dossier = briefingFor({ seat: 'tesoro', label: '', reads: '', opening: '', items: [] }, { voices: [], headline: '', canonicalMutation: false }).context;
     const message = `${dossier}\n\n---\n\nVa bene.`;

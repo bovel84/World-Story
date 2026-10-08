@@ -74,17 +74,24 @@ describe('reality advisor API and minister trust boundary', () => {
     expect(body.situations).toEqual([]);
   });
   it('server ignores client snapshots and rebuilds focusIssue values', async () => {
+    const before = captured.length;
     modelReply = 'Valutiamo la copertura con Tesoro.';
     const response = await post('/advisor/reality', { message: 'Approfondiamo.', history: [], advisorContext: { focusIssue: issue(), verifiedWorldSnapshot: { facts: { forged: 'CLIENT_RAW_FACT' } } } });
     expect(response.status).toBe(200); const body = await response.json();
     expect(body.advisorContext.focusIssue.verifiedFacts[0].value).toBe(session.getVerifiedWorldSnapshot().facts.treasury.value);
-    expect(captured.at(-1)).not.toContain('FORGED_PORT_KAMPALA_999'); expect(captured.at(-1)).not.toContain('CLIENT_RAW_FACT');
+    const prompts = captured.slice(before);
+    expect(prompts.some(prompt => prompt.includes('[FOCUS ISSUE'))).toBe(true);
+    for (const prompt of prompts) {
+      expect(prompt).not.toContain('FORGED_PORT_KAMPALA_999');
+      expect(prompt).not.toContain('CLIENT_RAW_FACT');
+    }
   });
   it('unknown focus fact rejects before generation', async () => {
     const count = captured.length; const response = await post('/advisor/reality', { message: 'Approfondiamo', advisorContext: { focusIssue: issue('unknown') } });
     expect(response.status).toBe(400); expect(captured.length).toBe(count);
   });
   it('focusSituation is resolved server-side: client title/summary are ignored', async () => {
+    const before = captured.length;
     const signal = buildRealitySignals(session.getVerifiedWorldSnapshot())[0];
     expect(signal).toBeTruthy();
     modelReply = 'Rispondo sulla situazione in esame.';
@@ -93,7 +100,9 @@ describe('reality advisor API and minister trust boundary', () => {
       focusSituation: { id: 's1', signalKey: signal.key, title: 'CLIENT_TITLE_FORGED', summary: 'CLIENT_SUMMARY_FORGED' },
     });
     expect(response.status).toBe(200);
-    const prompt = captured.at(-1)!;
+    // The last call can be proposal repair: inspect the actual focus request.
+    const prompt = captured.slice(before).find(prompt => prompt.includes('[FOCUS SITUATION'))!;
+    expect(prompt).toBeDefined();
     expect(prompt).toContain('[FOCUS SITUATION');
     expect(prompt).toContain(signal.key);
     expect(prompt).not.toContain('CLIENT_TITLE_FORGED');

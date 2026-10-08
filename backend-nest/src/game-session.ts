@@ -35,8 +35,7 @@ import { derivedInfrastructureObjects } from './core/simulation/DerivedInfrastru
 import { renderRealityConcerns } from './core/government/RealitySignals';
 import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, isAdvisorBriefingRequest, withAdvisorStrategicContext, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { generateHistoricalBaseline, awaitHistoricalBaseline, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
-import { parseAdvisorResponse, resolveFocusSituation } from './core/government/AdvisorSituations';
-import { repairAdvisorBriefing } from './core/government/AdvisorBriefingRepair';
+import { advisorReplyWithProposals, parseAdvisorResponse, resolveFocusSituation } from './core/government/AdvisorSituations';
 import type { CouncilIssue } from './core/government/CouncilIssue';
 import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
@@ -3561,21 +3560,6 @@ export class GameSession {
 
   private advisorContext(query = '', focusIssue?: unknown, focusSituation?: unknown, mode: 'briefing' | 'conversation' = 'conversation'): RealityAdvisorContext { return this.advisorResult(query, focusIssue, focusSituation, mode).advisorContext; }
 
-  /**
-   * BRIEFING MODE — se una o più situazioni restano senza proposta, esegue AL
-   * MASSIMO una completion breve che chiede solo le `council_issue` mancanti. Le
-   * situazioni già generate non vengono toccate; se il repair fallisce, la
-   * copertura resta incompleta e viene loggata (nessuna proposta fabbricata).
-   */
-  private async repairIncompleteBriefing(response: RealityAdvisorResult, signal?: AbortSignal): Promise<RealityAdvisorResult> {
-    if (!response.briefingCoverage || response.briefingCoverage.complete) return response;
-    const outcome = await repairAdvisorBriefing(response.advisorContext.verifiedWorldSnapshot, response, {
-      complete: prompt => this.promptEngine.repairAdvisorBriefing(prompt, signal),
-      onDiscard: (reason, situationId) => console.warn(`[AdvisorBriefing] advisor briefing incomplete situation=${situationId ?? 'opportunity'} reason=${reason}`),
-    });
-    return { ...outcome.response, advisorContext: response.advisorContext };
-  }
-
   /** One immutable background per polity/divergence, not one per player or branch. */
   async getPolityHistoricalBaseline(polityId: string, signal?: AbortSignal): Promise<PolityHistoricalBaseline | null> {
     const cached = this.cachedHistoricalBaseline(polityId);
@@ -3669,7 +3653,7 @@ export class GameSession {
     this.assertFenceValid(fence);
     if (text === null || !text.trim()) return { ...this.advisorResult('', undefined, undefined, 'briefing'), fallback: true };
     const result = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'advisor', { includeDeterministicSituations: true, strategicContext: context });
-    return { ...(await this.repairIncompleteBriefing({ ...result, advisorContext: context }, signal)), fallback: false };
+    return { ...result, advisorContext: context, fallback: false };
   }
 
   /** Client context supplies only a discussion focus; every fact is rebuilt from the server snapshot. */
@@ -3700,14 +3684,9 @@ export class GameSession {
     const result = parseAdvisorResponse(context.advisorContext.verifiedWorldSnapshot, text, 'president', {
       includeDeterministicSituations: mode === 'briefing', strategicContext: context.advisorContext,
     });
-    if (mode !== 'briefing' || !result.briefingCoverage || result.briefingCoverage.complete) {
-      return { ...result, advisorContext: context.advisorContext };
-    }
-    const outcome = await repairAdvisorBriefing(context.advisorContext.verifiedWorldSnapshot, result, {
-      complete: prompt => this.promptEngine.repairAdvisorBriefing(prompt, signal),
-      onDiscard: (reason, situationId) => console.warn(`[AdvisorBriefing] advisor briefing incomplete situation=${situationId ?? 'opportunity'} reason=${reason}`),
-    });
-    return { ...outcome.response, advisorContext: context.advisorContext };
+    // PromptEngine already performs the single proposal repair (chat + stream).
+    // Revalidate the final transport here, without spending another completion.
+    return { ...result, advisorContext: context.advisorContext };
   }
 
   /**
@@ -3730,7 +3709,7 @@ export class GameSession {
     // inclusi). Il testo PUBBLICO (proattivo/semplice) non deve mai contenere
     // blocchi fenced: si pubblica solo la prosa.
     if (ministerSeat) return text;
-    return parseAdvisorResponse(this.getVerifiedWorldSnapshot(), text, 'advisor', { includeDeterministicSituations: false }).reply;
+    return advisorReplyWithProposals(parseAdvisorResponse(this.getVerifiedWorldSnapshot(), text, 'advisor', { includeDeterministicSituations: false }));
   }
 
   /** Apertura automatica: solo letture, stesso provider, nessun percorso di decisione/memoria. */
@@ -3956,8 +3935,8 @@ export class GameSession {
     gameData.polityHistoricalBaselines = this.persistedPolityHistoricalBaselines(this.mentionedNpcPolityIds([message]));
     gameData.advisorContext = this.advisorContext(message);
     const text = await this.gameController.getAdvisorStreamWithPrompts(gameData, message, history, onToken);
-    // WS-CONSULENTE-SITUAZIONI — il testo pubblico non contiene blocchi fenced.
-    return parseAdvisorResponse(this.getVerifiedWorldSnapshot(), text, 'advisor', { includeDeterministicSituations: false }).reply;
+    // Public text has no fenced blocks, but concrete proposals remain visible.
+    return advisorReplyWithProposals(parseAdvisorResponse(this.getVerifiedWorldSnapshot(), text, 'advisor', { includeDeterministicSituations: false }));
   }
 
   // =========================================================================

@@ -30,6 +30,8 @@ const stubProvider: any = {
   consolidation: { startRound: 25, chunkSize: 5, keepRawTail: 10 },
   async generate(mechanic: string, system: string, user: string) {
     if (mechanic === 'advisor') {
+      // Inspect the conversational prompt, not the targeted proposal completion.
+      if (system.startsWith('Sei il Primo Consulente: completa solo')) return { content: '' };
       capturedAdvisorPrompt = `${system}\n${user}`;
       return { content: 'СОВЕТ: усильте гарнизон на восточной границе' };
     }

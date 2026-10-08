@@ -372,6 +372,15 @@ export function parseAdvisorResponse(snapshot: VerifiedWorldSnapshot, text: stri
   return briefing ? withAdvisorBriefingCoverage(snapshot, result) : result;
 }
 
+/** Legacy text/plain chats must not silently discard paid-for proposals.
+ * Structured clients still receive the original cards; no Council is opened. */
+export function advisorReplyWithProposals(result: AdvisorResponse): string {
+  if (!result.issues.length) return result.reply;
+  return [result.reply, 'Proposte del Consulente — da decidere:',
+    ...result.issues.map(issue => `${issue.title}: ${issue.question}`),
+  ].filter(Boolean).join('\n\n');
+}
+
 /** Serializza entrambi i tipi di blocco: il round-trip interno li conserva distinti. */
 export function serializeAdvisorResponse(result: AdvisorResponse): string {
   return [

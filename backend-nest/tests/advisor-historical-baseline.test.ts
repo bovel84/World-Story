@@ -49,6 +49,8 @@ const stubProvider: any = {
       // Una frase con eventi REALI successivi al 2000: non deve entrare nel contesto.
       return { content: JSON.stringify({ entries: [{ date: '1999', text: historyFor(country), confidence: 'high' }, { date: '2008-01-01', text: 'EVENTO_REALE_FUTURO', confidence: 'high' }] }) };
     }
+    // These assertions inspect the opening/chronicle prompt, not proposal repair.
+    if (system.startsWith('Sei il Primo Consulente: completa solo')) return { content: '' };
     capturedPrompts.push(user);
     if (_mechanic === 'jump') return { content: JSON.stringify({ type: 'complete', narration: 'Nessun nuovo impegno.', targetDate: '2000-01-08', actionOutcomes: [], voided: [], startChat: [], relationshipChanges: [], worldChanges: { regionOwners: {}, regionColors: {} } }) };
     openingCalls += 1;
