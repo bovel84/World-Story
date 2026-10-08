@@ -35,7 +35,7 @@ import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvi
 import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat } from './core/government/NarrativeContextCompiler';
 import { COUNCIL_ISSUE_PROTOCOL, MAX_BRIEFING_COUNCIL_ISSUES, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { parseAdvisorResponse, serializeAdvisorResponse } from './core/government/AdvisorSituations';
-import { ADVISOR_BRIEFING_REPAIR_SYSTEM } from './core/government/AdvisorBriefingRepair';
+import { ADVISOR_BRIEFING_REPAIR_SYSTEM, repairAdvisorBriefing } from './core/government/AdvisorBriefingRepair';
 import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
@@ -488,19 +488,33 @@ async function advisorPresetStyle(builder: PromptBuilder, game: GameData, messag
 
 function advisorRequestContext(game: GameData, message: string): RealityAdvisorContext {
   const context = withAdvisorStrategicContext(realityContextFor(game), game.world.startDate, game.results ?? [], message);
+  // Do not rely on an advisor prompt override: every request needs the actual
+  // server-authored world premise, including games with custom/alternate history.
+  context.presetContext = {
+    name: (game.world.name ?? '').slice(0, 200), startDate: game.world.startDate ?? '',
+    premise: (game.world.basePrompt ?? '').slice(0, 2500),
+  };
   return game.ministerDialogueSeat || game.ministerMemoryRequest ? context : withAdvisorRequestMode(context, message);
 }
 
-function validatedAdvisorText(context: RealityAdvisorContext, text: string): string {
+async function validatedAdvisorText(context: RealityAdvisorContext, text: string,
+  complete?: (prompt: string) => Promise<string>, message = '',
+): Promise<string> {
   // WS-CONSULENTE-SITUAZIONI — Situazioni e proposte restano separate end-to-end.
   const parsed = parseAdvisorResponse(context.verifiedWorldSnapshot, text, 'president', {
     strategicContext: context,
     // Il passaggio intermedio non deve troncare a otto le proposte del briefing.
     maxIssues: context.mode === 'briefing' ? MAX_BRIEFING_COUNCIL_ISSUES : undefined,
+    includeDeterministicSituations: context.mode === 'briefing',
   });
   const reply = guardRealityAdvisorOutput(context, parsed.reply);
-  const unchanged = reply === parsed.reply;
-  return serializeAdvisorResponse({ reply, situations: unchanged ? parsed.situations : [], issues: unchanged ? parsed.issues : [] });
+  if (reply !== parsed.reply) return serializeAdvisorResponse({ reply, situations: [], issues: [] });
+  // Shared by normal and streaming requests: one repair at most, never another
+  // repair downstream in GameSession. Minister/Council responses bypass it.
+  const result = complete ? (await repairAdvisorBriefing(context.verifiedWorldSnapshot, parsed, {
+    complete, context, message,
+  })).response : parsed;
+  return serializeAdvisorResponse(result);
 }
 
 export class PromptBuilder {
@@ -1829,17 +1843,18 @@ export class PromptEngine {
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
     const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
     const response = await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, { temperature: 0.5, signal });
-    return validatedAdvisorText(context, response.content);
+    return validatedAdvisorText(context, response.content,
+      isMinisterRequest(game, message) ? undefined : prompt => this.repairAdvisorBriefing(prompt, signal), message);
   }
 
   /**
-   * UNA sola completion di riparazione del briefing: chiede esclusivamente i
-   * blocchi `council_issue` mancanti, senza prosa e senza rigenerare le
-   * situazioni. La risposta viene poi validata canonicamente da
-   * `repairAdvisorBriefing` lato sessione.
+   * One bounded proposal completion for chat/briefing/stream. Canonical
+   * validation and merging stay in the shared advisor response pipeline.
    */
   async repairAdvisorBriefing(prompt: string, signal?: AbortSignal): Promise<string> {
-    const response = await this.llm.generate('advisor', ADVISOR_BRIEFING_REPAIR_SYSTEM, prompt, { temperature: 0.35, signal });
+    const response = await this.llm.generate('advisor', ADVISOR_BRIEFING_REPAIR_SYSTEM, prompt, {
+      temperature: 0.35, maxTokens: 4000, singleAttempt: true, signal,
+    });
     return response.content;
   }
 
@@ -1877,7 +1892,8 @@ export class PromptEngine {
     const response = await this.llm.stream('advisor', VERIFIED_FACT_POLICY, prompt, progress => {
       if (typeof progress === 'number') onToken(progress);
     }, { temperature: 0.5, signal });
-    return validatedAdvisorText(context, response.content);
+    return validatedAdvisorText(context, response.content,
+      isMinisterRequest(game, message) ? undefined : prompt => this.repairAdvisorBriefing(prompt, signal), message);
   }
 
   private safeSuggestionFallback(vars: PromptVariables, game: GameData): Suggestion[] {

@@ -25,7 +25,7 @@ describe('briefing intent without an LLM classifier', () => {
     const getAdvisorWithPrompts = vi.fn(async () => 'Quadro aggiornato.\n```advisor_situation\n'
       + JSON.stringify({ title: 'Fragilità degli approvvigionamenti', summary: 'Scorte limitate.', signalKeys: ['food-coverage'] }) + '\n```');
     const advisorResult = vi.fn((_message, issue, focus, mode) => buildRealityAdvisorContext(canonical, issue, undefined, focus, mode));
-    // Il briefing con una situazione scoperta richiede UNA sola completion di repair.
+    // The provider facade owns repair; the session must never repeat it.
     const repairAdvisorBriefing = vi.fn(async () => '');
     const harness = { hasActiveRun: () => false, fenceContext: () => ({}), assertFenceValid: () => {}, advisorResult,
       buildGameData: () => ({}), gameController: { getAdvisorWithPrompts }, promptEngine: { repairAdvisorBriefing } };
@@ -41,8 +41,7 @@ describe('briefing intent without an LLM classifier', () => {
     const fallback = await GameSession.prototype.getRealityAdvisor.call(harness as never, 'fammi il quadro');
     expect(fallback.situations).toEqual(buildRealityAdvisorContext(canonical).situations);
     expect(getAdvisorWithPrompts).toHaveBeenCalledTimes(3);
-    // Solo il primo briefing scoperto chiama il repair; il focus e il fallback no.
-    expect(repairAdvisorBriefing).toHaveBeenCalledTimes(1);
+    expect(repairAdvisorBriefing).not.toHaveBeenCalled();
   });
 
   it('D/E: refresh rigenera card nella stessa completion, approfondimento no', async () => {
@@ -58,7 +57,9 @@ describe('briefing intent without an LLM classifier', () => {
       advisorContext: buildRealityAdvisorContext(canonical).advisorContext };
     expect(await engine.getAdvisor(game as never, 'dammi la situazione strategica')).toContain('advisor_situation');
     expect(await engine.getAdvisor(game as never, "approfondisci l'LRA")).not.toContain('advisor_situation');
-    expect(generate).toHaveBeenCalledTimes(2);
+    // Both prose-only requests may need one proposal repair; neither repeats
+    // the agenda during focus/conversation, even if repair returns only prose.
+    expect(generate).toHaveBeenCalledTimes(4);
   });
 });
 

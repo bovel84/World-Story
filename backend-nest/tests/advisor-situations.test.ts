@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 import { advisorBriefingSentences, buildRealitySignals } from '../src/core/government/RealitySignals';
 import {
-  buildAdvisorSituations, mergeAdvisorSituations, MAX_ADVISOR_SITUATIONS, parseAdvisorResponse, parseAdvisorSituations,
+  advisorReplyWithProposals, buildAdvisorSituations, mergeAdvisorSituations, MAX_ADVISOR_SITUATIONS, parseAdvisorResponse, parseAdvisorSituations,
   proposalMatchesSituation, resolveAdvisorSituation, resolveFocusSituation, serializeAdvisorResponse,
   signalSituationTitle, situationsOverlap, withAdvisorBriefingCoverage,
 } from '../src/core/government/AdvisorSituations';
@@ -196,7 +196,12 @@ describe('Strategic threads grounded in server evidence', () => {
   });
 
   it('un’opportunità senza alert conserva la proposta e il collegamento nel doppio parsing', async () => {
-    const snapshot = opening();
+    const snapshot = world({ date: '2000-01-01', turn: 1,
+      account: { population: 10_000_000, socialTension: 20, stability: 80, monthlyBalance: 2, debtRatioPct: 40, debtServicePct: 5 },
+    });
+    snapshot.facts.foodCoverageMonths.rawValue = 5;
+    snapshot.facts.foodCoverageMonths.value = '5 mesi';
+    expect(buildAdvisorSituations(snapshot)).toEqual([]);
     const strategicContext = { ...context, historicalBaseline: 'Alla divergenza la cooperazione EAC offriva opportunità di integrazione regionale.' };
     const evidence = buildStrategicThreadEvidence(snapshot, strategicContext).find(item => item.kind === 'historical')!;
     const text = 'Possiamo discutere una cooperazione regionale subordinata alle risorse disponibili.\n'
@@ -210,7 +215,8 @@ describe('Strategic threads grounded in server evidence', () => {
       players: [{ id: 'p', name: 'Presidente', regionId: 'home', polityId: 'UGA' }], playerPolityId: 'UGA', actions: [], results: [],
       advisorContext: { ...buildRealityAdvisorContext(snapshot).advisorContext, ...strategicContext } } as never, 'fammi il quadro');
     const parsed = parseAdvisorResponse(snapshot, serialized, 'advisor', { strategicContext });
-    expect(generate).toHaveBeenCalledTimes(1);
+    // One existing opportunity remains valid; the advisor may seek another.
+    expect(generate).toHaveBeenCalledTimes(2);
     expect(parsed.situations[0].kind).toBe('opportunity');
     expect(parsed.situations[0].importance).toBe(1);
     expect(parsed.issues[0].situationId).toBe('integrazione');
@@ -498,7 +504,9 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
       playerPolityId: 'UGA', actions: [], results: [],
       advisorContext: buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing').advisorContext,
     } as never, 'Apriamo.');
-    expect(generate).toHaveBeenCalledTimes(1);
+    // A fully covered crisis agenda can still lack opportunity proposals.
+    // One targeted repair is allowed; the ten existing decisions survive.
+    expect(generate).toHaveBeenCalledTimes(2);
     expect(parseAdvisorResponse(snapshot, text, 'advisor', { includeDeterministicSituations: true }).issues).toHaveLength(10);
   });
 
@@ -758,6 +766,71 @@ describe('WS-CONSULENTE-PROPOSTE — repair mirato di un briefing incompleto', (
     const outcome = await repairAdvisorBriefing(snapshot, complete, { complete: async () => { calls += 1; return ''; } });
     expect(calls).toBe(0);
     expect(outcome.response).toBe(complete);
+  });
+
+  it('a ogni richiesta considera opportunità del preset e ripara anche una conversazione senza proposte', async () => {
+    const { PromptEngine } = await import('../src/prompt-builder');
+    const canonical = twoSituations();
+    const prompts: string[] = [];
+    const generate = vi.fn(async (_mechanic: string, _system: string, prompt: string) => {
+      prompts.push(prompt);
+      return { content: prompts.length === 1 ? 'Presidente, possiamo aprire nuove prospettive.' : [
+        block('council_issue', { title: 'Riserva alimentare', question: 'Avviare un programma di riserve alimentari subordinato alla copertura del Tesoro?', anchorKeys: ['capacity-economy'], suggestedMinisters: ['tesoro'] }),
+        block('council_issue', { title: 'Politica del credito', question: 'Modificare la politica di indebitamento imponendo priorità ai programmi con copertura verificata?', anchorKeys: ['capacity-credit'], suggestedMinisters: ['tesoro'] }),
+      ].join('\n') };
+    });
+    const engine = new PromptEngine({ generate } as never);
+    const game = { id: 'preset-opportunities', currentDate: canonical.date, currentTurn: 2,
+      world: { name: 'Scenario X', startDate: '2000-01-01', basePrompt: 'La federazione emerge da una transizione istituzionale e cerca cooperazione regionale.', regions: {}, prompts: {} },
+      players: [{ id: 'president', name: 'Presidente', regionId: 'home', polityId: 'UGA' }], playerPolityId: 'UGA', actions: [], results: [], advisorContext: buildRealityAdvisorContext(canonical).advisorContext };
+    const text = await engine.getAdvisor(game as never, 'Come possiamo rafforzare la nostra posizione?');
+    expect(prompts[0]).toContain('[CONTESTO INIZIALE DEL PRESET');
+    expect(prompts[0]).toContain('Scenario X');
+    expect(prompts[0]).toContain(game.world.basePrompt);
+    expect(prompts[0]).toContain('A ogni richiesta');
+    const parsed = parseAdvisorResponse(canonical, text);
+    expect(parsed.reply).toBe('Presidente, possiamo aprire nuove prospettive.');
+    expect(parsed.issues).toHaveLength(2);
+    expect(advisorReplyWithProposals(parsed)).toContain('Riserva alimentare');
+    expect(advisorReplyWithProposals(parsed)).toContain('Politica del credito');
+    expect(advisorReplyWithProposals(parsed)).not.toContain('```');
+    expect(parsed.situations).toEqual([]); // Chat, non refresh dell'agenda.
+    expect(generate).toHaveBeenCalledTimes(2); // Una generazione + al massimo un repair.
+  });
+
+  it('stream e focus restano propositivi, senza repair quando una proposta pertinente è già presente', async () => {
+    const { PromptEngine } = await import('../src/prompt-builder');
+    const canonical = twoSituations();
+    const context = buildRealityAdvisorContext(canonical, undefined, undefined, { id: 'scorte', signalKeys: ['food-coverage'] }).advisorContext;
+    const content = 'Presidente, agiamo sulle riserve.\n' + block('council_issue', {
+      title: 'Riserva alimentare', question: 'Avviare un programma di riserve alimentari subordinato alla copertura del Tesoro?',
+      anchorKeys: ['capacity-economy'], suggestedMinisters: ['tesoro'],
+    });
+    const stream = vi.fn(async (_mechanic: string, _system: string, prompt: string) => {
+      expect(prompt).toContain('SCENARIO_X');
+      expect(prompt).toContain('A ogni richiesta');
+      expect(prompt).toContain('rispondi SOLO su di essa');
+      return { content };
+    });
+    const generate = vi.fn();
+    const engine = new PromptEngine({ generate, stream } as never);
+    const game = { id: 'focus-preset', currentDate: canonical.date, currentTurn: 2,
+      world: { name: 'SCENARIO_X', startDate: '2000-01-01', basePrompt: 'Transizione istituzionale.', regions: {}, prompts: {} },
+      players: [{ id: 'president', name: 'Presidente', regionId: 'home', polityId: 'UGA' }], playerPolityId: 'UGA', actions: [], results: [], advisorContext: context };
+    const result = await engine.getAdvisorStream(game as never, 'Approfondisci le scorte', [], () => {});
+    expect(parseAdvisorResponse(canonical, result).issues).toHaveLength(1);
+    expect(generate).not.toHaveBeenCalled();
+    expect(stream).toHaveBeenCalledTimes(1);
+    // A later food-focused request with no decision may repair once, but an
+    // unrelated credit opportunity is not accepted just for sharing a country.
+    stream.mockResolvedValueOnce({ content: 'Presidente, esaminiamo le scorte.' });
+    generate.mockResolvedValueOnce({ content: block('council_issue', {
+      title: 'Nuovo debito', question: 'Autorizzare una nuova politica di indebitamento?',
+      anchorKeys: ['capacity-credit'], suggestedMinisters: ['tesoro'],
+    }) });
+    const unrelated = await engine.getAdvisorStream(game as never, 'Approfondisci le scorte', [], () => {});
+    expect(parseAdvisorResponse(canonical, unrelated).issues).toEqual([]);
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 
   it('il prompt di repair è compatto: situazioni scoperte, anchor e atti firmati, nessuna prosa', () => {

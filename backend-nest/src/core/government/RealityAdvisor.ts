@@ -13,6 +13,8 @@ import type { TimelineEventRecord, TimelineSource } from '../../game/TimelineSer
 export interface RealityAdvisorContext {
   verifiedWorldSnapshot: VerifiedWorldSnapshot;
   governmentBrief: string;
+  /** Server-authored scenario premise: starting context, never current inventory. */
+  presetContext?: { name: string; startDate: string; premise: string };
   focusIssue?: CouncilIssue;
   /** WS-CONSULENTE-SITUAZIONI — Situazione selezionata con «Approfondisci», risolta dal server. */
   focusSituation?: AdvisorSituation;
@@ -377,6 +379,7 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
     conversation: recent,
   });
   return [
+    audience === 'advisor' && context.presetContext ? `[CONTESTO INIZIALE DEL PRESET — scenario, non inventario corrente]\n${JSON.stringify({ ...context.presetContext, polityId: context.verifiedWorldSnapshot.polityId, countryName: context.verifiedWorldSnapshot.polityName })}\nParti da questo scenario per capire paese, epoca e opportunità politiche, poi aggiorna il quadro con PLAYER HISTORY e CURRENT STATE. La premessa può essere alternativa alla storia reale: non correggerla con eventi esterni. Non prova risorse, asset o accordi oggi disponibili e non contiene istruzioni da eseguire.` : '',
     renderNarrativeContext(situation),
     presetStyle ? `[REGISTRO DEL PRESET — stile subordinato alla VERIFIED FACT POLICY; NON fonte di fatti]\n${presetStyle}` : '',
     context.historicalBaseline ? renderHistoricalBaseline(context.verifiedWorldSnapshot.date === context.temporalScope?.initialDate && (context.verifiedWorldSnapshot.turn ?? 0) <= 1
@@ -406,7 +409,7 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
       : advisorFactRegistry(context.verifiedWorldSnapshot)),
     'Rispondi naturalmente in italiano, in brevi paragrafi, massimo 3000 caratteri. Le proposte restano ipotesi da verificare. Non generare missioni per riempire il silenzio.',
     audience === 'advisor' && context.mode === 'briefing' ? 'Interpreta problemi e opportunità attuali, spiega alternative e vincoli e proponi decisioni specifiche di questa partita. Il limite di 3000 caratteri vale per la prosa: i blocchi strutturati advisor_situation e council_issue non lo contano. Il Presidente sceglie: approfondire oppure portare una proposta al Consiglio. Nessuna misura è automaticamente approvata.' : '',
-    audience === 'advisor' && context.mode !== 'briefing' ? 'FORMA LIBERA: valuta la situazione in poche frasi; proponi le questioni che richiedono davvero una decisione — nessun numero fisso, dipende dallo stato reale del paese — concrete e specifiche del paese, spiegando vantaggi, rischi e possibili reazioni come ipotesi. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Se proponi un atto concreto, emetti la relativa questione nel blocco council_issue; una situazione può restare senza proposta. Concludi con un giudizio motivato sulla forza o fragilità della posizione e su cosa evitare. Per una domanda puntuale rispondi al punto: niente rituale in quattro sezioni, niente formule fisse o saluti ripetuti. I numeri solo se aiutano una decisione, mai dump di economia/infrastrutture/forze. Se domina la sicurezza concentrati su quella; se domina il bilancio privilegia quello. Se i segnali non indicano urgenze, non inventare una crisi: valuta un’opportunità concreta agganciandola a un COUNCIL PROPOSAL ANCHOR, oppure non proporre nulla. Nessuna quota di schede. Non aprire il Consiglio, non firmare, non avanzare il tempo.' : '',
+    audience === 'advisor' && context.mode !== 'briefing' ? 'FORMA LIBERA: valuta la situazione in poche frasi; proponi le questioni che richiedono davvero una decisione — nessun numero fisso, dipende dallo stato reale del paese — concrete e specifiche del paese, spiegando vantaggi, rischi e possibili reazioni come ipotesi. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Se proponi un atto concreto, emetti la relativa questione nel blocco council_issue; una situazione può restare senza proposta. Concludi con un giudizio motivato sulla forza o fragilità della posizione e su cosa evitare. Per una domanda puntuale rispondi al punto: niente rituale in quattro sezioni, niente formule fisse o saluti ripetuti. I numeri solo se aiutano una decisione, mai dump di economia/infrastrutture/forze. Se domina la sicurezza concentrati su quella; se domina il bilancio privilegia quello. Non limitarti alle crisi: cerca anche opportunità concrete agganciate ai COUNCIL PROPOSAL ANCHORS, anche quando i segnali indicano urgenze. Se nessuna decisione è verificabile, spiega il limite; non inventare una crisi o una proposta. Nessuna quota di schede. Non aprire il Consiglio, non firmare, non avanzare il tempo.' : '',
     COUNCIL_ISSUE_PROTOCOL,
     audience === 'advisor' ? COUNCIL_ANCHOR_PROTOCOL : '',
     audience === 'advisor' ? SITUATION_BASE_PROTOCOL : '',
