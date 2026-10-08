@@ -89,11 +89,25 @@ function sanitizeSituations(raw: unknown): AdvisorSituation[] | undefined {
       ? [...new Set(situation.evidenceKeys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0).map(key => key.trim()))]
       : [];
     const kind = situation.kind === 'problem' || situation.kind === 'opportunity' ? situation.kind : undefined;
+    // T02 — le MOSSE della situazione: prosa, titolo + content. Era il difetto di
+    // P03 rimasto aperto per le situazioni: senza questa riga le mosse si
+    // perdevano al salvataggio e la scheda tornava senza, esattamente come
+    // succedeva alle proposte. La disciplina è la stessa di `sanitizeIssues`:
+    // niente chiavi (una mossa non è una fonte), e i campi vuoti non si salvano.
+    const options = Array.isArray(situation.options)
+      ? situation.options.flatMap((option): { title: string; content: string }[] => {
+        if (!option || typeof option !== 'object') return [];
+        const entry = option as Record<string, unknown>;
+        const optionTitle = text(entry.title); const content = text(entry.content);
+        return optionTitle && content ? [{ title: optionTitle, content }] : [];
+      })
+      : [];
     return [{
       id, title, summary,
       ...(signalKeys.length ? { signalKeys } : {}),
       ...(evidenceKeys.length ? { evidenceKeys } : {}),
       ...(kind ? { kind } : {}),
+      ...(options.length ? { options } : {}),
       ...(typeof situation.importance === 'number' ? { importance: situation.importance } : {}),
     }];
   });

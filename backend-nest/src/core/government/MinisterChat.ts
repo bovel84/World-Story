@@ -80,8 +80,16 @@ export function colleagueRedirect(from: CabinetSeat, question: string): string |
   return `La scelta la valuterei con ${redirect.targetLabel.replace(/^Ministro /, 'il ministro ')}. ${redirect.currentAngle}`;
 }
 
-/** API compatibile col percorso congelato GameSession. Non inietta WORLD: lo possiede PromptBuilder/JEV. */
-export function briefingFor(address: CabinetAddress, _agenda: GovernmentAgenda, memory?: MinisterMemory | null): MinisterBriefing {
+/**
+ * API compatibile col percorso congelato GameSession. Non inietta WORLD: lo possiede PromptBuilder/JEV.
+ *
+ * T-I3 — `inSession`: dentro una seduta del Consiglio la frase «Non hai nulla
+ * da portare» **non si dichiara**. Una sedia senza voci proprie ha comunque una
+ * questione sul tavolo — quella che la seduta sta discutendo — e dire il
+ * contrario al modello era la ragione per cui i ministri aprivano con «non ho
+ * nulla da portare al consiglio» mentre una proposta era già in aula.
+ */
+export function briefingFor(address: CabinetAddress, _agenda: GovernmentAgenda, memory?: MinisterMemory | null, inSession = false): MinisterBriefing {
   const colleagues = CABINET_SEATS.filter(seat => seat !== address.seat).map(seat => ({ seat, label: SEAT_LABEL[seat], reads: SEAT_READS[seat] }));
   const unknown = address.items.flatMap(item => item.figures.filter(figure => figure.basis.kind === 'unknown').map(figureLine));
   const context = [
@@ -95,7 +103,8 @@ export function briefingFor(address: CabinetAddress, _agenda: GovernmentAgenda, 
     JSON.stringify({ seat: address.seat, issues: address.items }),
     MINISTER_DATA_RULES,
     ...(unknown.length ? unknown : []),
-    ...(address.items.length ? [] : ['Non hai nulla da portare al consiglio in questo momento.']),
+    ...(address.items.length || inSession ? [] : ['Non hai nulla da portare al consiglio in questo momento.']),
+    ...(inSession && !address.items.length ? ['Non hai voci di dossier su questa sedia, ma la questione è già sul tavolo del Consiglio: portala dalla tua competenza, senza inventare cifre.'] : []),
     '[MEMORY]',
     memory ? memorySection(memory) : '',
     '[DIALOGUE STYLE]',

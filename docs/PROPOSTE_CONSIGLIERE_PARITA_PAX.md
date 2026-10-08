@@ -483,3 +483,39 @@ P03.
 **Lezione:** l'errore n.2 è del tipo peggiore — il piano dava per **esistente** un anello del percorso
 che era stato rimosso, e avrebbe portato a una fase che "collega" un tubo chiuso. Si è visto solo
 **misurando**, non rileggendo. È di nuovo il caso di `feedback-verifica-indipendente`.
+
+## 12. T01–T06 — la forma delle mosse nella situazione e il contesto dei ministri
+
+Rimando al piano dedicato: **`docs/PIANO_SEDUTA_E_FORMA_PROPOSTE.md`**.
+
+Il 2026-10-08 l'autore ha segnalato, con tre schermate, che le **situazioni sul
+tavolo** non avevano mosse (a differenza delle proposte, che le avevano) e che
+portando una strada in Consiglio *«i ministri non sanno nulla»*. Il piano `T01`–`T08`
+corregge entrambi. Questo documento è la sua origine: la parità con lo stile Pax
+esisteva già sulle proposte, e T02–T04 la estendono alle situazioni.
+
+**Eseguito e verde (T01–T06).** In sintesi, e per non duplicare la narrazione
+(che vive nel piano, §7–§8):
+
+- **T05** — i ministri sanno della questione: tre strati (fallback deterministico,
+  dichiarazione di vuoto nel prompt, guardia sui numeri che respingeva gli anni).
+- **T06** — la strada scelta entra nella **Tavola** della stanza come misura
+  `source: 'president'`; prima non ci arrivava affatto, ed era il difetto vero.
+- **T02** — `AdvisorSituation.options`, stessa forma e stesso schema delle
+  proposte; `sanitizeSituations` nel frontend non le conosceva (il difetto di P03
+  rimasto aperto per le situazioni).
+- **T03** — la card rende le mosse e mostra «Porta al Consiglio» **solo** con le
+  mosse; la guardia è nel tipo.
+- **T04** — la copertura diventa una rete: copre le situazioni scoperte **che
+  hanno mosse**, spostandole, e **dichiara** le altre scoperte.
+
+**La misura che ha limitato T04** (T01, §7 del piano): `buildAdvisorSituations` è
+una proiezione 1:1 dei segnali e non distingue problema da opportunità. Il numero
+di situazioni dipende dallo stato del paese — da **1** (Stato stabile) a **8**
+(collasso) — e senza proposte **tutte** restano scoperte. Da qui la regola: la rete
+copre solo dove il modello ha scritto le mosse, perché è l'unico che sa quale
+decisione sia concretamente disponibile.
+
+**Le invarianti di questo piano restano in vigore** (§4). T-I2 (le mosse sono
+prosa, non fatti) e T-I3 (nessuna promessa di un atto che non c'è) sono quelle che
+T02–T04 portano alle situazioni; la loro difesa sta nelle prove nominate nel piano.

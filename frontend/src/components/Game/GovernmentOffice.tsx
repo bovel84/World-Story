@@ -26,7 +26,7 @@ import { governmentSessionId } from './governmentSession';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { clientMandate, loadMemory, saveMemory, memoryScopeKey, seatRecords, withSeatRecords, recordMemory, queuedDecision, openQuestion, type MinisterMemoryStore } from './ministerMemory';
-import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
+import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, seedChosenRoad, type CouncilRoomState } from './councilRoom';
 import { seatSpeaker } from './councilMeeting';
 import { resolveCouncilExecution } from './councilExecution';
 import { resolveCurrentRegionRef } from './meetingLocalization';
@@ -212,21 +212,35 @@ export function GovernmentOffice({ open, onClose, gameId, session,
    * P02 — Il Presidente ha scelto una **mossa** fra quelle proposte. La stanza si
    * apre e la bozza nasce già compilata con quella mossa: il clic PREPARA, non
    * invia (invariante P-I2). Il giocatore la rivede, la modifica e firma.
+   *
+   * T-B — T06: due correzioni misurate il 2026-10-08.
+   *  1. La strada scelta **entra nella stanza** (`seedChosenRoad`), non solo nel
+   *     testo della bozza: senza questo i ministri discutevano di una Tavola
+   *     vuota e rispondevano «non ho nulla da portare».
+   *  2. La bozza **non nasce mai vuota**: senza una mossa scelta porta il testo
+   *     della questione (titolo e domanda), così la seduta ha sempre qualcosa da
+   *     leggere e da cui partire. (Invariante T-I3.)
    */
   const openIssue = (issue: CouncilIssue, chosenOption?: { title: string; content: string }): void => {
     // Suggested seats are not admitted automatically: only the rapporteur starts.
     const rapporteur = issue.suggestedMinisters.find(seat => CABINET_SEATS.includes(seat)) ?? 'interno';
     const room = startRoom(rapporteur, issue);
-    if (room && chosenOption?.content.trim()) {
-      const prepared: RoomDraft = {
-        ...councilDraft(room, currentTurn ?? 0),
-        text: chosenOption.content.trim(),
-        // La mossa scelta è la proposta di partenza, non un atto già firmato:
-        // niente `signatureKey`, così la firma richiede un gesto esplicito.
-        signatureKey: crypto.randomUUID(),
-      };
-      setDrafts(previous => ({ ...previous, [room.id]: prepared }));
-    }
+    if (!room) return;
+    // T06 (1) — La strada scelta entra NELLA STANZA, non solo nel testo della
+    // bozza: i ministri leggono la Tavola (`projectCurrentDecision`), non il
+    // testo. Senza questo, discutevano di una Tavola vuota.
+    const seeded = chosenOption?.content.trim() ? seedChosenRoad(room, chosenOption, crypto.randomUUID()) : room;
+    if (seeded !== room) updateRoom(seeded);
+    // T06 (2) — La bozza non è mai vuota: con la mossa scelta il testo di partenza
+    // è la mossa, senza resta quello di `councilDraft`, che porta la questione.
+    // In entrambi i casi la bozza è PRONTA ma non firmata: la chiave identifica
+    // la preparazione (e il retry), la firma resta il gesto del Presidente.
+    const prepared: RoomDraft = {
+      ...councilDraft(seeded, currentTurn ?? 0),
+      ...(chosenOption?.content.trim() ? { text: chosenOption.content.trim() } : {}),
+      signatureKey: crypto.randomUUID(),
+    };
+    setDrafts(previous => ({ ...previous, [room.id]: prepared }));
   };
   // P3 — Un VERO follow-up: la seduta riferisce gli outcome reali, non ripropone strade.
   const startRoomFollowUp = (followUp: GovernmentFollowUpView): void => {

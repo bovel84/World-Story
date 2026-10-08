@@ -2089,6 +2089,12 @@ export interface AdvisorSituation {
   id: string;
   title: string;
   summary: string;
+  /**
+   * T02 — Le MOSSE della situazione: la stessa forma di `CouncilIssue.options`
+   * (`{title, content}`). Assente quando la situazione non ha una decisione da
+   * proporre: in quel caso resta solo «Approfondisci». Sono prosa, non fatti.
+   */
+  options?: { title: string; content: string }[];
   /** Chiavi dei segnali canonici: il server le ricalcola, mai il client. */
   signalKeys?: string[];
   /** Chiavi delle prove del thread strategico risolte dal server (0..8). */

@@ -235,9 +235,35 @@ export async function renderMinisterOpening(
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
   }
-  const verified = brief.situation?.factsVerified ? brief.situation.verifiedFacts : undefined;
-  const reply = verified?.length
-    ? `Presidente, partiamo dal dato disponibile: ${verified[0].replace(/\s*\[[^]*$/, '')}. Valuterei una proposta con i colleghi competenti, senza presumere coperture o interventi già approvati.`
-    : fallbackFirstMessage(brief.seat, brief.issues);
-  return { reply, source: 'deterministic' };
+  return { reply: deterministicOpeningReply(brief), source: 'deterministic' };
+}
+
+/**
+ * T-I3 — Il fallback non mente quando una questione è sul tavolo.
+ *
+ * Tre rami, in quest'ordine:
+ *  1. una situazione con fatti verificati → si parte dal primo fatto;
+ *  2. una situazione **senza** fatti → si apre dalla situazione stessa (titolo
+ *     e domanda): c'è comunque qualcosa da decidere, e non è vero che il
+ *     ministro non ha nulla da portare;
+ *  3. nessuna situazione e nessuna voce → solo allora il saluto vuoto.
+ *
+ * Il terzo ramo è quello che l'autore ha visto nella seduta del 16:40: una
+ * questione sul tavolo e un ministro che diceva di non avere nulla. Il ramo 2
+ * esiste perché quella frase fosse impossibile quando una questione c'è.
+ */
+export function deterministicOpeningReply(brief: MinisterOpeningBrief): string {
+  const situation = brief.situation;
+  const verified = situation?.factsVerified ? situation.verifiedFacts : undefined;
+  if (verified?.length) {
+    return `Presidente, partiamo dal dato disponibile: ${verified[0].replace(/\s*\[[^]*$/, '')}. Valuterei una proposta con i colleghi competenti, senza presumere coperture o interventi già approvati.`;
+  }
+  if (situation?.title) {
+    const question = situation.decisionQuestion?.trim();
+    const opening = `Presidente, la questione sul tavolo è «${situation.title}».`;
+    return question
+      ? `${opening} ${question.replace(/[.!?]+$/, '')}: è questo che dobbiamo decidere, e la mia sedia ha una posizione da portare.`
+      : `${opening} Non ho ancora un dato misurato da citare, ma la questione è sul tavolo e va discussa: dimmi da quale punto vuoi partire.`;
+  }
+  return fallbackFirstMessage(brief.seat, brief.issues);
 }

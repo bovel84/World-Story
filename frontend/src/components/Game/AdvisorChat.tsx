@@ -154,13 +154,13 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
       {opening && <article className="advisor-entry assistant advisor-opening">
         <div className="entry-meta">Consulente · {opening.date}</div>
         <div className="entry-text"><RichText text={opening.reply} chartData={chartData} /></div>
-        {opening.situations?.length ? <AdvisorSituationsPanel situations={opening.situations} onDeepen={deepen} activeId={situationFocus?.id} disabled={advisorStreaming || loading} /> : null}
+        {opening.situations?.length ? <AdvisorSituationsPanel situations={opening.situations} onDeepen={deepen} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming || loading} /> : null}
         {proposals(opening.issues, advisorStreaming || loading)}
       </article>}
       {activeMessages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
         <div className="entry-meta">{message.role === 'user' ? 'Presidente' : message.proactive ? 'Bollettino' : 'Consulente'}</div>
         <div className="entry-text">{message.role === 'assistant' ? <RichText text={message.content} chartData={chartData} /> : message.content}</div>
-        {message.situations?.length ? <AdvisorSituationsPanel situations={message.situations} onDeepen={deepen} activeId={situationFocus?.id} disabled={advisorStreaming} /> : null}
+        {message.situations?.length ? <AdvisorSituationsPanel situations={message.situations} onDeepen={deepen} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming} /> : null}
         {proposals(message.issues, advisorStreaming)}
       </article>)}
       {advisorStreaming && <p className="advisor-typing" role="status" aria-label={ADVISOR_THINKING_TEXT}>
