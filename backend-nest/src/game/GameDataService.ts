@@ -56,6 +56,8 @@ export interface GameDataContext {
   buildNpcStrategicDossiers(focusTexts: string[], accounts: Record<string, NationalAccount>): string;
   /** GAMEPLAY-LONG: impegni in vigore, pronti per il prompt. */
   activeCommitments?(): string;
+  /** H09 — i filoni attivi del preset, per il respiro del mondo. */
+  activeStorylinesForWorld?(): { id: string; title: string; summary: string; parties: readonly string[]; trajectory?: string }[];
   relationships(): unknown;
   chatTranscripts(): unknown;
   actions(): any[];
@@ -327,6 +329,9 @@ export class GameDataService {
       // Identità stabile + priorità dinamiche + memoria per le politie davvero
       // rilevanti al teatro corrente. È la stessa fonte usata dalle chat.
       npcStrategicProfiles: this.ctx.buildNpcStrategicDossiers(focusTexts, accounts),
+      // H09 — i filoni attivi del preset: fanno entrare in scena i protagonisti
+      // nel respiro del mondo. Significato del preset, mai un fatto del motore.
+      storylines: this.ctx.activeStorylinesForWorld?.() ?? [],
       // Il registro degli impegni è strutturato e dura più della cronaca: il
       // narratore lo riceve come vincolo, non come ricordo approssimativo.
       activeCommitments: this.ctx.activeCommitments?.() ?? '',

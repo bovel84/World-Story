@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "as_of": "2000-01-01",
+  "storylines": [
+    {
+      "id": "levante-disarmo-hamas",
+      "title": "Il disarmo di Hamas",
+      "domain": "esteri",
+      "parties": ["ISR", "PSE", "USA", "EGY"],
+      "region": "Levante",
+      "state": "aperto",
+      "pressure": 3,
+      "summary": "Israele e gli Stati Uniti premono per il disarmo delle milizie; l'Autorità Palestinese è divisa tra negoziato e seconda intifada; l'Egitto media.",
+      "trajectory": "Se nessuno lo devia, il nodo scivola verso lo scontro aperto entro l'anno.",
+      "triggers": [
+        "attentato o raid su una provincia contesa",
+        "pressione diplomatica USA sull'ANP",
+        "apertura o rottura di un negoziato"
+      ]
+    },
+    {
+      "id": "gerusalemme-statuto",
+      "title": "Lo statuto di Gerusalemme",
+      "domain": "esteri",
+      "parties": ["ISR", "PSE", "JOR", "SAU"],
+      "region": "Gerusalemme",
+      "state": "aperto",
+      "pressure": 3,
+      "summary": "La sovranità sulla città è contesa e simbolica per tre fedi; ogni mossa su Gerusalemme muove l'intero mondo arabo e musulmano.",
+      "trajectory": "Se nessuno lo devia, ogni attentato o gesto simbolico riaccende la piazza e allontana il negoziato.",
+      "triggers": [
+        "dichiarazione sulla sovranità della città",
+        "incidente sui luoghi santi",
+        "vertici arabi"
+      ]
+    },
+    {
+      "id": "iraq-ispezioni-onu",
+      "title": "Le ispezioni in Iraq",
+      "domain": "esteri",
+      "parties": ["IRQ", "USA", "GBR", "RUS", "FRA"],
+      "region": "Mesopotamia",
+      "state": "aperto",
+      "pressure": 3,
+      "summary": "Il regime di Baghdad sfida le risoluzioni ONU sulle armi; Washington inasprisce la pressione, Mosca e Parigi frenano.",
+      "trajectory": "Se nessuno lo devia, la crisi scivola verso un intervento militare entro pochi anni.",
+      "triggers": [
+        "rapporto degli ispettori rifiutato",
+        "sanzioni inasprite",
+        "richiesta di una nuova risoluzione"
+      ]
+    },
+    {
+      "id": "cecenia-seconda-guerra",
+      "title": "La Cecenia",
+      "domain": "guerra",
+      "parties": ["RUS"],
+      "region": "Caucaso settentrionale",
+      "state": "aperto",
+      "pressure": 2,
+      "summary": "Mosca combatte la seconda guerra in Cecenia contro la resistenza separatista; pesa la condanna internazionale e il costo umano e militare.",
+      "trajectory": "Se nessuno la devia, la guerriglia logora Mosca per anni senza una vittoria netta.",
+      "triggers": [
+        "atto di guerriglia o attentato",
+        "operazione di rastrellamento",
+        "denuncia internazionale"
+      ]
+    },
+    {
+      "id": "balcani-coda-kosovo",
+      "title": "La coda del Kosovo",
+      "domain": "esteri",
+      "parties": ["SRB", "USA", "RUS"],
+      "region": "Balcani",
+      "state": "congelato",
+      "pressure": 2,
+      "summary": "Dopo la guerra del 1999 il Kosovo resta conteso sotto protettorato ONU; Belgrado non riconosce la perdita, la comunità serba locale è esposta.",
+      "trajectory": "Se nessuno la devia, lo stato finale resta sospeso finché una crisi non riapre la questione.",
+      "triggers": [
+        "scontri interetnici",
+        "elezioni o passi verso l'indipendenza",
+        "cambio di governo a Belgrado"
+      ]
+    }
+  ]
+}

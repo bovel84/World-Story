@@ -122,6 +122,8 @@ export interface NationSnapshot {
   pressureBusy: boolean;
   nationalCrisis: CrisisSnapshot | null;
   /** GAMEPLAY-LONG: obiettivi persistenti delle potenze del teatro. */
+  /** H11 — filoni del mondo che toccano il giocatore. */
+  storylines: NonNullable<Awaited<ReturnType<typeof gameApi.nationalState>>['storylines']>;
   strategicAgenda: { powers: PowerAgenda[] } | null;
   /** Registro strutturato degli impegni (trattati, promesse, ultimatum). */
   commitments: { commitments: Commitment[]; attention: Commitment[] } | null;
@@ -210,6 +212,8 @@ export function useNationSnapshot({
   const [pressureBusy, setPressureBusy] = useState(false);
   const [nationalCrisis, setNationalCrisis] = useState<CrisisSnapshot | null>(null);
   const [strategicAgenda, setStrategicAgenda] = useState<{ powers: PowerAgenda[] } | null>(null);
+  // H11 — filoni del mondo che toccano il giocatore (significato del preset).
+  const [storylines, setStorylines] = useState<NonNullable<Awaited<ReturnType<typeof gameApi.nationalState>>['storylines']>>([]);
   const [commitments, setCommitments] = useState<{ commitments: Commitment[]; attention: Commitment[] } | null>(null);
   const [gameEnding, setGameEnding] = useState<GameEnding | null>(null);
   const [governmentVoices, setGovernmentVoices] = useState<GovernmentVoicesResponse | null>(null);
@@ -413,6 +417,7 @@ export function useNationSnapshot({
           setNationalCrisis(national.crisis ?? null);
           setStrategicAgenda(national.strategicAgenda ?? null);
           setCommitments(national.commitments ?? null);
+          setStorylines(national.storylines ?? []);
           setGameEnding(national.crisis?.ending ?? null);
         }
       })
@@ -749,6 +754,7 @@ export function useNationSnapshot({
     pressureBusy,
     nationalCrisis, setNationalCrisis,
     strategicAgenda,
+    storylines,
     commitments,
     gameEnding, setGameEnding,
     governmentVoices, setGovernmentVoices,

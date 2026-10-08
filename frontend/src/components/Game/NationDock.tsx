@@ -34,7 +34,7 @@ import {
 import {
   BudgetBreakdown, CrisisBlock, DebtPortfolio, DeepDive, DossierBlock, EmptyState,
   EquipmentSpecs, FactionCard, Footnote, Metric, MetricGrid,
-  CommitmentsList, PowersAgendaList, ProgressRow, ResourceTradeRow, VerdictBanner,
+  CommitmentsList, PowersAgendaList, ProgressRow, ResourceTradeRow, VerdictBanner, StorylinesList,
 } from './NationDock/widgets';
 import { useNationDockModel } from './NationDock/useNationDockModel';
 import { MaterialBalanceList } from './MaterialBalanceList';
@@ -121,6 +121,17 @@ export const NationDock: React.FC<NationDockProps> = (props) => {
                 briefing={briefing}
                 context={epochView.epochLabel ? `${epochView.epochLabel} · ${formatDate(worldDate)}` : undefined}
               />
+            )}
+
+            {/* H11 — i filoni del mondo che toccano questa nazione: nodi storici
+                dichiarati dal preset. Significato, non fatti: nessuna cifra. */}
+            {props.storylines && props.storylines.length > 0 && (
+              <DossierBlock
+                title="Filoni del mondo"
+                description="Le questioni storiche aperte attorno a questa nazione, dichiarate dallo scenario. Non sono dati del motore: sono il contesto in cui i numeri esistono."
+              >
+                <StorylinesList storylines={props.storylines} />
+              </DossierBlock>
             )}
 
             {/* Una sola rappresentazione per fatto: tesoreria, saldo, stabilità e

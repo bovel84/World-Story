@@ -75,6 +75,22 @@ export interface WorldPulseSelectionInput {
   originDate: string;
   /** Confine superiore: gli eventi del turno (`originDate < date <= targetDate`). */
   targetDate?: string;
+  /**
+   * H09 — I filoni **attivi** del preset: fanno entrare in scena i loro
+   * protagonisti. Un filone è un trigger del mondo, come un impegno o un'agenda
+   * NPC. Zero filoni → nessun effetto.
+   */
+  storylines?: WorldPulseStoryline[];
+}
+
+/** Un filone del preset, nella forma minima che serve al pulse (H09). */
+export interface WorldPulseStoryline {
+  id: string;
+  title: string;
+  summary: string;
+  /** Polity protagoniste: sono loro a entrare in scena. */
+  parties: readonly string[];
+  trajectory?: string;
 }
 
 /**
@@ -91,6 +107,8 @@ export interface WorldPulseCandidate {
   activeCommitments: string[];
   recentTriggers: string[];
   agendaTriggers: string[];
+  /** H09 — filoni del preset che vedono questa polity protagonista. */
+  storylineTriggers: string[];
 }
 
 function mentions(text: string, name: string): boolean {
@@ -188,10 +206,18 @@ export function selectWorldPulseCandidates(input: WorldPulseSelectionInput): Wor
     const agendaText = agendas.get(polity.id);
     const agendaTriggers = agendaText ? [agendaText] : [];
 
+    // H09 — i filoni del preset che vedono questa polity protagonista: sono un
+    // trigger del mondo, come un impegno o un'agenda NPC. Fanno entrare in scena
+    // chi il preset ha dichiarato parte del nodo.
+    const storylineTriggers = (input.storylines ?? [])
+      .filter(storyline => storyline.parties.some(party => party.toUpperCase() === polity.id.toUpperCase()))
+      .map(storyline => `${storyline.title}: ${storyline.summary}${storyline.trajectory ? ` Direzione: ${storyline.trajectory}` : ''}`);
+
     const triggers = [
       ...recentTriggers.map(trigger => `fatto recente: ${trigger}`),
       ...activeCommitments.map(commitment => `impegno in vigore: ${commitment}`),
       ...agendaTriggers.map(agenda => `agenda NPC attiva: ${agenda}`),
+      ...storylineTriggers.map(storyline => `filone del mondo: ${storyline}`),
     ];
     if (triggers.length === 0) continue;
 
@@ -203,6 +229,7 @@ export function selectWorldPulseCandidates(input: WorldPulseSelectionInput): Wor
       activeCommitments,
       recentTriggers,
       agendaTriggers,
+      storylineTriggers,
     });
   }
 
@@ -294,7 +321,7 @@ ${input.recentChronicle || '(nessuna cronaca disponibile)'}
 
 REGOLE DEL RESPIRO DEL MONDO:
 1. Genera FINO A ${WORLD_PULSE_MAX_EVENTS} eventi di nazioni non giocate, usando SOLO i candidati e i loro TRIGGER. Se i trigger non bastano, genera MENO eventi o NESSUN evento: zero è valido, non inventare nulla per riempire il budget.
-2. Ogni evento deve nascere da un trigger attivo. Una relazione da sola NON è un trigger.
+2. Ogni evento deve nascere da un trigger attivo. Una relazione da sola NON è un trigger. Un **filone del mondo** è un trigger: se racconti un suo protagonista, segui la sua direzione; non riscriverlo e **non narrarlo come risolto** — un filone resta aperto finché non lo chiude il motore. La sua direzione è una **tendenza**, mai una profezia: racconta cosa si muove, non cosa accadrà.
 3. NON contraddire decisioni, accordi, cessate-il-fuoco, cambi di relazione, esiti o processi appena stabiliti negli [EVENTI APPENA ACCADUTI NEL PERIODO]. Se un accordo è appena concluso, non raccontare una ripresa della guerra senza un nuovo trigger successivo.
 4. CONTRATTO NARRATIVA-ONLY: puoi raccontare solo atti che non richiedono una mutazione materiale immediata — dichiarazioni, consultazioni, apertura di colloqui, dibattito parlamentare, proteste, segnali politici, annunci di intenzione, pressioni interne, richieste formali, vertici annunciati, minacce espresse come minacce, valutazioni preparatorie.
    VIETATO dichiarare mutazioni materiali: mobilitazioni, spostamenti o schieramenti di unità, costruzioni, conquiste, annessioni, embarghi applicati, trattati/alleanze già in vigore, guerre iniziate, cambi di governo, creazione di asset, trasferimenti territoriali, variazioni numeriche.

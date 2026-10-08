@@ -165,6 +165,13 @@ sparisce.
 | Strategie delle potenze | **→ Stato maggiore** |
 | Quadro d'insieme per dominio (`<details>`) | **Resta** |
 
+> **Correzione (2026-10-08, H11 — Storie del mondo e preset).** Situazione passa da
+> 3 a **4 blocchi**: si aggiunge «Filoni del mondo» (`StorylinesList`), i nodi storici
+> aperti attorno alla nazione dichiarati dal preset. Il conteggio totale del dossier
+> sale a **27**; `dossierSections.test.ts` e `nationDockCanonicalLayout.test.tsx`
+> registrano la nuova voce. Il blocco è di sola lettura, non interattivo (H-I1: nessuna
+> cifra di motore).
+
 ### 3.2 Regno (Governo + Politiche + Conoscenze)
 
 La dimensione civile, un'unica sezione densa — la correzione definitiva dello

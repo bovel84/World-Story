@@ -18,6 +18,7 @@ import type { Commitment } from '../simulation/Commitments';
 import type { MilitaryPersonnelState } from '../simulation/PersonnelStock';
 import type { ActionRecord } from '../../game-session';
 import type { TurnResultRecord } from '../../game/TimelineService';
+import type { Storyline } from '../../scenario/storylines';
 import type { OperationalObjectRow } from '../../repositories/operational-object.repository';
 
 export interface VerifiedMapObject {
@@ -247,6 +248,11 @@ export interface VerifiedWorldSnapshot {
   /** Missing facts are deliberately absent, never filled with invented zeros. */
   facts: Record<string, VerifiedWorldFact>;
   unavailable: string[];
+  /**
+   * H07 — Filoni del preset che toccano il giocatore. Significato del mondo, non
+   * un fatto: proiettati come segnali/anchor `storyline:<id>`, mai come `facts`.
+   */
+  storylines?: readonly Storyline[];
   /** Optional server-side projection of existing persistence, not a save-format field. */
   dossier?: GovernmentDossier;
 }
@@ -266,6 +272,12 @@ export interface VerifiedWorldSnapshotInput {
   previousSnapshot?: VerifiedWorldSnapshot | null;
   /** Ordini pending canonici del motore: atti firmati, non ancora eseguiti. */
   signedActs?: readonly VerifiedSignedAct[] | null;
+  /**
+   * H07 — Filoni del preset **che toccano la polity del giocatore**. Proiettati
+   * come segnali e anchor, così il Consulente può proporne la storia. Mai un
+   * fatto del motore: un filone è significato del preset, e resta subordinato.
+   */
+  storylines?: readonly Storyline[] | null;
 }
 
 const finite = (value: unknown): number | null =>
@@ -443,6 +455,9 @@ export function buildVerifiedWorldSnapshot(input: VerifiedWorldSnapshotInput): V
     changes: { available: false, reason: 'previous_snapshot_unavailable', previousDate: null, previousTurn: null,
       comparedKeys: [], unavailableKeys: [], deltas: [] },
     facts: {}, unavailable: ['diplomacy.wars', 'diplomacy.sanctions', 'diplomacy.activeNegotiations'],
+    // H07 — i filoni del preset che toccano il giocatore: significato del mondo,
+    // non un fatto del motore. Sotto la `facts`, mai un valore.
+    ...(input.storylines && input.storylines.length ? { storylines: [...input.storylines] } : {}),
   };
   const fact = (key: string, label: string, rawValue: VerifiedWorldFact['rawValue'], value: string,
     source: VerifiedWorldFact['source'], sourceRef: string) => {

@@ -70,6 +70,8 @@ interface DeskContentProps {
   strategicAgenda?: { powers: PowerAgenda[] } | null;
   /** Registro strutturato degli impegni (trattati, promesse, ultimatum). */
   commitments?: { commitments: Commitment[]; attention: Commitment[] } | null;
+  /** H11 — filoni del mondo che toccano questa nazione (standard dei filoni). */
+  storylines?: Array<{ id: string; title: string; domain: string; parties: string[]; state: string; pressure: number; summary: string; trajectory?: string }>;
   /** LW06.1 — briefing già derivato in `GameScreen` (stessa read model). */
   briefing?: import('../Game/strategicBriefing').StrategicBriefing;
   isProcessingTurn: boolean;
@@ -130,6 +132,7 @@ export function DeskContent({
   nationalCrisis = null,
   strategicAgenda = null,
   commitments = null,
+  storylines = [],
   briefing,
   isProcessingTurn,
   ongoingProcesses,
@@ -255,6 +258,7 @@ export function DeskContent({
             onOpenQuestions={() => openModule('orders')}
             strategicAgenda={strategicAgenda}
             commitments={commitments}
+            storylines={storylines}
             today={currentGame?.currentDate || ''}
             briefing={briefing}
             regions={currentWorld?.regions ? Object.values(currentWorld.regions).filter((region) => region.owner === playerPolityId) as Region[] : []}

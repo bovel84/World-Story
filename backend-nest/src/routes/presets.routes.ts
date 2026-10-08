@@ -18,6 +18,8 @@ import { getLLMRouter } from '../llm';
 import { parseJsonLoose } from '../utils/json-repair';
 import { LLMError } from '../llm/types';
 import { listNativeMaps } from '../utils/native-maps';
+import { validateStorylinesFile } from '../scenario/storylines';
+import { CABINET_SEATS } from '../core/government/Cabinet';
 
 export const presetsRouter = Router();
 
@@ -38,6 +40,8 @@ function presetPayload(preset: any) {
     map_base: preset.map_base,
     lore: preset.lore || '',
     simulation_rules: preset.simulation_rules || '',
+    // H03 — i filoni viaggiano col payload del preset (standard H01).
+    storylines: preset.storylines ?? null,
     source: preset.source,
     has_custom_map: preset.has_custom_map,
     author: preset.author || '',
@@ -55,10 +59,27 @@ export type AiPresetDraft = {
   historical_accuracy?: number;
   lore?: string;
   simulation_rules?: string;
+  /** H03 — filoni del mondo (standard H01): l'autoring li propone, l'autore li approva. */
+  storylines?: unknown;
 };
 
 function clipped(value: unknown, max: number): string {
   return String(value || '').trim().slice(0, max);
+}
+
+/**
+ * H03 — I filoni generati dall'IA devono essere **conformi allo standard**
+ * prima di entrare in una bozza. Un filone malformato non fa fallire la
+ * richiesta: si scarta la proposta e si conserva quella precedente (zero
+ * filoni è valido, H-I6). Così l'autoring non può introdurre un formato che
+ * il loader rifiuterà.
+ */
+function normalizeStorylinesDraft(value: unknown): unknown {
+  if (value === undefined || value === null) return undefined;
+  try {
+    if (validateStorylinesFile(value, 'storylines').length === 0) return value;
+  } catch { /* non conformi: si scartano */ }
+  return undefined;
 }
 
 export function normalizeAiPreset(raw: any, previous: AiPresetDraft): AiPresetDraft {
@@ -87,6 +108,9 @@ export function normalizeAiPreset(raw: any, previous: AiPresetDraft): AiPresetDr
     historical_accuracy: Number.isFinite(accuracyRaw) ? Math.max(0, Math.min(1, accuracyRaw)) : 0.8,
     lore: clipped(source.lore ?? source.dossier_storico ?? previous.lore, 12_000),
     simulation_rules: clipped(source.simulation_rules ?? source.simulationRules ?? source.regole ?? previous.simulation_rules, 8_000),
+    // H03 — i filoni proposti dall'IA: accettati solo se conformi allo standard;
+    // altrimenti si conserva la bozza precedente, senza far fallire la richiesta.
+    storylines: normalizeStorylinesDraft(source.storylines ?? source.filoni ?? previous.storylines),
   };
   if (!result.name || !result.base_prompt || !result.country_codes?.length) {
     throw new Error('La bozza IA è incompleta: servono nome, premessa e nazioni consigliate');
@@ -161,6 +185,24 @@ function savePreset(id: string, body: any, create: boolean): any {
       writeAtomic(file, JSON.stringify(map));
     }
   }
+
+  // H03 — i filoni del mondo (standard H01). L'autore li può salvare; se
+  // malformati l'errore è **bloccante**, perché scrivere una cartella che il
+  // loader poi rifiuta lascerebbe un preset che non carica.
+  if (Object.prototype.hasOwnProperty.call(body, 'storylines')) {
+    const value = body.storylines;
+    const file = path.join(dir, 'storylines.json');
+    if (value === null || value === '') {
+      fs.rmSync(file, { force: true });
+    } else {
+      const raw = typeof value === 'string' ? JSON.parse(value) : value;
+      const issues = validateStorylinesFile(raw, 'storylines.json');
+      if (issues.length > 0) {
+        throw new Error(`storylines.json non valido: ${issues.slice(0, 5).map(i => `${i.path} — ${i.message}`).join(' | ')}`);
+      }
+      writeAtomic(file, JSON.stringify(raw, null, 2) + '\n');
+    }
+  }
   return loadPreset(id);
 }
 
@@ -174,6 +216,7 @@ presetsRouter.post('/assist', async (req, res) => {
     country_codes: Array.isArray(current.country_codes) ? current.country_codes.slice(0, 80) : [],
     base_prompt: clipped(current.base_prompt, 6_000), historical_accuracy: current.historical_accuracy,
     lore: clipped(current.lore, 12_000), simulation_rules: clipped(current.simulation_rules, 8_000),
+    storylines: current.storylines,
   };
   if (!brief && !currentExcerpt.name && !currentExcerpt.base_prompt) {
     res.status(400).json({ error: 'Descrivi lo scenario o compila almeno nome e premessa.' });
@@ -188,6 +231,7 @@ presetsRouter.post('/assist', async (req, res) => {
 - "base_prompt" descrive la situazione canonica al giorno iniziale.
 - "lore" espone alleanze, conflitti, attori, risorse e questioni aperte.
 - "simulation_rules" contiene 5-10 regole concrete di plausibilità, tempi e comportamento degli attori, non istruzioni sul JSON.
+- "storylines" elenca i FILONI storici aperti alla data iniziale: nodi concreti che il mondo affronta (es. un disarmo, una questione territoriale), con le polity coinvolte e ciò che li tiene accesi. Per ogni filone: "id" (kebab-case), "title", "domain" (una sedia fra: ${CABINET_SEATS.join(', ')}), "parties" (id di mappa, non solo nazioni consigliate), "state" (aperto|congelato|risolto|divergente), "pressure" (1-3), "summary" (significato, MAI numeri), "triggers" (array di stringhe) e, se utile, "trajectory" (dove il nodo andava se nessuno lo deviava — una tendenza, mai una profezia). Se non conosci filoni solidi, lascia "storylines" vuoto: zero filoni è valido.
 - Non inventare precisione documentaria: quando il brief è alternativo, distingui chiaramente la premessa immaginaria dai fatti storici precedenti.
 - historical_accuracy è tra 0 e 1.
 
@@ -198,7 +242,7 @@ BOZZA CORRENTE:
 ${JSON.stringify(currentExcerpt)}
 
 Rispondi SOLO con:
-{"id":"slug","name":"...","description":"...","start_date":"YYYY-MM-DD","country_codes":["ITA"],"base_prompt":"...","historical_accuracy":0.8,"lore":"...","simulation_rules":"..."}`;
+{"id":"slug","name":"...","description":"...","start_date":"YYYY-MM-DD","country_codes":["ITA"],"base_prompt":"...","historical_accuracy":0.8,"lore":"...","simulation_rules":"...","storylines":[]}`;
 
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {

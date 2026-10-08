@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "as_of": "2026-01-01",
+  "storylines": [
+    {
+      "id": "ucraina-guerra",
+      "title": "La guerra in Ucraina",
+      "domain": "guerra",
+      "parties": ["UKR", "RUS", "USA", "POL", "DEU", "FRA", "GBR"],
+      "region": "Europa orientale",
+      "state": "aperto",
+      "pressure": 3,
+      "summary": "La guerra tra Russia e Ucraina prosegue; l'Occidente sostiene Kiev con armi e sanzioni, Mosca tiene i territori occupati. Le capitali europee discutono il proprio riarmo e la dipendenza energetica.",
+      "trajectory": "Se nessuno la devia, il conflitto si trascina verso uno stallo armato con l'Europa in riarmo.",
+      "triggers": [
+        "offensiva o controffensiva rilevante",
+        "nuovo pacchetto di sanzioni o di aiuti",
+        "proposta di negoziato",
+        "incidente con la NATO"
+      ]
+    },
+    {
+      "id": "taiwan-stretto",
+      "title": "La tensione sullo Stretto",
+      "domain": "esteri",
+      "parties": ["CHN", "TWN", "USA", "JPN"],
+      "region": "Asia orientale",
+      "state": "aperto",
+      "pressure": 3,
+      "summary": "La Cina rivendica Taiwan e intensifica pressione ed esercitazioni; gli Stati Uniti e il Giappone sostengono Taipei. È il punto più pericoloso della competizione tra le due superpotenze.",
+      "trajectory": "Se nessuno la devia, l'attrito cresce fino a crisi periodiche con rischi di escalation.",
+      "triggers": [
+        "esercitazione o incidente navale",
+        "visita o passo politico su Taiwan",
+        "restrizione tecnologica o commerciale"
+      ]
+    },
+    {
+      "id": "medio-oriente-gaza",
+      "title": "La crisi del Medio Oriente",
+      "domain": "esteri",
+      "parties": ["ISR", "PSE", "IRN", "SAU", "USA", "EGY"],
+      "region": "Medio Oriente",
+      "state": "aperto",
+      "pressure": 3,
+      "summary": "La guerra a Gaza e le tensioni con l'Iran coinvolgono Israele e la regione intera; Iran e Arabia Saudita si contendono l'influenza, gli Stati Uniti mediano senza successo le vie d'uscita.",
+      "trajectory": "Se nessuno la devia, le crisi si susseguono e il rischio di un conflitto regionale resta alto.",
+      "triggers": [
+        "escalation o cessate-il-fuoco",
+        "incidente sulle rotte marittime",
+        "negoziato regionale o normalizzazione"
+      ]
+    },
+    {
+      "id": "transizione-energetica",
+      "title": "La transizione energetica",
+      "domain": "tesoro",
+      "parties": ["USA", "CHN", "DEU", "IND", "SAU"],
+      "region": "Globale",
+      "state": "aperto",
+      "pressure": 2,
+      "summary": "Il mondo accelera sulla transizione verso le rinnovabili e sulle catene di fornitura di minerali critici; i produttori di energia fossile difendono le proprie entrate mentre l'industria si riconfigura.",
+      "trajectory": "Se nessuno la devia, la competizione su tecnologia e minerali critici riscrive le alleanze economiche.",
+      "triggers": [
+        "accordo o obiettivo climatico",
+        "crisi di una catena di fornitura",
+        "shock del prezzo dell'energia"
+      ]
+    }
+  ]
+}

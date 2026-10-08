@@ -96,6 +96,12 @@ export interface NationResources {
 
 export interface NationDockProps {
   governmentType: string;
+  /**
+   * H11 — Filoni del mondo che toccano questa nazione. Significato del preset
+   * (standard H01), non un fatto del motore: nessuna cifra, subordinato allo
+   * stato. Il dossier li mostra come contesto storico, non come dati.
+   */
+  storylines?: Array<{ id: string; title: string; domain: string; state: string; pressure: number; summary: string; trajectory?: string; parties: string[] }>;
   account?: NationAccount | null;
   /** Magazzino materiale pubblicato dal motore (legacy). */
   resources?: NationResources | null;

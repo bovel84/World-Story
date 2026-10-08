@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "as_of": "1936-01-01",
+  "storylines": [
+    {
+      "id": "renania-riarmo",
+      "title": "Il riarmo tedesco",
+      "domain": "guerra",
+      "parties": ["DEU", "FRA", "GBR", "ITA"],
+      "region": "Europa centrale",
+      "state": "aperto",
+      "pressure": 3,
+      "summary": "Hitler ha preso il potere e riarma la Germania, sfidando i vincoli di Versailles; Francia e Gran Bretagna oscillano tra fermezza e appeasement, l'Italia fascista si avvicina a Berlino.",
+      "trajectory": "Se nessuno lo devia, il riarmo e la rimilitarizzazione spingono l'Europa verso il confronto entro pochi anni.",
+      "triggers": [
+        "rimilitarizzazione di una zona smilitarizzata",
+        "annessione o rivendicazione territoriale",
+        "fallimento di una conferenza di pace"
+      ]
+    },
+    {
+      "id": "etiopia-impero-italiano",
+      "title": "La guerra d'Etiopia",
+      "domain": "esteri",
+      "parties": ["ITA", "GBR", "EGY"],
+      "region": "Corno d'Africa",
+      "state": "aperto",
+      "pressure": 2,
+      "summary": "Mussolini ha invaso l'Etiopia per costruire un impero coloniale; la Società delle Nazioni ha applicato sanzioni deboli che non fermano Roma.",
+      "trajectory": "Se nessuno la devia, la conquista si compie e le sanzioni cadono, screditando la Società delle Nazioni.",
+      "triggers": [
+        "avanzata militare in Etiopia",
+        "inasprimento o caduta delle sanzioni",
+        "incidente con le potenze coloniali"
+      ]
+    },
+    {
+      "id": "spagna-guerra-civile",
+      "title": "La Spagna sull'orlo",
+      "domain": "interno",
+      "parties": ["ESP", "DEU", "ITA", "RUS"],
+      "region": "Penisola iberica",
+      "state": "aperto",
+      "pressure": 2,
+      "summary": "La Spagna è divisa tra repubblicani e nazionalisti, sull'orlo della guerra civile; le potenze guardano al conflitto come a un banco di prova ideologico.",
+      "trajectory": "Se nessuno la devia, la rivolta militare accende una guerra civile con intervento straniero su entrambi i fronti.",
+      "triggers": [
+        "sollevazione militare",
+        "invio di armi o volontari",
+        "elezioni o colpo di Stato"
+      ]
+    },
+    {
+      "id": "manciuria-cina",
+      "title": "L'aggressione giapponese alla Cina",
+      "domain": "guerra",
+      "parties": ["JPN", "CHN", "RUS"],
+      "region": "Asia orientale",
+      "state": "aperto",
+      "pressure": 2,
+      "summary": "Il Giappone militare occupa la Manciuria e preme sulla Cina settentrionale; la Società delle Nazioni è incapace di fermarlo e la Cina è divisa tra nazionalisti e comunisti.",
+      "trajectory": "Se nessuno la devia, l'espansionismo giapponese porta a una guerra su vasta scala in Asia.",
+      "triggers": [
+        "nuova occupazione o incidente",
+        "condanna internazionale ignorata",
+        "alleanza o accordo tra le potenze asiatiche"
+      ]
+    }
+  ]
+}

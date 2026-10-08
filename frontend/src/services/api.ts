@@ -1293,6 +1293,8 @@ export const gameApi = {
     strategicAgenda?: { powers: PowerAgenda[] } | null;
     /** Registro strutturato degli impegni: ciò che la partita ha firmato. */
     commitments?: { commitments: Commitment[]; attention: Commitment[] } | null;
+    /** H11 — filoni del mondo che toccano questa nazione (standard dei filoni). */
+    storylines?: Array<{ id: string; title: string; domain: string; parties: string[]; state: string; pressure: number; summary: string; trajectory?: string }>;
     /** Magazzino materiale del giocatore (legacy): stock, conto e risorse naturali. */
     resources?: {
       stock?: { money?: number; debt?: number; food?: number; clothing?: number; weapons?: number; fuel?: number; research?: number; technologies?: string[] };
@@ -2130,6 +2132,20 @@ export interface VerifiedWorldSnapshotView {
   facts: Record<string, { key: string; label: string; value: string; rawValue: number | boolean | string | string[]; source: string; sourceRef: string }>;
   changes: { available: boolean; previousDate: string | null; previousTurn: number | null; deltas: Array<{ key: string; before: number; after: number; delta: number; sourceRef: string }> };
   unavailable: string[];
+  /**
+   * H11 — Filoni del mondo che toccano la nazione del giocatore. Significato del
+   * preset, non un fatto: nessun numero, e subordinato allo stato.
+   */
+  storylines?: Array<{
+    id: string;
+    title: string;
+    domain: string;
+    parties: string[];
+    state: string;
+    pressure: number;
+    summary: string;
+    trajectory?: string;
+  }>;
 }
 export interface RealityAdvisorResponse {
   reply: string;

@@ -5,6 +5,7 @@ import { buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, resolveFocusSituation, 
 import { advisorBriefingSentences, buildRealitySignals, stripTechnicalLines } from './RealitySignals';
 import { renderCouncilProposalAnchors } from './CouncilProposalAnchors';
 import { renderHistoricalBaseline, renderPolityHistoricalBaselines, historicalBaselineExcerpt, type PolityHistoricalBaseline } from './HistoricalBaseline';
+import { renderNationSituation, renderPolityNationSituations, type NationSituationRecord } from './NationSituation';
 import { compileNarrativeSituation, renderNarrativeContext, type NarrativeRole } from './NarrativeContextCompiler';
 import type { VerifiedRecentEvent, VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 import { computeSupersededHistoricalEvidenceKeys, renderStrategicThreadEvidence } from './StrategicThreads';
@@ -24,6 +25,14 @@ export interface RealityAdvisorContext {
   temporalScope?: { initialDate: string | null; currentDate: string | null };
   /** REAL HISTORY → START DATE: background canonico del paese, generato una volta per partita. */
   historicalBaseline?: string;
+  /**
+   * H05 — Situazione della nazione alla data di partenza (presente + direzione),
+   * generata dall'IA per **qualsiasi** nazione, anche fuori dal preset. Seconda
+   * fonte del contesto, subordinata ai filoni (H-I11).
+   */
+  nationSituation?: string;
+  /** H06 — situazioni (e direzione) delle **altre** nazioni del teatro. */
+  polityNationSituations?: NationSituationRecord[];
   polityHistoricalBaselines?: PolityHistoricalBaseline[];
   /** Dated, server-derived game chronicle; never browser conversation memory. */
   strategicHistory?: VerifiedRecentEvent[];
@@ -363,6 +372,26 @@ function advisorFactRegistry(snapshot: VerifiedWorldSnapshot): Record<string, un
   };
 }
 
+/**
+ * H07 — I filoni del preset che toccano il giocatore. Il Consulente li **conosce**
+ * e può proporne la storia (una `council_issue` con `signalKeys: ["storyline:<id>"]`).
+ * Ma un filone è **significato**, non un fatto: non porta numeri, e resta
+ * subordinato allo stato. Se la partita lo ha superato, non si presenta più.
+ */
+export function renderPlayerStorylines(snapshot: VerifiedWorldSnapshot): string | undefined {
+  const storylines = snapshot.storylines ?? [];
+  if (!storylines.length) return undefined;
+  const lines = storylines.map(s =>
+    `- [storyline:${s.id}] ${s.title} (${s.state}, pressione ${s.pressure}/3): ${s.summary}` +
+    (s.trajectory ? `\n  Direzione: ${s.trajectory} (tendenza, mai un fatto)` : '')
+  );
+  return [
+    '[FILONI DEL MONDO — questioni storiche dichiarate dal preset, non un elenco da recitare]',
+    ...lines,
+    'Questi filoni sono significato del mondo, non fatti del motore: non portano cifre e non provano risorse. Puoi proporne uno con una `council_issue` che ha `signalKeys: ["storyline:<id>"]`. La `trajectory` è una tendenza, mai una profezia: dì dove la cosa sta andando, non cosa accadrà.',
+  ].join('\n');
+}
+
 /** Structured context is NEVER injected as a fake user/history turn. */
 export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, message: string, history: readonly AdvisorMessage[] = [], presetStyle?: string, audience: 'advisor' | 'minister' = 'advisor', role?: NarrativeRole): string {
   if (audience === 'advisor') context = withAdvisorRequestMode(context, message);
@@ -388,11 +417,17 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
       startDate: context.temporalScope?.initialDate ?? context.verifiedWorldSnapshot.date ?? '',
     }) : '',
     renderPolityHistoricalBaselines((context.polityHistoricalBaselines ?? []).filter(baseline => baseline.polityId !== context.verifiedWorldSnapshot.polityId), message),
+    context.nationSituation ? renderNationSituation(context.nationSituation, {
+      countryName: context.verifiedWorldSnapshot.polityName, polityId: context.verifiedWorldSnapshot.polityId,
+      startDate: context.temporalScope?.initialDate ?? context.verifiedWorldSnapshot.date ?? '',
+    }) : '',
+    audience === 'advisor' ? renderPolityNationSituations((context.polityNationSituations ?? []).filter(situation => situation.polityId !== context.verifiedWorldSnapshot.polityId), message) : '',
     audience === 'advisor' ? `[ORIZZONTE TEMPORALE]\nData iniziale del preset: ${context.temporalScope?.initialDate ?? 'non disponibile'}. Data corrente: ${context.verifiedWorldSnapshot.date ?? 'non disponibile'}.\nConosci la storia reale solo fino alla data iniziale; dopo quella data conosci solo gli eventi generati dalla partita e già avvenuti alla data corrente. Non anticipare fatti, tecnologie, guerre o esiti storici reali successivi al preset, anche se oggi li conosci. Se la data iniziale manca, non usare storia reale esterna. Le date future possono descrivere solo piani o ipotesi, mai fatti già accaduti.\nREAL HISTORY < START DATE; GAME HISTORY >= START DATE. All'inizio la HISTORICAL BASELINE spiega molto; dopo alcuni turni PLAYER HISTORY pesa di più; dopo anni domina, e la baseline è quasi solo contesto remoto. Non dire ancora «il paese arriva alla data iniziale» anni dopo: confronta programmi ed eventi datati della partita, non la timeline reale.` : '',
     audience === 'advisor' ? `[CURRENT STRATEGIC SIGNALS — selezione interna, non elenco da recitare]\n${JSON.stringify(context.mode === 'briefing'
       ? buildRealitySignals(context.verifiedWorldSnapshot).filter(signal => signal.domain !== 'decision').slice(0, MAX_ADVISOR_SITUATIONS)
       : buildRealitySignals(context.verifiedWorldSnapshot).slice(0, MAX_COUNCIL_ISSUES))}` : '',
     audience === 'advisor' ? renderCouncilProposalAnchors(context.verifiedWorldSnapshot) : '',
+    audience === 'advisor' ? renderPlayerStorylines(context.verifiedWorldSnapshot) : '',
     audience === 'advisor' && (context.mode === 'briefing' || context.focusSituation) ? renderStrategicThreadEvidence(context.verifiedWorldSnapshot, context) : '',
     audience === 'advisor' && context.strategicHistory?.length ? `[CRONACA STRATEGICA — PLAYER HISTORY — eventi datati della partita, non conversazione]\n${JSON.stringify(context.strategicHistory)}\nRicorda le scelte pertinenti anche di turni lontani, i programmi con startedDate e gli atti appena firmati. Usa "tre mesi fa" o "lo scorso anno" solo quando le date lo consentono. Questi ricordi non provano causalità o miglioramenti quantitativi; per quelli servono delta confrontabili.` : '',
     '[GOVERNMENT BRIEF — orientamento deterministico, non copiare le sue formule]', context.governmentBrief,

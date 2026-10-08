@@ -11,7 +11,9 @@
 import { npcAgendaRepository } from '../repositories';
 import {
   describeAgenda, deriveObjectiveSeeds, reviewAgenda,
+  seedStorylineObjective, storylineObjectiveId,
   type NpcAgendaContext, type NpcAgendaProfile, type NpcObjective,
+  type NpcObjectiveMeasure,
 } from '../core/simulation/NpcAgenda';
 
 export interface NpcAgendaTarget {
@@ -29,19 +31,47 @@ export interface NpcAgendaRefreshResult {
   written: number;
 }
 
+/** Un filone del preset, pronto a essere seminato in una polity (H04). */
+export interface StorylineSeed {
+  polityId: string;
+  storylineId: string;
+  title: string;
+  summary: string;
+  trajectory?: string;
+  parties: readonly string[];
+  /** priorità derivata dalla `pressure` del filone (1–3). */
+  priority: number;
+  measure: NpcObjectiveMeasure;
+  baseline: number | null;
+  reason: string;
+  /** Lo stato lo ha già superato? Allora non si semina, o si chiude. */
+  superseded?: boolean;
+}
+
 export class NpcAgendaService {
   constructor(private readonly ctx: {
     gameId: string;
     currentDate(): string;
     currentTurn(): number;
     isStrictGame(): boolean;
+    /**
+     * H12 — Il ramo a cui appartiene la partita. L'agenda è **per ramo**: dopo
+     * un fork la strategia del ramo nuovo non deve leggere né scrivere quella
+     * del ramo di partenza (era `main` fisso: un buco).
+     */
+    branchId?(): string | null;
   }) {}
+
+  /** Il ramo corrente, o `main` se il contesto non lo fornisce. */
+  private branchId(): string {
+    return this.ctx.branchId?.() || 'main';
+  }
 
   /** Agenda corrente di una o più polity (solo lettura). */
   agendaFor(polityIds?: readonly string[]): Record<string, NpcObjective[]> {
     if (this.ctx.isStrictGame()) return {};
     try {
-      const all = npcAgendaRepository.list(this.ctx.gameId, { activeOnly: true });
+      const all = npcAgendaRepository.list(this.ctx.gameId, { activeOnly: true, branchId: this.branchId() });
       const wanted = polityIds ? new Set(polityIds) : null;
       const grouped: Record<string, NpcObjective[]> = {};
       for (const objective of all) {
@@ -70,7 +100,7 @@ export class NpcAgendaService {
     const date = this.ctx.currentDate();
     const turn = this.ctx.currentTurn();
     try {
-      const stored = npcAgendaRepository.list(this.ctx.gameId);
+      const stored = npcAgendaRepository.list(this.ctx.gameId, { branchId: this.branchId() });
       const byPolity = new Map<string, NpcObjective[]>();
       for (const objective of stored) {
         const list = byPolity.get(objective.polityId) ?? [];
@@ -101,7 +131,7 @@ export class NpcAgendaService {
               || previous.description !== objective.description;
           }));
         }
-        npcAgendaRepository.appendMany(this.ctx.gameId, toAppend);
+        npcAgendaRepository.appendMany(this.ctx.gameId, toAppend, { branchId: this.branchId() });
       }
       return { active, opened, closed, written: opened.length + closed.length };
     } catch (error) {
@@ -113,10 +143,67 @@ export class NpcAgendaService {
   /** Potatura del rewind: le versioni scritte dopo il turno ripristinato spariscono. */
   pruneAfterTurn(turn: number): number {
     try {
-      return npcAgendaRepository.pruneAfterTurn(this.ctx.gameId, turn);
+      return npcAgendaRepository.pruneAfterTurn(this.ctx.gameId, turn, { branchId: this.branchId() });
     } catch (error) {
       console.warn('[NpcAgendaService] Potatura dell’agenda non riuscita:', error);
       return 0;
+    }
+  }
+
+  /**
+   * H04 — Semina i **filoni del preset** come obiettivi del mondo, per questa
+   * partita. Idempotente per `(polity, storylineId)`: richiamarla non duplica.
+   *
+   *  - indipendente dalla nazione scelta: i filoni ci sono comunque;
+   *  - un filone **superato** dallo stato viene chiuso, non riseminato;
+   *  - il seme conserva progresso e data di nascita se l'obiettivo esiste già.
+   *
+   * Se la stessa `storylineId` è assegnata a più polity, ognuna ha il suo
+   * obiettivo: sono viste diverse dello stesso nodo del mondo.
+   */
+  seedStorylines(seeds: readonly StorylineSeed[]): { opened: NpcObjective[]; closed: NpcObjective[] } {
+    const result: { opened: NpcObjective[]; closed: NpcObjective[] } = { opened: [], closed: [] };
+    if (this.ctx.isStrictGame() || seeds.length === 0) return result;
+    const date = this.ctx.currentDate();
+    const turn = this.ctx.currentTurn();
+    try {
+      const stored = npcAgendaRepository.list(this.ctx.gameId, { branchId: this.branchId() });
+      const byId = new Map(stored.map(objective => [objective.id, objective]));
+      const toAppend: NpcObjective[] = [];
+      for (const seed of seeds) {
+        const id = storylineObjectiveId(seed.polityId, seed.storylineId);
+        const existing = byId.get(id) ?? null;
+        if (seed.superseded) {
+          if (existing && existing.status === 'active') {
+            const closed: NpcObjective = {
+              ...existing, status: 'achieved', progress: 100,
+              reviewedDate: date, reviewedTurn: turn,
+            };
+            toAppend.push(closed);
+            result.closed.push(closed);
+          }
+          continue;
+        }
+        const objective = seedStorylineObjective({
+          polityId: seed.polityId,
+          storylineId: seed.storylineId,
+          title: seed.title,
+          summary: seed.summary,
+          trajectory: seed.trajectory,
+          parties: seed.parties,
+          priority: seed.priority,
+          measure: seed.measure,
+          baseline: seed.baseline,
+          reason: seed.reason,
+        }, existing, { date, turn });
+        toAppend.push(objective);
+        if (!existing || existing.status !== 'active') result.opened.push(objective);
+      }
+      if (toAppend.length > 0) npcAgendaRepository.appendMany(this.ctx.gameId, toAppend, { branchId: this.branchId() });
+      return result;
+    } catch (error) {
+      console.warn('[NpcAgendaService] Semina dei filoni non riuscita:', error);
+      return result;
     }
   }
 

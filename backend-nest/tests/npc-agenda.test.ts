@@ -287,7 +287,8 @@ describe('agenda NPC: ciclo di vita in partita', () => {
     expect(after.objectives.map((item: any) => item.id).sort()).toEqual(objectives.sort());
 
     const repos = await import('../src/repositories');
-    const rows = repos.npcAgendaRepository.list(session.id, { polityId: power.polityId });
+    const branchId = repos.gameRepository.getHeadBranch(session.id) ?? undefined;
+    const rows = repos.npcAgendaRepository.list(session.id, { polityId: power.polityId, branchId });
     expect(rows.length).toBeGreaterThanOrEqual(objectives.length);
     // La versione più recente porta la data della revisione, non una nuova nascita.
     for (const objective of rows) {
@@ -317,15 +318,16 @@ describe('agenda NPC: ciclo di vita in partita', () => {
     const { gameId, session } = createGame();
     const repos = await import('../src/repositories');
     session.buildGameData();
-    const baseline = repos.npcAgendaRepository.list(gameId).length;
+    const branchId = repos.gameRepository.getHeadBranch(gameId) ?? undefined;
+    const baseline = repos.npcAgendaRepository.list(gameId, { branchId }).length;
 
     await session.advanceDate(30);
     session.buildGameData();
-    const afterAdvance = repos.npcAgendaRepository.list(gameId).length;
+    const afterAdvance = repos.npcAgendaRepository.list(gameId, { branchId }).length;
     expect(afterAdvance).toBeGreaterThanOrEqual(baseline);
 
     expect(session.rewind()).toBeTruthy();
-    const afterRewind = repos.npcAgendaRepository.list(gameId);
+    const afterRewind = repos.npcAgendaRepository.list(gameId, { branchId });
     // Nessuna versione resta appesa a un futuro annullato.
     expect(afterRewind.every((row: any) => row.reviewedTurn <= session.getCurrentTurn())).toBe(true);
     // E l'agenda è ancora utilizzabile dopo il ritorno indietro.

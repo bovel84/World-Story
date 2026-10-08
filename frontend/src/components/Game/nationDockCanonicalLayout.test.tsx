@@ -68,7 +68,7 @@ describe('COUNTRY-CLARITY — stato canonico e approfondimenti', () => {
       const matches = section(name).match(/<DossierBlock[\s\S]*?<\/DossierBlock>/g) ?? [];
       return sum + matches.length;
     }, 0);
-    expect(total, 'il parser non vede i 26 blocchi del dossier').toBe(26);
+    expect(total, 'il parser non vede i 27 blocchi del dossier').toBe(27);
   });
 });
 

@@ -5,6 +5,7 @@
 
 import db from '../database';
 import { sanitizeHistoricalBaseline, type PolityHistoricalBaseline } from '../core/government/HistoricalBaseline';
+import { isUsableNationSituation, type NationSituationRecord } from '../core/government/NationSituation';
 import { worldRepository } from './world.repository';
 import { ministerMemoryRepository } from './minister-memory.repository';
 import { jevMemoryRepository } from './jev-memory.repository';
@@ -892,6 +893,39 @@ export const gameRepository = {
         generated_at = excluded.generated_at, version = excluded.version
       WHERE game_polity_historical_baselines.version < 2`)
       .run(gameId, baseline.polityId, baseline.countryName, baseline.startDate, baseline.historicalBackground, baseline.generatedAt, baseline.version);
+  },
+
+  /**
+   * H05 — Situazione della nazione alla data di partenza (presente + direzione).
+   * Immutabile per game/polity/divergence come la baseline storica.
+   */
+  getNationSituation: (gameId: string, polityId: string, startDate: string): NationSituationRecord | null => {
+    const row = db.prepare(`SELECT polity_id AS polityId, country_name AS countryName, start_date AS startDate,
+      situation, generated_at AS generatedAt, version
+      FROM game_polity_nation_situations WHERE game_id = ? AND polity_id = ? AND start_date = ?`)
+      .get(gameId, polityId, startDate) as NationSituationRecord | undefined;
+    return row && isUsableNationSituation(row.situation) ? row : null;
+  },
+
+  getNationSituations: (gameId: string, polityIds: readonly string[], startDate: string): NationSituationRecord[] => {
+    if (!polityIds.length) return [];
+    const placeholders = polityIds.map(() => '?').join(', ');
+    const rows = db.prepare(`SELECT polity_id AS polityId, country_name AS countryName, start_date AS startDate,
+      situation, generated_at AS generatedAt, version
+      FROM game_polity_nation_situations WHERE game_id = ? AND start_date = ? AND polity_id IN (${placeholders})`)
+      .all(gameId, startDate, ...polityIds) as NationSituationRecord[];
+    return rows.filter(row => isUsableNationSituation(row.situation));
+  },
+
+  storeNationSituation: (gameId: string, record: NationSituationRecord): void => {
+    db.prepare(`INSERT INTO game_polity_nation_situations
+      (game_id, polity_id, country_name, start_date, situation, generated_at, version)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(game_id, polity_id, start_date) DO UPDATE SET
+        country_name = excluded.country_name, situation = excluded.situation,
+        generated_at = excluded.generated_at, version = excluded.version
+      WHERE game_polity_nation_situations.version < excluded.version`)
+      .run(gameId, record.polityId, record.countryName, record.startDate, record.situation, record.generatedAt, record.version);
   },
 
   /** Этап 2: сохранить консолидированную историю (саммари старых раундов). */
