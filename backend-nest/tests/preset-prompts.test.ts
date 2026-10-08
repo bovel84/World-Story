@@ -3,7 +3,7 @@
  *   validatePresetJson принимает и валидирует prompts,
  *   renderPromptTemplate подставляет ${VAR} / {{VAR}} (в т.ч. lowercase),
  *   world.prompts имеет приоритет над дефолтным builder'ом (simulation,
- *   converter, suggestions, advisor), работает алиас "jump",
+ *   converter, advisor), работает алиас "jump",
  *   ленивый DB-fallback достаёт prompts из worlds по id игры,
  *   отсутствие секции prompts не ломает дефолтные промпты,
  *   пресет pachetto può portare una sezione prompts valida,
@@ -26,7 +26,6 @@ let override: typeof import('../src/prompts/override');
 let promptBuilderModule: typeof import('../src/prompt-builder');
 let simulationModule: typeof import('../src/prompts/simulation');
 let converterModule: typeof import('../src/prompts/converter');
-let suggestionsModule: typeof import('../src/prompts/suggestions');
 
 /** Вызовы «LLM»: механика + текст user-промпта */
 const captured: { mechanic: string; prompt: string }[] = [];
@@ -39,7 +38,6 @@ const stubLlm: any = {
   async generate(mechanic: string, _system: string, user: string) {
     captured.push({ mechanic, prompt: user });
     if (mechanic === 'converter') return { content: JSON.stringify({ type: 'action', text: 'Действие' }) };
-    if (mechanic === 'suggestions') return { content: JSON.stringify({ suggestions: [] }) };
     return { content: 'Ответ советника' };
   },
   async stream(mechanic: string, _system: string, user: string, onToken: (chars: number) => void) {
@@ -96,7 +94,6 @@ beforeAll(async () => {
   promptBuilderModule = await import('../src/prompt-builder');
   simulationModule = await import('../src/prompts/simulation');
   converterModule = await import('../src/prompts/converter');
-  suggestionsModule = await import('../src/prompts/suggestions');
 });
 
 afterAll(() => {
@@ -212,43 +209,6 @@ describe('world.prompts имеет приоритет над дефолтным�
     expect(calls[1].prompt).toContain('Действие Б');
   });
 
-  it('suggestions: переопределение применяется', async () => {
-    const engine = new promptBuilderModule.PromptEngine(stubLlm);
-    await engine.getSuggestions(makeGame({ worldPrompts: { suggestions: 'КАСТОМ_ПОДСКАЗКИ для ${PLAYER_POLITY}' } }));
-    expect(lastPrompt('suggestions')).toContain('КАСТОМ_ПОДСКАЗКИ для ФРГ');
-  });
-
-  it('suggestions: invalida il risultato malformato e riprova con formato vincolato', async () => {
-    let calls = 0;
-    let invalidations = 0;
-    const retryLlm: any = {
-      consolidation: stubLlm.consolidation,
-      async generate(_mechanic: string, _system: string, user: string) {
-        calls++;
-        if (calls === 1) return { content: 'testo senza JSON' };
-        expect(user).toContain('[CORREZIONE FORMATO]');
-        return {
-          content: JSON.stringify({
-            suggestions: [{
-              topic: 'Confine orientale',
-              description: 'Pressione crescente lungo il confine.',
-              actions: [{ title: 'Presidio mobile', content: 'Ridislochiamo le unità disponibili lungo il confine orientale.' }],
-            }],
-          }),
-        };
-      },
-      invalidateCache() { invalidations++; },
-      describe() { return { suggestions: { provider: 'stub' } }; },
-    };
-
-    const engine = new promptBuilderModule.PromptEngine(retryLlm);
-    const result = await engine.getSuggestions(makeGame());
-
-    expect(calls).toBe(2);
-    expect(invalidations).toBe(1);
-    expect(result[0]?.actions[0]?.title).toBe('Presidio mobile');
-  });
-
   it('advisor: к пресетному шаблону дописываются история и текущий вопрос игрока', async () => {
     const engine = new promptBuilderModule.PromptEngine(stubLlm);
     const game = makeGame({ worldPrompts: { advisor: 'КАСТОМ_СОВЕТНИК ${PLAYER_POLITY}' } });
@@ -329,12 +289,6 @@ describe('дефолтные промпты без секции prompts', () => 
     await engine.runSimulation(makeGame(), [], 30);
     expect(lastPrompt('jump')).toContain('Simuli un gioco strategico a turni');
   });
-
-  it('getSuggestions: дефолтный промпт', async () => {
-    const engine = new promptBuilderModule.PromptEngine(stubLlm);
-    await engine.getSuggestions(makeGame());
-    expect(lastPrompt('suggestions')).toContain('Temi di preoccupazione');
-  });
 });
 
 describe('обогащение дефолтных промптов материалом оригинала', () => {
@@ -380,35 +334,6 @@ describe('обогащение дефолтных промптов матери�
     expect(prompt).toContain('650 caratteri');
     expect(prompt).toContain("NON togliere nulla dall'intenzione del giocatore");
   });
-
-  it('suggestions: fino a 6 temi documentati, 2-5 azioni concrete, ordini copiabili', () => {
-    const prompt = suggestionsModule.buildSuggestionsPrompt(vars);
-    expect(prompt).toContain('fino a 6');
-    expect(prompt).toContain('40-75 parole');
-    expect(prompt).toContain('2 a 5');
-    expect(prompt).toContain('20-45 parole');
-    expect(prompt).toContain('titolo immersivo della strategia');
-    expect(prompt).toContain('Territori e risorse');
-    expect(prompt).toContain('Azioni già intraprese');
-  });
-
-  it('suggestions: ogni preset riceve lo standard Pax di ordini immediatamente giocabili', () => {
-    const quality = suggestionsModule.buildSuggestionsQualityInstruction(vars);
-    expect(quality).toContain('AZIONI IN STILE PAX HISTORIA');
-    expect(quality).toContain('prima persona plurale');
-    expect(quality).toContain('Non inventare');
-    expect(quality).toContain('prima persona plurale e al presente');
-    // Prosa discorsiva: nessun indicatore o statistica nel testo per il giocatore.
-    expect(quality).toContain('PROSA DISCORSIVA');
-    expect(quality).toContain('soddisfazione 32/100');
-    expect(quality).toContain('non con un elenco di indicatori');
-  });
-
-  it('suggestions: lo stato strategico e le anime del governo sono dati interni', () => {
-    const prompt = suggestionsModule.buildSuggestionsPrompt(vars);
-    expect(prompt).toContain('dati interni per il tuo ragionamento, mai da citare nel testo');
-    expect(prompt).toContain('non riportarli mai come cifre nel testo');
-  });
 });
 
 describe('un preset-pacchetto porta una sezione prompts (override dal pacchetto)', () => {
@@ -417,7 +342,7 @@ describe('un preset-pacchetto porta una sezione prompts (override dal pacchetto)
 
   afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
-  it('loadPreset отдаёт prompts с simulation и suggestions; шаблон рендерится переменными', () => {
+  it('loadPreset отдаёт prompts с simulation; шаблон рендерится переменными', () => {
     // Preset tecnico temporaneo: mantiene la copertura dell'override dei prompt
     // anche senza un preset di contenuto "moderno" nel catalogo.
     fs.mkdirSync(dir, { recursive: true });
@@ -430,25 +355,20 @@ describe('un preset-pacchetto porta una sezione prompts (override dal pacchetto)
       base_prompt: 'Prompt di base di prova.',
       prompts: {
         simulation: 'Sei il simulatore. Il giocatore governa ${PLAYER_POLITY}. Rispondi con JSON.',
-        suggestions: 'Analista di stato maggiore per ${PLAYER_POLITY}.',
       },
     }));
 
     const preset = presetLoader.loadPreset(ID);
     expect(preset).not.toBeNull();
     expect(preset!.prompts?.simulation).toBeTruthy();
-    expect(preset!.prompts?.suggestions).toBeTruthy();
 
     // Рендер шаблона пресета реальными переменными игры
     const vars = new promptBuilderModule.PromptBuilder(makeGame()).buildVariables();
     const rendered = override.renderPromptTemplate(preset!.prompts!.simulation, vars);
-    const renderedSuggestions = override.renderPromptTemplate(preset!.prompts!.suggestions, vars);
 
     // Все плейсхолдеры шаблона — известные переменные, ничего не осталось
     expect(rendered).not.toMatch(/\$\{[A-Z_]+\}/);
-    expect(renderedSuggestions).not.toMatch(/\$\{[A-Z_]+\}/);
     expect(rendered).toContain('ФРГ'); // подставленный PLAYER_POLITY
     expect(rendered).toContain('JSON'); // contratto esplicito nel template
-    expect(renderedSuggestions).toContain('ФРГ');
   });
 });

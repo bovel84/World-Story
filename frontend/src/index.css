@@ -3882,3 +3882,18 @@ html, body { margin: 0; }
 .storyline-summary { margin: 4px 0 0; color: #c8d4e6; font: 400 12.5px/1.45 system-ui, sans-serif; }
 .storyline-trajectory { margin: 5px 0 0; color: #9fb0c9; font: 400 12px/1.4 system-ui, sans-serif; font-style: italic; }
 .storyline-trajectory-label { color: #a99af0; font: 700 10px/1 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; font-style: normal; margin-right: 4px; }
+
+/* ==========================================================================
+   P02 — Le mosse della proposta (forma di Pax Historia). Card scegliibili:
+   il clic PREPARA la bozza, non invia. Scoped a `.council-option*`.
+   ========================================================================== */
+.council-issue-options { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.council-option { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; cursor: pointer;
+  padding: 8px 10px; border: 1px solid #3a4a63; border-radius: 4px; background: rgba(255,255,255,.02);
+  color: inherit; font: inherit; transition: border-color .12s, background .12s; }
+.council-option:hover { border-color: #5a6f92; background: rgba(255,255,255,.05); }
+.council-option.is-chosen { border-color: #a99af0; background: rgba(169,154,240,.10); }
+.council-option:focus-visible { outline: 2px solid #a99af0; outline-offset: 2px; }
+.council-option:disabled { opacity: .5; cursor: default; }
+.council-option-title { color: #f2f6ff; font: 600 12.5px/1.3 system-ui, sans-serif; }
+.council-option-content { color: #c8d4e6; font: 400 12px/1.45 system-ui, sans-serif; }

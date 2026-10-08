@@ -28,7 +28,6 @@ export interface UseOrderQueueOptions {
 }
 
 export interface OrderQueue {
-  suggestionsLoading: boolean;
   suggestionsError: string;
   editingActionId: string | null;
   setEditingActionId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -40,7 +39,6 @@ export interface OrderQueue {
   feasibilityResult: FeasibilityResult | null;
   feasibilityLoading: boolean;
   feasibilityError: string | null;
-  generateSuggestions: () => Promise<void>;
   queuePlayerAction: (text: string, work?: WorkDeclarationInput, signatureKey?: string) => Promise<boolean>;
   removeQueuedAction: (actionId: string) => Promise<void>;
   updateQueuedAction: (actionId: string, newText: string) => Promise<void>;
@@ -65,7 +63,6 @@ export interface OrderQueue {
 }
 
 export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
-  const { suggestions, setSuggestions } = useActionsStore();
   const { pendingActions, setPendingActions, addPendingAction, removePendingAction } = useGameStore();
   // P03 — Scrivere la bozza dal Governo: si usa lo stesso store del compositore,
   // così la proposta del ministro e l'ordine scritto a mano sono la STESSA cosa,
@@ -76,14 +73,14 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
   } = useOrderDraftStore();
 
   // Brainstorm di azioni: stato e messaggio sono visibili anche al primo caricamento.
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [suggestionsError, setSuggestionsError] = useState('');
 
   // P02 — La seduta del gabinetto: i ministri che hanno qualcosa da dire.
   // Sola lettura: caricarla non impegna nulla.
   const [cabinet, setCabinet] = useState<CabinetSessionView | null>(null);
   const [cabinetLoading, setCabinetLoading] = useState(false);
   const [cabinetError, setCabinetError] = useState('');
+  // Errore della coda d'ordini (nome storico: era anche dei suggerimenti).
+  const [suggestionsError, setSuggestionsError] = useState('');
 
   // Modifica di un ordine in coda prima della presa in carico (G04 / §6.1).
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
@@ -95,23 +92,6 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
   const [feasibilityLoading, setFeasibilityLoading] = useState(false);
   const [feasibilityError, setFeasibilityError] = useState<string | null>(null);
 
-  const generateSuggestions = useCallback(async () => {
-    if (!gameId || suggestionsLoading) return;
-    setSuggestionsLoading(true);
-    setSuggestionsError('');
-    try {
-      const data = await gameApi.getSuggestions(gameId);
-      setSuggestions(data.suggestions || []);
-      if (!data.suggestions?.length) {
-        setSuggestionsError('Nessuna proposta ricevuta. Prova a generarle di nuovo.');
-      }
-    } catch (e) {
-      console.error('[Suggestions] Generation failed:', e);
-      setSuggestionsError(simulationErrorMessage(e));
-    } finally {
-      setSuggestionsLoading(false);
-    }
-  }, [gameId, suggestionsLoading, setSuggestions]);
 
   /**
    * P02 — Carica la seduta del gabinetto. Sola lettura: nessuna spesa, nessuna
@@ -294,8 +274,7 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
   }, [verifyOrder]);
 
   return {
-    suggestionsLoading,
-    suggestionsError,
+      suggestionsError,
     editingActionId,
     setEditingActionId,
     editingActionText,
@@ -306,7 +285,6 @@ export function useOrderQueue({ gameId }: UseOrderQueueOptions): OrderQueue {
     feasibilityResult,
     feasibilityLoading,
     feasibilityError,
-    generateSuggestions,
     queuePlayerAction,
     removeQueuedAction,
     updateQueuedAction,

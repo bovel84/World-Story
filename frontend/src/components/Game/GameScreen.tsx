@@ -76,7 +76,6 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     currentGame, currentWorld, selectedRegion, setSelectedRegion, setCurrentGame, setCurrentWorld,
     setHistory, pendingActions, changedRegions, history: actionHistory,
   } = useGameStore();
-  const { suggestions } = useActionsStore();
   const { loading, activeModule, openModule, closeModule, setShowPromptEditor, setCurrentView, showOpening, setShowOpening } = useUIStore();
   const {
     text: orderDraftText, enhancedPreview, enhanceLoading, enhanceError,

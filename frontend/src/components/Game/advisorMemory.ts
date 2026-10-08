@@ -44,6 +44,16 @@ function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
     const anchorKeys = Array.isArray(issue.anchorKeys)
       ? [...new Set(issue.anchorKeys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0).map(key => key.trim()))]
       : [];
+    // P01/P03 — le MOSSE della proposta: prosa, titolo + content. Senza questa
+    // riga le opzioni si perdevano al salvataggio e la scheda tornava senza mosse.
+    const options = Array.isArray(issue.options)
+      ? issue.options.flatMap((option): { title: string; content: string }[] => {
+        if (!option || typeof option !== 'object') return [];
+        const entry = option as Record<string, unknown>;
+        const optionTitle = text(entry.title); const content = text(entry.content);
+        return optionTitle && content ? [{ title: optionTitle, content }] : [];
+      })
+      : [];
     // verifiedFacts OR signalKeys OR anchorKeys = issue persistibile.
     if (!verifiedFacts.length && !signalKeys.length && !anchorKeys.length) return [];
     return [{
@@ -51,6 +61,7 @@ function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
       ...(situationId ? { situationId } : {}),
       ...(signalKeys.length ? { signalKeys } : {}),
       ...(anchorKeys.length ? { anchorKeys } : {}),
+      ...(options.length ? { options } : {}),
       suggestedMinisters: issue.suggestedMinisters.filter(seat => typeof seat === 'string') as CouncilIssue['suggestedMinisters'],
       origin: issue.origin as CouncilIssue['origin'],
       sourceRefs: issue.sourceRefs.filter(ref => typeof ref === 'string') as string[],

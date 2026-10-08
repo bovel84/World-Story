@@ -16,7 +16,8 @@ interface AdvisorChatProps {
   gameId: string;
   chartData?: ChartDataInput | null;
   scopeKey?: string;
-  onOpenIssue?: (issue: CouncilIssue) => void;
+  // P02 — La mossa scelta dal Presidente (se presente) accompagna la proposta.
+  onOpenIssue?: (issue: CouncilIssue, chosenOption?: { title: string; content: string }) => void;
   /** WS-GOV-TURN-AWARENESS — Il turno corrente: la chat attiva è solo questo. */
   currentTurn?: number;
 }

@@ -8,10 +8,28 @@ import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 import type { SituationBrief } from './MinisterOpening';
 
 export type CouncilIssueOrigin = 'advisor' | 'president' | 'minister' | 'event' | 'follow-up';
+/**
+ * P01 — Una **mossa concreta** su una proposta: il titolo immersivo e l'ordine
+ * pronto. È la forma di Pax Historia. NON è un fatto e NON è un effetto: è la
+ * prosa con cui il giocatore risponde alla questione (invariante P-I1). Per
+ * questo non porta cifre né chiavi canoniche — quelle stanno sulla proposta.
+ */
+export interface CouncilOption {
+  /** Titolo immersivo della strategia, 2-6 parole («Costringerli a svelarsi»). */
+  title: string;
+  /** L'ordine concreto, 20-45 parole, in prima persona plurale, pronto da eseguire. */
+  content: string;
+}
+
 export interface CouncilIssue {
   id: string;
   title: string;
   question: string;
+  /**
+   * P01 — 2-5 mosse concrete fra cui scegliere. Assente sulle schede vecchie e
+   * su quelle del ministro: una proposta senza opzioni resta valida (P-I5).
+   */
+  options?: CouncilOption[];
   /** Chiavi dei segnali canonici che hanno originato la scheda (ricalcolabili dal server). */
   signalKeys?: string[];
   /** Chiavi degli anchor canonici (opportunità) che hanno originato la scheda. */
@@ -32,6 +50,12 @@ export const councilIssueInputSchema = z.object({
   id: z.string().trim().min(1).max(160).optional(),
   title: z.string().trim().min(1).max(240),
   question: z.string().trim().min(1).max(600),
+  // P01 — le mosse concrete. Opzionali (P-I5): una scheda senza opzioni resta valida.
+  // Limiti di lunghezza generosi: la prosa la controlla il prompt, non lo schema.
+  options: z.array(z.object({
+    title: z.string().trim().min(2).max(80),
+    content: z.string().trim().min(10).max(400),
+  })).min(2).max(5).optional(),
   situationId: z.string().trim().min(1).max(160).optional(),
   // Liste vuote ammesse: una issue con soli signalKeys torna dal client con
   // `verifiedFacts: []`. La presence di almeno una fonte è richiesta dal refine.
@@ -52,43 +76,63 @@ export class InvalidCouncilIssueError extends Error {
   }
 }
 
-/** Il server risolve le `signalKeys` contro i segnali REALI: mai fidarsi del modello. */
-function resolveSignalLinks(snapshot: VerifiedWorldSnapshot, signalKeys: readonly string[]): { signalKeys: string[]; factKeys: string[]; sourceRefs: string[] } {
+/**
+ * P09 — Le chiavi ignote **degradano**, non uccidono.
+ *
+ * Il difetto (misurato su una generazione vera): il modello, senza le chiavi
+ * canoniche sotto gli occhi, le **inventa**; una sola chiave ignota faceva
+ * fallire l'INTERA scheda e la proposta — titolo, domanda, **opzioni** — spariva,
+ * dopo che il modello aveva già lavorato. Il principio da non perdere è un
+ * altro: **una chiave inventata non si accetta mai**. Le due cose convivono:
+ * la chiave ignota si **scarta** (con un avviso leggibile), la scheda resta; se
+ * non resta **nessuna** fonte, allora la scheda muore — come deve.
+ */
+function resolveSignalLinks(snapshot: VerifiedWorldSnapshot, signalKeys: readonly string[]): { signalKeys: string[]; factKeys: string[]; sourceRefs: string[]; unknown: string[] } {
   const resolved: string[] = [];
   const factKeys: string[] = [];
   const sourceRefs: string[] = [];
-  if (!signalKeys.length) return { signalKeys: resolved, factKeys, sourceRefs };
+  const unknown: string[] = [];
+  if (!signalKeys.length) return { signalKeys: resolved, factKeys, sourceRefs, unknown };
   const byKey = new Map(buildRealitySignals(snapshot).map(signal => [signal.key, signal]));
   for (const signalKey of signalKeys) {
     const signal = byKey.get(signalKey);
-    if (!signal) throw new InvalidCouncilIssueError(`Unknown reality signal key: ${signalKey}`);
+    // Chiave ignota: si scarta, non si accetta e non si propaga — ma si registra,
+    // perché se la scheda non dovesse sopravvivere il motivo deve nominarla.
+    if (!signal) { console.warn(`[CouncilIssue] signalKey ignota scartata: ${signalKey}`); unknown.push(`Unknown reality signal key: ${signalKey}`); continue; }
     if (resolved.includes(signalKey)) continue;
     resolved.push(signalKey);
     factKeys.push(...signal.factKeys);
     sourceRefs.push(...signal.sourceRefs);
   }
-  return { signalKeys: resolved, factKeys, sourceRefs };
+  return { signalKeys: resolved, factKeys, sourceRefs, unknown };
 }
 
-/** Gli anchor si risolvono come le signal: chiave ignota → reject, fatti ricalcolati. */
-function resolveAnchorLinks(snapshot: VerifiedWorldSnapshot, anchorKeys: readonly string[]): { anchorKeys: string[]; factKeys: string[]; sourceRefs: string[] } {
+/** Gli anchor si risolvono come le signal: chiave ignota scartata, fatti ricalcolati. */
+function resolveAnchorLinks(snapshot: VerifiedWorldSnapshot, anchorKeys: readonly string[]): { anchorKeys: string[]; factKeys: string[]; sourceRefs: string[]; unknown: string[] } {
   const resolved: string[] = [];
   const factKeys: string[] = [];
   const sourceRefs: string[] = [];
-  if (!anchorKeys.length) return { anchorKeys: resolved, factKeys, sourceRefs };
+  const unknown: string[] = [];
+  if (!anchorKeys.length) return { anchorKeys: resolved, factKeys, sourceRefs, unknown };
   const byKey = new Map(buildCouncilProposalAnchors(snapshot).map(anchor => [anchor.key, anchor]));
   for (const anchorKey of anchorKeys) {
     const anchor = byKey.get(anchorKey);
-    if (!anchor) throw new InvalidCouncilIssueError(`Unknown council anchor key: ${anchorKey}`);
+    if (!anchor) { console.warn(`[CouncilIssue] anchorKey ignota scartata: ${anchorKey}`); unknown.push(`Unknown council anchor key: ${anchorKey}`); continue; }
     if (resolved.includes(anchorKey)) continue;
     resolved.push(anchorKey);
     factKeys.push(...anchor.factKeys);
     sourceRefs.push(...anchor.sourceRefs);
   }
-  return { anchorKeys: resolved, factKeys, sourceRefs };
+  return { anchorKeys: resolved, factKeys, sourceRefs, unknown };
 }
 
-/** Fail closed on ANY unknown key, never partially accept a fact list. */
+/**
+ * P09 — Fail-closed sul RISULTATO, non su ogni chiave: la scheda è valida se
+ * resta almeno una **fonte canonica** (fatto, segnale o anchor realmente risolti).
+ * Le chiavi ignote sono già state scartate; se non resta nulla il motivo le
+ * **nomina** (mai in silenzio): la scheda muore per la ragione vera, non per una
+ * generica assenza di fatti.
+ */
 export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknown, origin?: CouncilIssueOrigin): CouncilIssue {
   const parsed = councilIssueInputSchema.safeParse(raw);
   if (!parsed.success) throw new InvalidCouncilIssueError();
@@ -112,9 +156,18 @@ export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknow
     ? [...new Set([...linked.sourceRefs, ...linkedAnchors.sourceRefs])]
     : [...new Set(verifiedFacts.map(fact => fact.sourceRef))];
   // Una signal canonica senza factKeys resta valida se porta un riferimento canonico.
-  if (!verifiedFacts.length && !sourceRefs.length) throw new InvalidCouncilIssueError('Council issue senza fatto né riferimento canonico');
+  // Se non resta NULLA, il motivo nomina le chiavi scartate (mai in silenzio):
+  // la scheda muore per la ragione vera, non per una generica assenza di fatti.
+  if (!verifiedFacts.length && !sourceRefs.length) {
+    const unknown = [...linked.unknown, ...linkedAnchors.unknown];
+    throw new InvalidCouncilIssueError(
+      unknown.length ? unknown.join('; ') : 'Council issue senza fatto né riferimento canonico');
+  }
   return {
     id: input.id ?? `issue-${shortId()}`, title: input.title, question: input.question,
+    // P01 — le opzioni sono PROSA: niente chiavi, niente cifre. Si conservano
+    // solo se presenti e già validate dallo schema (2-5, lunghezze).
+    ...(input.options?.length ? { options: input.options.map(option => ({ title: option.title, content: option.content })) } : {}),
     // Si conservano SOLO le chiavi realmente risolte (deduplicate): il round-trip
     // del client non può aggiungere chiavi inventate.
     ...(linked.signalKeys.length ? { signalKeys: linked.signalKeys } : {}),
@@ -133,10 +186,10 @@ export const MAX_BRIEFING_COUNCIL_ISSUES = 72;
 
 export const COUNCIL_ISSUE_PROTOCOL = [
   'Puoi proporre questioni interministeriali, NON aprire una seduta o creare una crisi. Il Presidente decide se portarle al Consiglio.',
-  'Se nel testo identifichi una questione concreta che richiede una decisione del Presidente o del Governo, DEVI emettere anche la relativa scheda fenced ```council_issue, una per ogni questione distinta, con JSON {"title":"...","question":"...","signalKeys":["chiave-segnale canonica"],"suggestedMinisters":["lavori","tesoro"]}. Un turno senza decisioni può avere zero schede: solo allora non proporre nulla.',
-  'Proponi tutte e sole le questioni strategiche realmente distinte e salienti che meritano una decisione: possono essere nessuna, una o più. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Ogni questione deve poter essere portata separatamente al Consiglio, con fatti canonici a sostegno e solo ministri pertinenti alla domanda.',
+  'Se identifichi una questione concreta che richiede una decisione del Presidente o del Governo, DEVI emettere anche la relativa scheda fenced ```council_issue, una per questione distinta, con JSON {"title":"...","question":"...","options":[{"title":"...","content":"..."}],"signalKeys":["..."],"suggestedMinisters":["lavori","tesoro"]}. Un turno senza decisioni può avere zero schede: solo allora non proporre nulla.',
+  'Proponi tutte e sole le questioni strategiche realmente distinte e salienti che meritano una decisione: possono essere nessuna, una o più. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Ogni questione deve poter essere portata separatamente al Consiglio, con fatti canonici e solo ministri pertinenti alla domanda.',
   `Sedie ammesse: ${CABINET_SEATS.join(', ')}. Usa solo chiavi presenti in facts del VerifiedWorldSnapshot se ricorri a factKeys; per il collegamento canonico preferisci signalKeys presi dai SEGNALI DEL MOMENTO / CURRENT STRATEGIC SIGNALS. Niente valori, sourceRefs, fatti nuovi, costi inventati, opzioni Pressure o effetti.`,
-  'Per una nuova opera distingui intenzione e inventario esistente; Lavori verifica tracciato e materiali, Tesoro la copertura. Una proposta non certifica fattibilità o autorizzazione.',
+  'Per una nuova opera distingui intenzione e inventario; Lavori verifica tracciato e materiali, Tesoro la copertura. Una proposta non certifica fattibilità o autorizzazione.',
   'Una council_issue richiede una decisione concreta (autorizzare, finanziare, ordinare, negoziare, avviare/sospendere, dispiegare); valutare, verificare o sondare restano attività istruttorie.',
 ].join('\n');
 
@@ -148,6 +201,16 @@ export const COUNCIL_ISSUE_PROTOCOL = [
 export const COUNCIL_ANCHOR_PROTOCOL = [
   'Una proposta può nascere da un PROBLEMA (aggancia `signalKeys` dai CURRENT STRATEGIC SIGNALS) oppure da un\'OPPORTUNITÀ concreta (aggancia `anchorKeys` dai COUNCIL PROPOSAL ANCHORS). I segnali dicono ciò che MERITA ATTENZIONE; gli anchor sono fatti canonici che POSSONO SOSTENERE una proposta. Nel BRIEFING MODE senza crisi scegli almeno un\'opportunità sostenuta dagli anchor disponibili e proponi una decisione concreta: cassa non significa surplus libero, capacità non significa fattibilità. Se mancano appigli non inventarli; dichiara il limite. A ogni richiesta del Presidente cerca attivamente opportunità e proponi decisioni politiche concrete pertinenti, anche in conversazione: non aspettare che il giocatore inventi la risposta. Parti da paese, data e scenario del preset; aggiorna le opportunità con stato e storia della partita. Per un quadro generale preferisci 2-4 iniziative realmente distinte quando gli appigli lo consentono; per una domanda o un focus specifico preferisci 1-2 iniziative sul tema, senza ripubblicare l’agenda nazionale. Le opportunità non devono sparire quando ci sono crisi. Ogni iniziativa deve avere la propria council_issue con anchorKeys o signalKeys canoniche, risultato politico e vincoli espliciti. Non ripetere atti firmati o proposte già presenti nello stesso messaggio; non riempire una quota se mancano basi verificabili e non trasformare capacità in risorse libere.',
   'Un atto GIÀ FIRMATO è una decisione presa: non riproporlo come se fosse ancora da decidere.',
+  // P01 — La forma di Pax Historia: non solo il problema, ma le mosse. Il testo
+  // di qualità migra qui da `prompts/suggestions.ts` (lo standard «stile Pax»).
+  `[OPZIONI — la proposta porta le mosse, non solo il problema]
+Ogni \`council_issue\` porta \`"options": [{"title":"...","content":"..."}]\` con 2-5 mosse concrete fra cui scegliere. Titolo: una strategia immersiva di 2-6 parole (es. «Costringerli a svelarsi», «Soffocare la rivolta nell'uovo»). Content: un ordine PRONTO da eseguire, 20-45 parole, in prima persona plurale e al presente — «Dispieghiamo…», «Finanziamo…», «Incarichiamo…». Mai «dovremmo», «potremmo», «si potrebbe».
+Ogni content nomina almeno tre elementi concreti fra: lo strumento impiegato, l'obiettivo, il luogo o la politia con il nome esatto della mappa, il metodo, il risultato cercato, la condizione diplomatica. Ancorati alla mappa e alla cronaca: niente consigli generici tipo «migliorare l'economia».
+Le opzioni di una stessa proposta devono essere strade REALMENTE alternative (prudente/diplomatica, assertiva, indiretta), non parafrasi della stessa idea.
+Le opzioni sono PROSA, non fatti: nessuna cifra, nessuna percentuale, nessuna chiave in un content. Un numero non verificato è vietato quanto nel resto della risposta.
+Registro: prosa da memoria di governo o da briefing politico, MAI un bollettino. Vietati «soddisfazione 32/100», «pressione 19/100», «stabilità 46/100», «PIL», «potenza militare»: l'umore politico si racconta a parole («un'opinione pubblica esasperata», «conti pubblici sotto pressione»). Non nominare anime del governo, fazioni, dossier, indicatori o meccaniche di gioco.
+Non inventare guerre, alleanze, crisi, unità, tecnologie, organizzazioni o territori assenti dal contesto: se un dato manca, formula l'ordine senza fabbricarlo. Non riproporre iniziative completate o progetti già aperti come se fossero nuovi.
+Esempio di forma corretta (adatta sempre nomi e mezzi al contesto reale): «Ridislochiamo le unità disponibili lungo il confine conteso, fortifichiamo i nodi logistici e chiediamo osservatori neutrali per scoraggiare incursioni senza aprire le ostilità.»`,
 ].join('\n');
 
 /**
@@ -177,6 +240,7 @@ export const ADVISOR_BRIEFING_SITUATION_PROTOCOL = [
   'La SITUAZIONE è la storia politica che emerge dalle prove, non l’etichetta dell’indicatore: spiega cosa sta succedendo, chi o che cosa è coinvolto, perché conta e quale vincolo reale limita il Presidente. I numeri (scorte, prontezza, cassa) restano prove a supporto: non devono dominare il titolo né il corpo del testo. Quando la HISTORICAL BASELINE contiene attori o luoghi reali pertinenti (un gruppo armato, una città, un governo confinante), puoi usarli per dare concretezza, con prudenza e solo se non contraddicono il CURRENT STATE.',
   'I titoli devono essere concreti e specifici, ancorati all\'entità reale (insurrezione documentata, impegno regionale, fragilità degli approvvigionamenti, opportunità di integrazione): evita titoli generici come «Situazione diplomatica», «Problema militare», «Economia» o «Difesa». Una scheda council_issue non sostituisce la sua situazione.',
   'Scrivi come un consigliere politico che conosce il paese, non come il report di un motore: collega i fatti al loro significato politico invece di annunciare «ho rilevato N situazioni». Le proposte restano opzioni politiche realistiche (militare, politica, diplomatica), mai nomi di missione arcade.',
+  'Ogni council_issue porta 2-5 opzioni concrete (vedi [OPZIONI]): il Presidente deve vedere le mosse, non solo il problema. Titolo immersivo, content eseguibile.',
 ].join('\n');
 
 /**

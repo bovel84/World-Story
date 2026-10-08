@@ -483,25 +483,6 @@ router.post('/:id/advisor/stream', async (req, res) => {
   }
 });
 
-router.get('/:id/suggestions', async (req, res) => {
-  const gameId = req.params.id;
-
-  try {
-    const session = getSessionRegistry().getSessionOrThrow(gameId);
-    const suggestions = await session.getSuggestions();
-    res.json({ suggestions });
-  } catch (e: any) {
-    console.error('[Suggestions] Error:', e);
-    if (e instanceof LLMError) {
-      res.status(424).json({ error: `LLM (${e.provider}): ${e.message}` });
-    } else if (e instanceof LLMContractError) {
-      res.status(424).json({ error: e.message, code: 'llm_contract_error', mechanic: e.mechanic });
-    } else {
-      res.status(404).json({ error: 'Game not found' });
-    }
-  }
-});
-
 router.get('/:id/relationships', (req, res) => {
   const gameId = req.params.id;
 
