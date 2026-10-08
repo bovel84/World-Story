@@ -131,6 +131,14 @@ export function initDatabase() {
     }
   }
 
+  // Performance: `world_regions` conserva le geometrie di **tutti** i mondi
+  // (~590k righe, 1.5 GB). Senza indice su `world_id`, ogni lettura dell’anagrafica
+  // di un mondo (`SELECT * FROM world_regions WHERE world_id = ?`) scansiona
+  // l’intera tabella (~13 s) e — essendo better-sqlite3 sincrono — blocca
+  // l’event loop: tutte le richieste in volo scadono e il tunnel risponde 524.
+  // L’indice (11 MB) riporta la lettura a ~0.1 s.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_world_regions_world ON world_regions(world_id)');
+
   // Country relationships table (allies/enemies per world)
   db.exec(`
     CREATE TABLE IF NOT EXISTS country_relationships (

@@ -67,7 +67,7 @@ import { NpcAgendaService } from './game/NpcAgendaService';
 import { buildStorylineSeeds } from './game/StorylineSeeding';
 import { loadPreset } from './utils/preset-loader';
 import { generateNationSituation, renderNationSituation, type NationSituationRecord } from './core/government/NationSituation';
-import type { Storyline } from './scenario/storylines';
+import type { Storyline, StorylinesFile } from './scenario/storylines';
 import { CommitmentService } from './game/CommitmentService';
 import type { GovernmentVoices } from './prompts/government';
 import { annualDebtServiceMld, creditHeadroom, debtOf, issueSovereignDebt, type MaterialFulfillment, type ResourceStock } from './core/simulation/MaterialEconomy';
@@ -3394,15 +3394,12 @@ export class GameSession {
    */
   private seedPresetStorylines(): void {
     try {
-      const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
-      const templateId = worldRow?.template_id;
-      if (typeof templateId !== 'string' || !templateId) return;
-      const preset = loadPreset(templateId);
-      if (!preset?.storylines) return;
+      const file = this.presetStorylineFile();
+      if (!file) return;
       const presentPolities = [...new Set([...this.regions.values()].map(region => region.owner))]
         .filter((owner): owner is string => !!owner && owner !== 'neutral');
       const seeds = buildStorylineSeeds({
-        file: preset.storylines,
+        file,
         date: this.currentDate,
         presentPolities,
       });
@@ -3695,11 +3692,7 @@ export class GameSession {
   /** I filoni del preset, filtrati alla data corrente (`active_from`/`until`). */
   private activeStorylines(): Storyline[] {
     try {
-      const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
-      const templateId = worldRow?.template_id;
-      if (typeof templateId !== 'string' || !templateId) return [];
-      const preset = loadPreset(templateId);
-      const all = preset?.storylines?.storylines ?? [];
+      const all = this.presetStorylineFile()?.storylines ?? [];
       if (!all.length || !this.currentDate) return all;
       return all.filter(s =>
         (!s.active_from || this.currentDate >= s.active_from)
@@ -3710,14 +3703,29 @@ export class GameSession {
   /** I filoni del preset che toccano questa polity: vincolano la generazione. */
   private storylinesForPolity(polityId: string): Storyline[] {
     try {
-      const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
-      const templateId = worldRow?.template_id;
-      if (typeof templateId !== 'string' || !templateId) return [];
-      const preset = loadPreset(templateId);
-      if (!preset?.storylines) return [];
-      return preset.storylines.storylines.filter(s => s.parties.includes(polityId));
+      return (this.presetStorylineFile()?.storylines ?? []).filter(s => s.parties.includes(polityId));
     } catch { return []; }
   }
+
+  /**
+   * I filoni del preset del mondo: il file su disco non cambia a runtime, quindi
+   * si legge **una volta** per processo. La chiave è il solo `template_id`
+   * (`getTemplateId`): mai `findById`, che includerebbe anche le migliaia di
+   * geometrie del mondo e — essendo better-sqlite3 sincrono — bloccherebbe
+   * l’event loop a ogni richiesta (la causa dei 524 dal tunnel).
+   */
+  private presetStorylineFile(): StorylinesFile | undefined {
+    try {
+      const templateId = worldRepository.getTemplateId(this.worldId);
+      if (!templateId) return undefined;
+      if (this.storylineFileCache.has(templateId)) return this.storylineFileCache.get(templateId);
+      const file = loadPreset(templateId)?.storylines;
+      this.storylineFileCache.set(templateId, file);
+      return file;
+    } catch { return undefined; }
+  }
+
+  private readonly storylineFileCache = new Map<string, StorylinesFile | undefined>();
 
   /**
    * Genera (una volta) la situazione della nazione. Immutabile per

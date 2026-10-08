@@ -161,6 +161,13 @@ export const worldRepository = {
     };
   },
 
+  /**
+   * Solo il `template_id` (preset) del mondo, **senza** caricare le regioni.
+   * `findById` include `regions` (migliaia di geometrie): chi deve solo leggere
+   * il template — es. i filoni del preset — non deve pagarne il costo.
+   */
+  getTemplateId: (id: string): string | null => worldTemplateId(id),
+
   /** MAP P6 — solo gli id delle regioni: lettura pura, senza idratazione degli oggetti. */
   regionIds: (worldId: string): string[] => (db.prepare('SELECT id FROM world_regions WHERE world_id = ? ORDER BY id').all(worldId) as Array<{ id: string }>)
     .map(row => row.id),
