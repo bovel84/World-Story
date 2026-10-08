@@ -256,14 +256,6 @@ export interface ConvertedAction {
   chatMessage?: string;
 }
 
-export interface Suggestion {
-  topic: string;
-  description: string;
-  actions: {
-    title: string;
-    content: string;
-  }[];
-}
 
 export interface AdvisorMessage {
   role: 'user' | 'assistant';

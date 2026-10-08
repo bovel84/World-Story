@@ -1242,13 +1242,6 @@ export const gameApi = {
   },
 
   /**
-* Ottieni i suggerimenti (actions.md)
-   */
-  getSuggestions: (gameId: string): Promise<{ suggestions: any[] }> => {
-    return fetchApi(`/games/${gameId}/suggestions`);
-  },
-
-  /**
    * Salva partita
    */
   saveGame: (gameId: string, name?: string): Promise<any> => {
@@ -2066,6 +2059,11 @@ export interface CouncilIssue {
   id: string;
   title: string;
   question: string;
+  /**
+   * P01 — 2-5 mosse concrete (forma di Pax Historia). Assente sulle schede
+   * vecchie: una proposta senza opzioni resta valida.
+   */
+  options?: Array<{ title: string; content: string }>;
   /** Chiavi dei segnali canonici: il server le ricalcola, mai il client. */
   signalKeys?: string[];
   /** Chiavi degli anchor canonici: il server le ricalcola, mai il client. */

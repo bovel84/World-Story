@@ -117,18 +117,6 @@ describe('resilienza con modelli free/piccoli', () => {
     ]);
   });
 
-  it('restituisce proposte conservative se due risposte free sono vuote', async () => {
-    const llm: any = {
-      describe: () => ({ suggestions: { model: 'vendor/tiny:free', provider: 'stub' } }),
-      generate: vi.fn(async () => ({ content: '{"suggestions":[]}' })),
-      invalidateCache: vi.fn(),
-    };
-    const suggestions = await new PromptEngine(llm).getSuggestions(gameData());
-    expect(llm.generate).toHaveBeenCalledTimes(2);
-    expect(suggestions).toHaveLength(3);
-    expect(suggestions[0].actions[0].content).toContain('censire risorse');
-    expect(suggestions.flatMap(item => item.actions).every(action => !/garantiamo|conquistiamo/i.test(action.content))).toBe(true);
-  });
 
   it('non ripara gli ID nel percorso strict fail-closed', () => {
     const engine: any = new PromptEngine({});

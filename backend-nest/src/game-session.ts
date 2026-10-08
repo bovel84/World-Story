@@ -4219,14 +4219,6 @@ export class GameSession {
     }
   }
 
-  /**
-   * Get suggestions using actions.md prompts
-   */
-  async getSuggestions(): Promise<any[]> {
-    const gameData = this.buildGameData();
-    return this.gameController.getSuggestionsWithPrompts(gameData);
-  }
-
   // =========================================================================
   // Pending Actions Queue (Phase 2)
   // =========================================================================

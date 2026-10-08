@@ -22,7 +22,7 @@ const clip = (value: string | undefined, max: number): string => {
  */
 const utf8Bytes = (value: string): number => Buffer.byteLength(value, 'utf8');
 
-/** Same national memory for suggestions and single/batch order elaboration.
+/** Same national memory for single/batch order elaboration.
  * Budgeted locally; no additional LLM request or retrieval against other games. */
 export function buildNationalDecisionContext(vars: PromptVariables): string {
   return `

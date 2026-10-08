@@ -4,7 +4,7 @@
  * Сервис для построения переменных промптов
  */
 
-import { PromptVariables, SimulationResult, SimulationEvent, ConvertedAction, Suggestion, AdvisorMessage, ActionOutcome, difficultyPromptBlock, normalizeDifficulty } from './prompts';
+import { PromptVariables, SimulationResult, SimulationEvent, ConvertedAction, AdvisorMessage, ActionOutcome, difficultyPromptBlock, normalizeDifficulty } from './prompts';
 import {
   buildSimulationPrompt,
   buildConstrainedSimulationPrompt,
@@ -38,7 +38,6 @@ import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat
 import { COUNCIL_ISSUE_PROTOCOL, MAX_BRIEFING_COUNCIL_ISSUES, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { parseAdvisorResponse, serializeAdvisorResponse } from './core/government/AdvisorSituations';
 import { ADVISOR_BRIEFING_REPAIR_SYSTEM, repairAdvisorBriefing } from './core/government/AdvisorBriefingRepair';
-import { buildSuggestionsPrompt, buildSuggestionsQualityInstruction, parseSuggestionsResponse } from './prompts/suggestions';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
 import { buildNarrativeMemory } from './prompts/narrative-memory';
@@ -1907,50 +1906,6 @@ export class PromptEngine {
       isMinisterRequest(game, message) ? undefined : prompt => this.repairAdvisorBriefing(prompt, signal), message);
   }
 
-  private safeSuggestionFallback(vars: PromptVariables, game: GameData): Suggestion[] {
-    const suggestions: Suggestion[] = [
-      {
-        topic: 'Verificare le capacità nazionali',
-        description: 'Un quadro aggiornato evita di impegnare risorse, forze o infrastrutture che la politia non possiede realmente.',
-        actions: [
-          { title: 'Inventario operativo', content: 'Incarichiamo l’amministrazione di censire risorse, forze e infrastrutture disponibili, indicando carenze verificabili prima di autorizzare nuovi impegni.' },
-          { title: 'Priorità di bilancio', content: 'Ordiniamo una revisione delle spese correnti, proteggendo gli impegni essenziali e rinviando programmi privi di copertura materiale verificata.' },
-        ],
-      },
-      {
-        topic: 'Preparare la sicurezza territoriale',
-        description: 'La pianificazione difensiva può rafforzare la prontezza senza inventare unità né aprire automaticamente nuove ostilità.',
-        actions: [
-          { title: 'Valutazione delle frontiere', content: 'Ordiniamo allo stato maggiore di valutare frontiere e collegamenti registrati, predisponendo opzioni logistiche proporzionate senza iniziare ostilità.' },
-          { title: 'Piano di mobilitazione', content: 'Prepariamo un piano graduale di reclutamento e addestramento, subordinando ogni nuova formazione alla disponibilità documentata di personale ed equipaggiamento.' },
-        ],
-      },
-      {
-        topic: 'Mantenere aperta la diplomazia',
-        description: `Per ${vars.PLAYER_POLITY}, contatti esplorativi prudenti possono chiarire intenzioni e condizioni senza dichiarare accordi inesistenti.`,
-        actions: [
-          { title: 'Riesame dei rapporti', content: 'Incarichiamo il ministero degli esteri di riesaminare i rapporti registrati, preparando contatti esplorativi senza promettere accordi o concessioni.' },
-          { title: 'Garanzie verificabili', content: 'Formuliamo una proposta tecnica basata su reciprocità, calendario e verifiche, lasciando a ciascuna controparte la propria decisione autonoma.' },
-        ],
-      },
-    ];
-    const lastTurn = game.results.at(-1);
-    const latest = lastTurn?.timelineEvents?.at(-1)?.headline || lastTurn?.events?.at(-1);
-    if (latest) {
-      const headline = clipConstrained(latest, 180);
-      suggestions[1] = {
-        topic: 'Dare seguito alla cronaca nazionale',
-        description: `La cronaca registra «${headline}». Prima di cambiare la linea di ${vars.PLAYER_POLITY}, occorre chiarire gli effetti ancora aperti senza presumere nuovi sviluppi.`,
-        actions: [
-          { title: 'Valutare gli effetti', content: `Incarichiamo l’amministrazione di valutare gli effetti per ${vars.PLAYER_POLITY} dell’evento «${headline}», distinguendo fatti confermati e questioni ancora aperte.` },
-          { title: 'Verificare gli impegni', content: `Riesaminiamo gli impegni nazionali collegati a «${headline}», individuando quali richiedano ancora una decisione senza autorizzare nuove spese.` },
-        ],
-      };
-    }
-    return suggestions.map(suggestion => ({ ...suggestion,
-      description: `Proposta prudenziale di riserva: l’IA non ha restituito proposte utilizzabili. ${suggestion.description}`,
-    }));
-  }
 
   /**
    * Dà voce alle anime del governo. Il roster e le richieste sono quelli
@@ -1969,54 +1924,6 @@ export class PromptEngine {
       return parseGovernmentVoices(response.content, snapshot.factions.map((faction) => faction.id));
     } catch {
       return null;
-    }
-  }
-
-  async getSuggestions(game: GameData): Promise<Suggestion[]> {
-    const builder = new PromptBuilder(game);
-    const vars = builder.buildVariables();
-
-    const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'suggestions');
-    const constrained = this.isConstrainedModel('suggestions');
-    const basePrompt = promptOverride ? renderPromptTemplate(promptOverride, vars) : buildSuggestionsPrompt(vars);
-    // Per i modelli free chiediamo meno schede e passiamo soltanto il teatro
-    // rilevante: la qualità resta, ma la risposta difficilmente viene troncata.
-    const prompt = (constrained
-      ? `Genera fino a 4 temi fondati nella storia di ${vars.PLAYER_POLITY}, con 2-3 ordini alternativi per tema. Non riempire una quota se mancano fatti.\nTerritori/risorse: ${clipConstrained(vars.PLAYER_POLITY_REGIONS, 1_500)}\nForze: ${clipConstrained(vars.PLAYER_POLITY_BATTALION_SUMMARIES, 1_500)}\nStato: ${clipConstrained(vars.STRATEGIC_STATE, 3_000)}\nRegole scenario: ${clipConstrained(vars.HISTORICAL_PRESET_SIMULATION_RULES, 1_000)}\n${promptOverride ? `Regole preset: ${clipConstrained(basePrompt, 1_500)}\n` : ''}${buildNationalDecisionContext(vars)}\nRispondi SOLO: {"suggestions":[{"topic":"tema nazionale","description":"antefatto, problema aperto e motivo per decidere (40-75 parole)","actions":[{"title":"2-6 parole","content":"ordine contestualizzato, 20-45 parole"}]}]}`
-      : basePrompt + (promptOverride ? buildNationalDecisionContext(vars) : ''))
-      + buildSuggestionsQualityInstruction(vars);
-    const system = 'Genera ordini strategici immediatamente giocabili in stile Pax Historia. Usa solo fatti presenti nel contesto e rispondi SOLO con JSON valido.';
-    const options = { temperature: constrained ? 0.35 : 0.65, maxTokens: constrained ? 5_000 : 8_000 };
-    const response = await this.llm.generate('suggestions', system, prompt, options);
-
-    try {
-      const parsed = parseSuggestionsResponse(response.content, true);
-      if (constrained && parsed.length === 0) throw new Error('Risposta free senza proposte valide');
-      return parsed;
-    } catch {
-      // Non lasciare per cinque minuti una risposta malformata nella cache:
-      // invalida soltanto questa richiesta e prova una correzione più vincolata.
-      this.llm.invalidateCache('suggestions', system, prompt);
-      const retryPrompt = `${prompt}\n\n[CORREZIONE FORMATO]\nLa risposta precedente non era JSON utilizzabile. Produci ora soltanto l'oggetto JSON richiesto, senza premesse, Markdown o blocchi di codice.`;
-      try {
-        const retried = await this.llm.generate(
-          'suggestions',
-          system,
-          retryPrompt,
-          { temperature: 0.2, maxTokens: constrained ? 5_000 : 8_000 },
-        );
-        const parsed = parseSuggestionsResponse(retried.content, true);
-        if (constrained && parsed.length === 0) throw new Error('Seconda risposta free senza proposte valide');
-        return parsed;
-      } catch {
-        if (constrained) return this.safeSuggestionFallback(vars, game);
-        const provider = this.llm.describe().suggestions.provider;
-        throw new LLMError('Il modello non ha restituito proposte nel formato richiesto. Riprova.', {
-          provider,
-          mechanic: 'suggestions',
-          retriable: true,
-        });
-      }
     }
   }
 

@@ -177,17 +177,6 @@ export class GameController {
     return this.promptEngine!.getGovernmentVoice(gameData, snapshot);
   }
 
-  /**
-   * Получить предложения через actions.md
-   */
-  async getSuggestionsWithPrompts(gameData: any): Promise<any[]> {
-    if (!this.promptEngine) {
-      this.initPromptEngine(gameData);
-    }
-
-    return this.promptEngine!.getSuggestions(gameData);
-  }
-
   setupWorld(worldPrompt: string): void {
     this.worldPrompt = worldPrompt;
   }

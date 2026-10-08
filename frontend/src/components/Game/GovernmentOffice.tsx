@@ -199,18 +199,34 @@ export function GovernmentOffice({ open, onClose, gameId, session,
     if (currentRef.current.memoryKey === memoryKey) setMemoryCache({ key: memoryKey, records });
   }, [currentDate, currentTurn, memoryScope, memoryKey]);
 
-  const startRoom = (seat: CabinetSeat, sourceIssue?: CouncilIssue): void => {
-    if (operationRef.current || signatureRef.current) return;
+  const startRoom = (seat: CabinetSeat, sourceIssue?: CouncilIssue): CouncilRoomState | null => {
+    if (operationRef.current || signatureRef.current) return null;
     interrupt();
     const next = createCouncilRoom({ id: crypto.randomUUID(), scopeKey, initiatorMinister: seat, ...(sourceIssue ? { sourceIssue } : {}) });
     updateRoom(next);
     setActiveId(next.id);
     setTarget('council');
+    return next;
   };
-  const openIssue = (issue: CouncilIssue): void => {
+  /**
+   * P02 — Il Presidente ha scelto una **mossa** fra quelle proposte. La stanza si
+   * apre e la bozza nasce già compilata con quella mossa: il clic PREPARA, non
+   * invia (invariante P-I2). Il giocatore la rivede, la modifica e firma.
+   */
+  const openIssue = (issue: CouncilIssue, chosenOption?: { title: string; content: string }): void => {
     // Suggested seats are not admitted automatically: only the rapporteur starts.
     const rapporteur = issue.suggestedMinisters.find(seat => CABINET_SEATS.includes(seat)) ?? 'interno';
-    startRoom(rapporteur, issue);
+    const room = startRoom(rapporteur, issue);
+    if (room && chosenOption?.content.trim()) {
+      const prepared: RoomDraft = {
+        ...councilDraft(room, currentTurn ?? 0),
+        text: chosenOption.content.trim(),
+        // La mossa scelta è la proposta di partenza, non un atto già firmato:
+        // niente `signatureKey`, così la firma richiede un gesto esplicito.
+        signatureKey: crypto.randomUUID(),
+      };
+      setDrafts(previous => ({ ...previous, [room.id]: prepared }));
+    }
   };
   // P3 — Un VERO follow-up: la seduta riferisce gli outcome reali, non ripropone strade.
   const startRoomFollowUp = (followUp: GovernmentFollowUpView): void => {

@@ -8,7 +8,7 @@
  *                   country_colors{code: "#RRGGBB"} (кураторская палитра карты),
  *                   prompts{"<механика>": "<текст промпта>"} — переопределение
  *                   дефолтных промптов ИИ (simulation/jump, converter,
- *                   suggestions, advisor; плейсхолдеры ${VAR} / {{VAR}}),
+ *                   advisor; плейсхолдеры ${VAR} / {{VAR}}),
  *                   author, version
  *
  * MAP-COMPLETE: `country_codes` больше НЕ список «играбельных наций». Мир

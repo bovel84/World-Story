@@ -23,21 +23,18 @@ for (const constrained of [false, true]) for (const override of [false, true]) {
       const model = constrained ? 'vendor/tiny:free' : 'gpt-4o';
       const llm: any = {
         describe: () => ({ suggestions: { model }, converter: { model } }),
-        generate: vi.fn(async (mechanic: string, _system: string, prompt: string) => ({ content: mechanic === 'suggestions'
-          ? JSON.stringify({ suggestions: [{ topic: 'Riprendere il porto', description: 'Le consegne rinviate impediscono di proseguire i lavori già autorizzati.', actions: [{ title: 'Verificare le forniture', content: original }] }] })
-          : /^(?:Riformula ogni|Converti le decisioni)/.test(prompt)
+        generate: vi.fn(async (mechanic: string, _system: string, prompt: string) => ({ content: /^(?:Riformula ogni|Converti le decisioni)/.test(prompt)
             ? JSON.stringify([{ actionId: 'a1', type: 'action', text: original }, { actionId: 'a2', type: 'action', text: 'Verificare le forniture.' }])
             : JSON.stringify({ type: 'action', text: original }) })),
       };
       const engine = new PromptEngine(llm);
       const game = fixture(override);
       const snapshot = JSON.stringify(game);
-      await engine.getSuggestions(game);
       await engine.convertAction(game, original);
       const batch = await engine.convertActionsBatch(game, [{ actionId: 'a1', text: original }, { actionId: 'a2', text: 'Verificare le forniture.' }]);
       expect(batch.map(action => action.actionId)).toEqual(['a1', 'a2']);
       expect(JSON.stringify(game)).toBe(snapshot);
-      expect(llm.generate).toHaveBeenCalledTimes(override ? 4 : 3);
+      expect(llm.generate).toHaveBeenCalledTimes(override ? 3 : 2);
       for (const [mechanic, , prompt] of llm.generate.mock.calls) {
         for (const marker of ['PREMESSA_NAZIONALE', 'ULTIMO_DISPACCIO', 'SCELTA_PRECEDENTE', 'CANTIERE_APERTO', 'DIPLOMAZIA_PRECEDENTE']) expect(prompt).toContain(marker);
         if (mechanic === 'converter') {
@@ -54,14 +51,3 @@ for (const constrained of [false, true]) for (const override of [false, true]) {
   });
 }
 
-it('labels fallback proposals and grounds a follow-up in the latest real dispatch', async () => {
-  const llm: any = {
-    describe: () => ({ suggestions: { model: 'tiny:free', provider: 'stub' } }),
-    generate: vi.fn(async () => ({ content: '{"suggestions":[]}' })), invalidateCache: vi.fn(),
-  };
-  const proposals = await new PromptEngine(llm).getSuggestions(fixture(false));
-  expect(proposals[1].description).toContain('ULTIMO_DISPACCIO');
-  expect(proposals[1].actions[0].content).toContain('ULTIMO_DISPACCIO');
-  expect(proposals.every(proposal => proposal.description.includes('di riserva'))).toBe(true);
-  expect(llm.generate).toHaveBeenCalledTimes(2);
-});
