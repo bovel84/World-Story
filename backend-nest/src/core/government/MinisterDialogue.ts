@@ -186,7 +186,10 @@ export function dialogueHistory(history: readonly AdvisorMessage[]): AdvisorMess
 
 /** Il contesto JEV, quando presente, possiede già WORLD/MEMORY/HISTORY/VERIFIED STATE. */
 export function composeMinisterDialoguePrompt(brief: MinisterDialogueBrief, context?: { base: string; hasHistory: boolean; hasWorld: boolean }): string {
-  const dossier = briefingFor({ seat: brief.seat, label: '', reads: '', opening: '', items: brief.currentIssues }, { voices: [], headline: '', canonicalMutation: false }).context;
+  // T-I3 — Dentro una seduta il dossier non dichiara il vuoto: la questione è
+  // già sul tavolo, e il ministro deve parlarne dalla sua competenza.
+  const inSession = Boolean(brief.council || brief.sourceIssue);
+  const dossier = briefingFor({ seat: brief.seat, label: '', reads: '', opening: '', items: brief.currentIssues }, { voices: [], headline: '', canonicalMutation: false }, undefined, inSession).context;
   const base = context?.base ?? [
     '[WORLD]', renderMinisterWorldContext(brief.worldContext, brief.seat),
     dossier,

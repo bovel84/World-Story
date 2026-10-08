@@ -12,6 +12,7 @@ import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 import { governmentSalienceInput } from './GovernmentSalienceSnapshot';
 import { evaluateGovernmentSalience } from './GovernmentSalience';
 import { formatGovernmentNumber } from './GovernmentNumberFormat';
+import type { CabinetSeat } from './Cabinet';
 
 export type RealitySignalDomain =
   | 'economy' | 'food' | 'military' | 'diplomacy' | 'infrastructure' | 'social' | 'project' | 'report' | 'decision' | 'inaction';
@@ -195,6 +196,31 @@ const SEAT_TO_SIGNAL_DOMAIN: Record<string, RealitySignalDomain> = {
 
 export function seatToSignalDomain(seat: string): RealitySignalDomain {
   return SEAT_TO_SIGNAL_DOMAIN[seat] ?? 'diplomacy';
+}
+
+/**
+ * T04 — L'INVERSA della mappa qui sopra: dal dominio-segnale alla sedia
+ * competente. Serve alla rete di copertura, che deve dire a quali ministri
+ * assegnare una proposta derivata da una situazione — e la situazione, da sola,
+ * non conosce il gabinetto.
+ *
+ * Non è una mappa nuova: è la stessa relazione letta al contrario, nello stesso
+ * punto del codice. Due sedie (`istruzione`, `sanita`) condividono il dominio
+ * `social`: vince `interno`, che è il titolare della coesione e della pressione
+ * politica — la lettura più prudente, perché la proposta derivata non deve
+ * promettere una competenza che non ha.
+ *
+ * Un dominio senza sedia (`food`, `project`, `report`, `decision`, `inaction`)
+ * ricade su `interno`: è il ministro che risponde del quadro generale quando
+ * nessuna competenza specifica è in gioco.
+ */
+const SIGNAL_DOMAIN_TO_SEAT: Partial<Record<RealitySignalDomain, CabinetSeat>> = {
+  economy: 'tesoro', infrastructure: 'lavori', social: 'interno',
+  diplomacy: 'esteri', military: 'guerra',
+};
+
+export function signalDomainToSeat(domain: RealitySignalDomain): CabinetSeat {
+  return SIGNAL_DOMAIN_TO_SEAT[domain] ?? 'interno';
 }
 
 export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySignal[] {

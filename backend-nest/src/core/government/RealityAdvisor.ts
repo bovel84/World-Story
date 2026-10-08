@@ -1,7 +1,7 @@
 /** Verified reality → situation → concrete proposals (or explicit incomplete briefing). No writes. */
 import type { AdvisorMessage } from '../../prompts/types';
 import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, ADVISOR_CONVERSATION_PROTOCOL, COUNCIL_ANCHOR_PROTOCOL, COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, SITUATION_BASE_PROTOCOL, resolveCouncilIssue, type CouncilIssue } from './CouncilIssue';
-import { buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, resolveFocusSituation, withAdvisorBriefingCoverage, type AdvisorResponse, type AdvisorSituation } from './AdvisorSituations';
+import { buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, resolveFocusSituation, withAdvisorBriefingCoverage, withSituationDerivedProposals, type AdvisorResponse, type AdvisorSituation } from './AdvisorSituations';
 import { advisorBriefingSentences, buildRealitySignals, stripTechnicalLines } from './RealitySignals';
 import { renderCouncilProposalAnchors } from './CouncilProposalAnchors';
 import { renderHistoricalBaseline, renderPolityHistoricalBaselines, historicalBaselineExcerpt, type PolityHistoricalBaseline } from './HistoricalBaseline';
@@ -106,7 +106,13 @@ export function buildRealityAdvisorContext(snapshot: VerifiedWorldSnapshot, focu
   const baseContext: RealityAdvisorContext = { verifiedWorldSnapshot: snapshot, governmentBrief, mode, ...(historicalBaseline ? { historicalBaseline } : {}), ...(focusIssue ? { focusIssue } : {}) };
   // Con il contesto completo l'apice ricostruisce l'intera Strategic Situation.
   const focusSituation = focusSituationRaw === undefined ? undefined : resolveFocusSituation(snapshot, focusSituationRaw, baseContext);
-  return { ...(mode === 'briefing' ? withAdvisorBriefingCoverage(snapshot, result) : result),
+  // T04 — La rete COPRE anche qui, non solo nel punto unico di `parseAdvisorResponse`.
+  // Questa funzione costruisce il briefing DETERMINISTICO, senza prosa del modello:
+  // è il primo percorso che il Tavolo percorre quando il provider è giù, e senza la
+  // rete consegnerebbe le situazioni con `issues: []` — la forma del 16:43, cioè
+  // esattamente il difetto che il piano dichiara protetto. La misura da sola non
+  // basta: misurare una copertura mancante non la colma.
+  return { ...(mode === 'briefing' ? withSituationDerivedProposals(snapshot, withAdvisorBriefingCoverage(snapshot, result)) : result),
     advisorContext: { ...baseContext, ...(focusSituation ? { focusSituation } : {}) } };
 }
 

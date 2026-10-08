@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { advisorBucketKey, advisorOpeningKey, loadAdvisorArchive, loadAdvisorMessages, loadAdvisorOpening, saveAdvisorMessages, saveAdvisorOpening } from './advisorMemory';
 import type { AdvisorMessage } from '../../stores/chatStore';
-import type { CouncilIssue } from '../../services/api';
+import type { AdvisorSituation, CouncilIssue } from '../../services/api';
 
 function fakeStorage(): Storage {
   const map = new Map<string, string>();
@@ -258,5 +258,68 @@ describe('advisorMemory', () => {
     expect(loadAdvisorOpening(key)).toBeNull();
     (globalThis as { localStorage?: Storage }).localStorage = { ...fakeStorage(), setItem: () => { throw new Error('quota'); } } as Storage;
     expect(() => saveAdvisorOpening(key, { reply: 'x', issues: [], date: null })).not.toThrow();
+  });
+});
+
+/**
+ * T02 — Le MOSSE di una situazione sopravvivono al salvataggio.
+ *
+ * Era il difetto di P03 rimasto aperto per le situazioni: `sanitizeSituations`
+ * non conosceva `options`, quindi una situazione tornava dal reload senza le
+ * sue mosse — cioè nella forma del 16:43, con il solo «Approfondisci».
+ */
+describe('T02 — le mosse della situazione nella persistenza', () => {
+  const mosse = [
+    { title: 'Soffocare la rivolta', content: 'Dispieghiamo le unità disponibili lungo il confine e fortifichiamo i nodi logistici.' },
+    { title: 'Comprare la tregua', content: 'Apriamo un canale con i capi locali e finanziamo la ricostruzione dei mercati.' },
+  ];
+  const situation = (): AdvisorSituation => ({
+    id: 'sudan', title: 'Tensioni con il Sudan', summary: 'Rapporto ostile al confine.',
+    options: mosse, signalKeys: ['hostile-relations:SDN'], importance: 3,
+  });
+
+  it('le mosse si conservano al salvataggio e tornano al reload', () => {
+    const storage = fakeStorage();
+    (globalThis as any).localStorage = storage;
+    const key = advisorBucketKey('g1', 'b1', 'scope');
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Quadro.', turn: 1, situations: [situation()] } as AdvisorMessage]);
+    const loaded = loadAdvisorMessages(key);
+    expect(loaded[0].situations?.[0].options).toEqual(mosse);
+  });
+
+  it('una situazione senza mosse resta senza, e il reload non ne inventa', () => {
+    const storage = fakeStorage();
+    (globalThis as any).localStorage = storage;
+    const key = advisorBucketKey('g2', 'b1', 'scope');
+    const senza = { id: 's1', title: 'Scorte fragili', summary: 'Margine sottile.', signalKeys: ['food-coverage'] };
+    saveAdvisorMessages(key, [{ role: 'assistant', content: 'Quadro.', turn: 1, situations: [senza] } as AdvisorMessage]);
+    const loaded = loadAdvisorMessages(key);
+    expect(loaded[0].situations?.[0].options).toBeUndefined();
+    expect(loaded[0].situations?.[0]).not.toHaveProperty('options');
+  });
+
+  it('una mossa senza titolo o senza contenuto si scarta; le altre restano', () => {
+    const storage = fakeStorage();
+    (globalThis as any).localStorage = storage;
+    const storageKey = advisorBucketKey('g3', 'b1', 'scope');
+    const rotta = { ...situation(), options: [{ title: '', content: 'Senza titolo.' }, ...mosse] };
+    saveAdvisorMessages(storageKey, [{ role: 'assistant', content: 'Quadro.', turn: 1, situations: [rotta] } as AdvisorMessage]);
+    const loaded = loadAdvisorMessages(storageKey);
+    expect(loaded[0].situations?.[0].options).toEqual(mosse);
+  });
+
+  it('una chiave dentro una mossa NON entra nel salvataggio: la mossa è prosa', () => {
+    const storage = fakeStorage();
+    (globalThis as any).localStorage = storage;
+    const storageKey = advisorBucketKey('g4', 'b1', 'scope');
+    const conChiave = { ...situation(), options: [{ ...mosse[0], signalKey: 'hostile-relations:SDN' }] };
+    saveAdvisorMessages(storageKey, [{ role: 'assistant', content: 'Quadro.', turn: 1, situations: [conChiave] } as AdvisorMessage]);
+    const loaded = loadAdvisorMessages(storageKey);
+    expect(loaded[0].situations?.[0].options).toEqual([{ title: mosse[0].title, content: mosse[0].content }]);
+    // La guardia è sulla MOSSA, non sull'intera scheda: `signalKeys` della
+    // situazione è una fonte canonica legittima e resta. Solo l'opzione non ha
+    // chiavi — è prosa. (La mia prima asserzione colpiva l'intera
+    // serializzazione e cadeva su `signalKeys`: era la prova a essere larga.)
+    expect(Object.keys(loaded[0].situations![0].options![0]).sort()).toEqual(['content', 'title']);
   });
 });

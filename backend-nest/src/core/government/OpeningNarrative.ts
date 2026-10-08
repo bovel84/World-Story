@@ -305,9 +305,65 @@ function normalizeNumber(value: string): string {
   return value.replace(',', '.').replace(/^0+(?=\d)/, '');
 }
 
+/**
+ * T-I6 — Un numero **identificatore** non è una cifra del motore.
+ *
+ * Un anno («1967», «1948») e un numero di risoluzione o di articolo
+ * («risoluzione 242», «articolo 80») nominano una cosa: non misurANO nulla e
+ * non possono essere confrontati con i bilanci. La guardia numerica li
+ * respingeva come cifre non verificate, bocciando la prosa più naturale di un
+ * ministro degli Esteri — e il fallback che ne seguiva diceva al Presidente che
+ * il ministro non aveva nulla da portare.
+ *
+ * Resta severa su ciò che misura: una cifra di bilancio alterata è ancora un
+ * rifiuto. `narrativeNumbersAreVerified` non cambia per i chiamanti che non
+ * hanno identificatori (le date del mondo, i numeri dei conti).
+ */
+/**
+ * Due gruppi di parole, e non è un dettaglio: il primo introduce un **anno**,
+ * il secondo un **documento**. «dopo il 1967» è un'epoca; «dopo il 250» sarebbe
+ * una cifra che misura travestita da data. Il primo gruppo ammette quindi solo
+ * anni a quattro cifre, il secondo il numero che nomina la clausola.
+ */
+const YEAR_WORDS = /\b(?:anno|anni|nel|del|dal|dopo|prima|secolo|secoli|epoca|dall['’]|dell['’])\b/i;
+const DOCUMENT_WORDS = /\b(?:risoluzione|risoluzioni|articolo|articoli|legge|leggi|trattato|trattati|decreto|decreti|capitolo|capitoli|clausola|comma|allegato|protocollo)\b/i;
+
+const ARTICLE = String.raw`\s+(?:il\s+|la\s+|lo\s+|l['’]\s*)?`;
+const YEAR_RE = new RegExp(`${YEAR_WORDS.source}${ARTICLE}(\\d+(?:[.,]\\d+)?)`, 'gi');
+const DOCUMENT_RE = new RegExp(`${DOCUMENT_WORDS.source}${ARTICLE}(\\d+(?:[.,]\\d+)?)`, 'gi');
+
+/** Un anno a quattro cifre: identifica un'epoca, non misura una grandezza. */
+function isYearLike(token: string): boolean {
+  return /^[12]\d{3}$/.test(token.replace(/^[+-]/, ''));
+}
+
+/**
+ * Gli identificatori ammessi dal testo: gli anni già presenti nel materiale
+ * verificato (la data del mondo, la cronaca) e ogni numero che un anno o un
+ * documento nomina. **Nient'altro**: una cifra che misura — anche introdotta da
+ * «dopo il» o «nel» — resta una cifra non verificata.
+ */
+export function narrativeIdentifiers(text: string, verified: string): string[] {
+  const out = new Set<string>();
+  for (const number of numbersIn(verified)) {
+    if (isYearLike(number)) out.add(normalizeNumber(number));
+  }
+  let match: RegExpExecArray | null;
+  YEAR_RE.lastIndex = 0;
+  while ((match = YEAR_RE.exec(text)) !== null) {
+    if (isYearLike(match[1])) out.add(normalizeNumber(match[1]));
+  }
+  DOCUMENT_RE.lastIndex = 0;
+  while ((match = DOCUMENT_RE.exec(text)) !== null) out.add(normalizeNumber(match[1]));
+  return [...out];
+}
+
 /** Guardiano numerico condiviso dai renderer read-only: virgola/punto equivalenti, niente arrotondamenti. */
 export function narrativeNumbersAreVerified(text: string, verified: string): boolean {
   const allowed = new Set(numbersIn(verified).map(normalizeNumber));
+  // T-I6 — Gli identificatori (anni, risoluzioni, articoli) sono ammessi: non
+  // misurano. La guardia resta severa su ogni cifra che misura davvero.
+  for (const identifier of narrativeIdentifiers(text, verified)) allowed.add(identifier);
   return numbersIn(text).every(number => allowed.has(normalizeNumber(number)));
 }
 

@@ -118,6 +118,53 @@ export function createCouncilRoom(input: { id: string; scopeKey: string; initiat
  * narrativo dell'atto, così `councilHistory()` lo vede subito. Con una firma
  * fallita la stanza non cambia.
  */
+/**
+ * T-B1 — La strada scelta dal Presidente entra **nella stanza**, non solo nel
+ * testo della bozza.
+ *
+ * Il difetto, misurato il 2026-10-08: `projectCurrentDecision` proietta ai
+ * ministri la **Tavola della discussione** (`room.sharedBoard`), mai la strada
+ * scelta. Portando una mossa in Consiglio, la scelta esisteva nel testo della
+ * bozza ma non nella Tavola: i ministri discutevano di una Tavola vuota e
+ * rispondevano «non ho nulla da portare», mentre il Presidente aveva già scelto
+ * una direzione.
+ *
+ * Qui la scelta diventa una **misura** della Tavola, con `source: 'president'`:
+ * la provenienza resta quella vera (è il Presidente che ha scelto) e i ministri
+ * la vedono in `currentDecision` come qualunque altra misura discussa.
+ *
+ * Non firma e non accoda (T-I1): scrive nella stanza, che è discussione.
+ */
+export function seedChosenRoad(
+  room: CouncilRoomState, chosenOption: { title: string; content: string }, messageId: string,
+): CouncilRoomState {
+  const label = chosenOption.title.trim().slice(0, 120);
+  const text = chosenOption.content.trim().slice(0, 400);
+  if (!label || !text) return room;
+  // L'obiettivo diventa il titolo della questione, non la mossa: la Tavola dice
+  // DI COSA si parla; la misura dice cosa il Presidente ha scelto.
+  const objective = (room.sourceIssue?.title ?? room.topic ?? label).slice(0, 240);
+  const measures = activeProposal(room.sharedBoard)?.measures ?? [];
+  const nextBoard = applyDecisionBatch(room.sharedBoard, [
+    // Rimpiazza la strada scelta in precedenza: una sola direzione del Presidente.
+    ...measures.filter(measure => measure.source === 'president').map(measure => ({ op: 'reject-measure' as const, label: measure.label })),
+    { op: 'set-objective', objective, source: 'president' },
+    { op: 'update-proposal', objective, changes: [{ label, value: text, kind: 'other', source: 'president' }] },
+  ], { messageId });
+  return {
+    ...room,
+    sharedBoard: nextBoard,
+    topic: nextBoard.objective ?? room.topic,
+    // La scelta è un atto del Presidente, non un intervento di un ministro: la
+    // cronologia la riceve come evento, così i ministri la leggono come scelta e
+    // non come una propria battuta.
+    messages: [...room.messages, {
+      id: messageId, role: 'assistant', kind: 'event',
+      content: `[Strada scelta dal Presidente] «${label}». La seduta la discute prima di preparare l'atto; solo la firma la inserisce nel registro.`,
+    }],
+  };
+}
+
 export function appendSignedActEvent(room: CouncilRoomState, queued: boolean, text: string, messageId: string): CouncilRoomState {
   if (!queued) return room;
   const act = text.trim();
@@ -331,6 +378,14 @@ export function councilDraft(room: CouncilRoomState, turn?: number): ProposalAct
     return `Art. ${index + 1}\n${measure.label}${value ? `: ${value}` : ''}.`;
   });
   if (proposal?.constraints.length) lines.push(`Vincoli\n${proposal.constraints.join('; ')}.`);
+  // T-I3 — Una bozza nata da una questione non è mai vuota. Senza misure porta
+  // la domanda da cui la seduta nasce e dichiara che il testo si definirà
+  // discutendo: i ministri hanno sempre qualcosa da leggere e da cui partire.
+  if (!measures.length) {
+    const question = room.sourceIssue?.question?.trim();
+    if (question) lines.push(`Questione\n${question.replace(/[.!?]+$/, '')}.`);
+    lines.push('Testo dell’atto\nsi definirà in seduta, dalle proposte dei ministri e dalle decisioni del Presidente.');
+  }
   const text = [title, ...lines, `Proponenti: ${room.participants.filter(seat => room.messages.some(message => message.seat === seat && message.kind === 'speech')).map(seatSpeaker).join(', ')}`].join('\n\n');
   const base: ProposalActDraft = { id: `${room.id}:draft:${room.sharedBoard.revision}`, seat: 'council', roadId: proposal?.id ?? room.id, title,
     text, capability: 'text-order', note: 'Bozza comune dalla discussione. Solo la firma del Presidente inserisce l’atto nel registro; il motore ne valuta gli effetti all’avanzamento del tempo.',
