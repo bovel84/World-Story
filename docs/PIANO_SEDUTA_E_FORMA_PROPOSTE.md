@@ -1,9 +1,13 @@
 # Piano — La forma delle proposte e il contesto dei ministri
 
-> **Stato:** **T01–T08 eseguiti** (2026-10-08). T08 (verifica indipendente) ha
-> trovato **quattro errori reali**, tutti corretti e documentati in §9 e §8. Un
-> difetto resta **aperto e dichiarato**: la rete di copertura non raggiunge il
-> briefing deterministico, perché le sue situazioni non hanno mosse (§8).
+> **Stato:** **T01–T08 eseguiti, più T04-ter** (2026-10-08). T08 (verifica
+> indipendente) ha trovato **quattro errori reali**, tutti corretti (§9). Una
+> misura successiva ne ha trovati **altri tre**, tutti nello stesso punto: la
+> chiusura del difetto del 16:43. **La causa vera era nel repair mirato**, che era
+> l'unico punto del sistema a chiedere proposte **senza** mosse — e non costava
+> nulla correggerlo, perché quella completion si paga già (§8, T04-ter).
+> **Rischio residuo dichiarato:** una sola mossa nel repair scarta la proposta
+> (limite 2-5 di P01): allentarlo è una scelta dell'autore.
 > **Origine:** misura del 2026-10-08 su tre schermate della partita dell'autore
 > (preset *millennium*, Palestina, 2000) e sul codice in `backend-nest` e
 > `frontend`.
@@ -587,15 +591,45 @@ Sei situazioni raggiungono il tavolo senza proposta: **la forma del 16:43**, il
 difetto che l'autore aveva segnalato. La correzione dell'incoerenza è giusta, ma
 **non chiude il difetto**, e il documento non deve farlo credere.
 
-**Cosa servirebbe davvero** (seguito naturale, non parte di T04): far generare le
-mosse al modello partendo dalle sei situazioni, cioè il repair mirato che esiste
-già — ma oggi vede un elenco vuoto **perché la rete lo precede** e le consuma. Il
-punto d'innesto è lì, e va progettato, non improvvisato: chiederebbe una
-completion, quindi una decisione di costo dell'autore.
+**Cosa serviva davvero — e non era quello che avevo scritto.** Avevo detto: «il
+repair mirato vede un elenco vuoto perché la rete lo precede». **Falso, misurato.**
+Il repair gira: con sei situazioni scoperte e nessuna proposta, viene chiamato e
+risponde. Ciò che non chiedeva erano **le mosse** — e questa è la causa vera del
+16:43.
 
-**Ciò che la correzione garantisce, e non è poco:** il percorso non finge più una
-copertura che non ha. `complete: false` e le sei situazioni scoperte sono dette.
-Prima mentiva per omissione — e nessuno guardava quel campo.
+Il meccanismo, per intero: il repair è il **solo** punto del sistema che copre le
+situazioni deterministiche, ed era l'**unico** che chiedeva proposte **senza**
+`options`. Il prompt del briefing le chiedeva, quello delle situazioni le
+chiedeva, quello del repair no. Per questo l'autore vedeva «titolo, sintesi e
+Approfondisci» — e non era il solo percorso deterministico a mancare: capitava
+anche nel percorso con l'LLM, ovunque il modello non scrivesse le mosse.
+
+**E non costa nulla.** Avevo scritto che chiuderlo «chiederebbe una completion,
+quindi una decisione di costo». **Falso anche questo:** il repair quella
+completion la paga già — `AdvisorBriefingRepair` gira quando `uncovered.length >
+0`, che è esattamente il caso delle sei situazioni. Chiedeva la forma sbagliata,
+non un budget in più.
+
+### T04-ter — il repair chiede le mosse (eseguito)
+
+Una riga di prompt, allineata a `[OPZIONI]` che era già scritta per il briefing.
+Misurato: una risposta del repair **con** mosse produce ora una proposta con le
+mosse al tavolo (2, identiche a quelle scritte). Difeso in
+`tests/t04-rete-copertura.test.ts` (T04-ter).
+
+**Il rischio residuo, dichiarato.** Il repair emette **una** proposta principale
+per situazione, e lo schema esige **2-5** mosse (l'invariante di P01). Se il
+modello ne scrive **una sola**, la proposta si scarta. Non è una regressione —
+prima se ne scrivevano zero *per costruzione*, quindi il repair perdeva **tutte**
+le proposte sulla forma; ora ne perde una solo se il conteggio è sbagliato. Ma il
+rischio c'è, ed è misurato in una prova. Toglierlo è una scelta dell'autore:
+allentare lo schema a 1-5 (P09: la scheda vive, il Presidente sceglie fra una
+strada sola) oppure lasciare 2-5 e accettare che una risposta pigra perda la
+proposta. Oggi vale la seconda.
+
+**Ciò che la correzione di T04 garantisce, e non è poco:** il percorso non finge
+più una copertura che non ha. `complete: false` e le sei situazioni scoperte sono
+dette. Prima mentiva per omissione — e nessuno guardava quel campo.
 
 ### I ministri della proposta derivata
 

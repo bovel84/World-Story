@@ -16,6 +16,7 @@ import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorld
 import { buildAdvisorSituations, situationAsCouncilIssue, uncoveredAdvisorSituations, withAdvisorBriefingCoverage, withSituationDerivedProposals, type AdvisorResponse, type AdvisorSituation } from '../src/core/government/AdvisorSituations';
 import { proposalMatchesSituation } from '../src/core/government/AdvisorSituations';
 import { buildRealityAdvisorContext } from '../src/core/government/RealityAdvisor';
+import { repairAdvisorBriefing } from '../src/core/government/AdvisorBriefingRepair';
 
 function world() {
   return buildVerifiedWorldSnapshot({ gameData: {
@@ -160,5 +161,67 @@ describe('T04-bis — il briefing deterministico: la rete, e il suo limite', () 
     const coperto = withSituationDerivedProposals(snapshot, withAdvisorBriefingCoverage(snapshot, { reply: '', situations: [conMosse], issues: [] }));
     expect(coperto.issues).toHaveLength(1);
     expect(coperto.briefingCoverage?.complete).toBe(true);
+  });
+});
+
+/**
+ * T04-ter — Il seguito: il REPAIR chiede le mosse, e le sue mosse arrivano al tavolo.
+ *
+ * Misurato il 2026-10-08, dopo T08. Il vero motivo per cui il 16:43 non aveva
+ * mosse: la copertura delle situazioni deterministiche la fa il **repair mirato**
+ * (`AdvisorBriefingRepair`), ed era l'**unico** punto del sistema che chiedeva
+ * proposte **senza** `options`. Il prompt del briefing le chiedeva, quello delle
+ * situazioni le chiedeva, quello del repair no. Per questo l'autore vedeva
+ * «titolo, sintesi e Approfondisci» senza mosse.
+ *
+ * Correzione: il repair chiede anche le mosse, come il resto del sistema.
+ */
+describe('T04-ter — il repair chiede le mosse', () => {
+  it('il prompt di sistema del repair chiede le mosse', async () => {
+    const { ADVISOR_BRIEFING_REPAIR_SYSTEM } = await import('../src/core/government/AdvisorBriefingRepair');
+    expect(ADVISOR_BRIEFING_REPAIR_SYSTEM).toContain('options');
+    expect(ADVISOR_BRIEFING_REPAIR_SYSTEM).toMatch(/2-5/);
+    // La guida del briefing è già scritta e di qualità: si riusa, non si riscrive.
+    expect(ADVISOR_BRIEFING_REPAIR_SYSTEM).toContain('[OPZIONI]');
+  });
+
+  it('una risposta del repair CON mosse produce una proposta con mosse', async () => {
+    const snapshot = world();
+    const base = withAdvisorBriefingCoverage(snapshot, { reply: '', situations: buildAdvisorSituations(snapshot), issues: [] });
+    const stub = async () => '```council_issue\n' + JSON.stringify({
+      title: 'Scorte alimentari sotto soglia', question: 'Come garantiamo le scorte?',
+      options: mosse, signalKeys: ['food-coverage'], suggestedMinisters: ['interno'],
+    }) + '\n```';
+    const esito = await repairAdvisorBriefing(snapshot, base, { complete: stub });
+    expect(esito.response.issues).toHaveLength(1);
+    expect(esito.response.issues[0].options).toEqual(mosse);
+    // E la situazione è coperta: la copertura è ricalcolata dal repair.
+    expect(esito.response.briefingCoverage?.missingSignalKeys).not.toContain('food-coverage');
+  });
+
+  /**
+   * RISCHIO RESIDUO, dichiarato e misurato — non nascosto.
+   *
+   * Il repair emette UNA proposta principale per situazione, e lo schema esige
+   * 2-5 mosse (l'invariante di P01). Se il modello ne scrive **una sola**, la
+   * proposta si scarta. Non è una regressione: prima se ne scrivevano zero per
+   * costruzione, quindi il repair perdeva **tutte** le proposte sulla forma. Ora
+   * ne perde una solo se il conteggio è sbagliato. Ma il rischio c'è, ed è qui.
+   *
+   * Chi volesse toglierlo ha due strade, e sono una scelta dell'autore: allentare
+   * lo schema a 1-5 (P09: degrada, non uccide — la scheda vive e il Presidente
+   * sceglie fra una strada sola), oppure lasciare 2-5 e accettare che una
+   * risposta pigra perda la proposta. Oggi vale la seconda.
+   */
+  it('RISCHIO RESIDUO — una sola mossa nel repair scarta la proposta (limite 2-5 di P01)', async () => {
+    const snapshot = world();
+    const base = withAdvisorBriefingCoverage(snapshot, { reply: '', situations: buildAdvisorSituations(snapshot), issues: [] });
+    const stub = async () => '```council_issue\n' + JSON.stringify({
+      title: 'Scorte alimentari sotto soglia', question: 'Come garantiamo le scorte?',
+      options: [mosse[0]], signalKeys: ['food-coverage'], suggestedMinisters: ['interno'],
+    }) + '\n```';
+    const esito = await repairAdvisorBriefing(snapshot, base, { complete: stub });
+    expect(esito.response.issues).toHaveLength(0);
+    expect(esito.discarded.some(d => d.situationId === 'situation-food-coverage')).toBe(true);
   });
 });
