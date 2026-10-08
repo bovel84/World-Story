@@ -428,6 +428,15 @@ export class GameSession {
   private military: MilitaryService;
   /** OP-OBJECTS PERSISTENT: stato proprio degli oggetti, creato pigramente. */
   private operationalStore: OperationalStateStore | null = null;
+  /** Revisione delle regioni: avanza a ogni mutazione persistita (`syncRegionsToDB`). */
+  private regionsRevision = 0;
+  /**
+   * Cache dei **conti base** del motore: l'aggregazione delle migliaia di
+   * regioni del mondo, non gli overlay. Vive finché non cambia niente che la
+   * componga (revisione regioni, forze persistite, aliquota); cassa, titoli e
+   * modificatori restano fuori e si applicano vivi a ogni lettura.
+   */
+  private accountsBaseMemo: { key: string; value: Record<string, NationalAccount> } | null = null;
   /** MILITARY-UNITS PR2: fronti di guerra (strategici) e i loro ordini. */
   private warFronts!: WarFrontService;
   /** Economia e fattibilità degli ordini (Fase 1: estratto da GameSession). */
@@ -521,7 +530,14 @@ export class GameSession {
   private get governmentVoices(): { key: string; data: GovernmentVoices } | null { return this.state.governmentVoices; }
   private set governmentVoices(value: { key: string; data: GovernmentVoices } | null) { this.state.governmentVoices = value; }
   private get initialAccountsCache(): Record<string, NationalAccount> | undefined { return this.state.initialAccountsCache; }
-  private set initialAccountsCache(value: Record<string, NationalAccount> | undefined) { this.state.initialAccountsCache = value; }
+  private set initialAccountsCache(value: Record<string, NationalAccount> | undefined) {
+    this.state.initialAccountsCache = value;
+    // Azzerare la cache dei profili iniziali (bootstrap, restore, rewind) è
+    // anche il segnale che la fotografia dei conti base non è più valida:
+    // profili e regioni possono essere cambiati sotto. Legata qui perché ogni
+    // punto che rigenera quei profili azzera già `initialAccountsCache`.
+    if (value === undefined) this.accountsBaseMemo = null;
+  }
   private get liveSimEnabled(): boolean { return this.state.liveSimEnabled; }
   private set liveSimEnabled(value: boolean) { this.state.liveSimEnabled = value; }
   private get worldTickTimer(): ReturnType<typeof setInterval> | null { return this.state.worldTickTimer; }
@@ -699,6 +715,10 @@ export class GameSession {
       // materiali: `Σ step` ≡ `days` (popolazione, PIL e readiness crescono in
       // modo composto, quindi un anno è la stessa storia di dodici mesi).
       accountsForStep: ({ stepDays }) => {
+        // `WorldStateEngine.advance` muta le regioni in memoria (popolazione,
+        // PIL, forze): la revisione avanza qui, prima di qualunque lettura dei
+        // conti durante lo stesso periodo.
+        this.regionsRevision++;
         finalAccounts = applyModifiersToAccounts(
           WorldStateEngine.advance(this.regions.values(), stepDays, this.worldStateOptions()).accounts,
           polityId => this.modifiersFor(polityId),
@@ -1882,7 +1902,27 @@ export class GameSession {
    * produzione, credito, dossier).
    */
   private sessionAccounts(regions?: Iterable<RegionState>): Record<string, NationalAccount> {
-    const accounts = WorldStateEngine.accounts(regions ?? this.regions.values(), this.worldStateOptions());
+    const opts = this.worldStateOptions();
+    // Le regioni di un mondo storico sono migliaia: `WorldStateEngine.accounts`
+    // le aggrega tutte (~35 ms misurati) e questa lettura è richiesta molte
+    // volte per la stessa fotografia (Dossier, crisi, risorse, oggetti). La
+    // base viene quindi calcolata una volta e riusata finché non cambia niente
+    // che la componga: le mutazioni delle regioni (la revisione avanza in
+    // `syncRegionsToDB`) e le opzioni davvero variabili (forze persistite,
+    // aliquota fiscale). Modificatori e debito restano fuori dalla cache: sono
+    // overlay della cassa viva, non dell'aggregato delle regioni.
+    let accounts: Record<string, NationalAccount>;
+    if (regions) {
+      accounts = WorldStateEngine.accounts(regions, opts);
+    } else {
+      const key = this.accountsBaseKey(opts);
+      if (this.accountsBaseMemo?.key === key) {
+        accounts = this.accountsBaseMemo.value;
+      } else {
+        accounts = WorldStateEngine.accounts(this.regions.values(), opts);
+        this.accountsBaseMemo = { key, value: accounts };
+      }
+    }
     const overlaid = applyModifiersToAccounts(accounts, polityId => this.modifiersFor(polityId));
     // Il rapporto debito/PIL mostrato e usato dalle fazioni è quello EFFETTIVO
     // (titoli emessi + scoperto), per il giocatore e per gli NPC: le stesse
@@ -1908,6 +1948,24 @@ export class GameSession {
         serviceRatioPct: revenue > 0 ? annualDebtServiceMld(stock) / revenue * 100 : 0,
       };
     });
+  }
+
+  /**
+   * Chiave della cache dei conti base: la revisione delle regioni più le sole
+   * opzioni che possono cambiare a runtime (forze persistite per polity,
+   * aliquota fiscale del giocatore). Profili iniziali, data e fatti moderni
+   * sono fissi per sessione e non entrano nella chiave.
+   */
+  private accountsBaseKey(opts: {
+    forceCountsByPolity?: Record<string, number>;
+    taxRateByPolity?: Record<string, number>;
+  }): string {
+    const forces = Object.entries(opts.forceCountsByPolity ?? {})
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([polityId, count]) => `${polityId}:${count}`)
+      .join(',');
+    const tax = opts.taxRateByPolity ? JSON.stringify(opts.taxRateByPolity) : '';
+    return `${this.regionsRevision}|${tax}|${forces}`;
   }
 
   /**
@@ -2985,6 +3043,10 @@ export class GameSession {
    * asincronia. I call site con `await` restano validi.
    */
   syncRegionsToDB(): void {
+    // Ogni mutazione delle regioni passa di qui per essere persistita: la
+    // revisione avanza perché la cache dei conti base non serva mai la
+    // fotografia precedente alle letture successive.
+    this.regionsRevision++;
     const updates = Array.from(this.regions.values()).map(region => ({
       id: region.id,
       population: region.population,
