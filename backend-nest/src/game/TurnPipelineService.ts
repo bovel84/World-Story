@@ -29,6 +29,7 @@ import type { RelationshipType } from '../core/RelationshipMatrix';
 import type { SimulationEvent } from '../prompts/types';
 import { mergeTimelineChronologically } from '../prompts/simulation/worldPulse';
 import type { PolityHistoricalBaseline } from '../core/government/HistoricalBaseline';
+import type { NationSituationRecord } from '../core/government/NationSituation';
 import type { SimulationCatalog } from '../scenario/types';
 import type { PendingAction, OrderSettlementEntry } from './OrderExecutionService';
 import type { OrderExecutionService } from './OrderExecutionService';
@@ -54,6 +55,8 @@ export interface TurnPipelineContext {
   broadcast(type: any, data: any): boolean | void;
   buildGameData(...args: any[]): any;
   preparePolityHistoricalBaselines?(ids: readonly string[], signal?: AbortSignal): Promise<PolityHistoricalBaseline[]>;
+  /** H06 — prepara la situazione (e la direzione) delle polity indicate. */
+  preparePolityNationSituations?(ids: readonly string[], signal?: AbortSignal): Promise<NationSituationRecord[]>;
   buildResolvers(): any;
   canonicalizeEventReactions(...args: any[]): SimulationEvent;
   captureCheckpointData(): any;
@@ -228,6 +231,12 @@ export class TurnPipelineService {
         const ids = (gameData.reactionContextData?.actors ?? []).map((actor: { id: string }) => actor.id);
         gameData.polityHistoricalBaselines = await this.ctx.preparePolityHistoricalBaselines(ids,
           this.ctx.coordinator.activeSimulationAbort!.signal).catch(() => []);
+        // H06 — la situazione (e la direzione) degli stessi attori, per-politia
+        // come il giocatore: il mondo ha una tendenza anche per chi non è giocato.
+        if (this.ctx.preparePolityNationSituations) {
+          gameData.polityNationSituations = await this.ctx.preparePolityNationSituations(ids,
+            this.ctx.coordinator.activeSimulationAbort!.signal).catch(() => []);
+        }
       }
 
       // Gli eventi escono dal token stream UNO ALLA VOLTA. In auto-jump un

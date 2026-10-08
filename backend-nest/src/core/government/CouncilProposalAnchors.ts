@@ -55,6 +55,8 @@ export function buildCouncilProposalAnchors(snapshot: VerifiedWorldSnapshot): Co
 
   // 1. Riusa gli stessi segnali (già limitati al cap che il prompt mostra):
   // nessuna seconda realtà, nessun nuovo giudizio, nessun segnale in più.
+  // H07 — include i segnali `storyline:*`, così una proposta può agganciarsi a
+  // un filone del preset (la chiave è validata server-side come tutte le altre).
   for (const signal of buildRealitySignals(snapshot).slice(0, MAX_COUNCIL_ISSUES)) {
     push({ key: signal.key, domain: signal.domain, factKeys: signal.factKeys, sourceRefs: signal.sourceRefs, reason: signal.reason });
   }

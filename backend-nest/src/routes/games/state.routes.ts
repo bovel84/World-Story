@@ -227,6 +227,8 @@ router.get('/:id/national-state', (req, res) => {
       strategicAgenda: session.getStrategicAgenda(),
       // Registro strutturato degli impegni: ciò che la partita ha firmato.
       commitments: session.getCommitments(),
+      // H11 — i filoni del mondo che toccano questa nazione (standard dei filoni).
+      storylines: session.getPlayerStorylines(),
     });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to get national state');

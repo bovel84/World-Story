@@ -7,6 +7,7 @@
  *   preset.json   — обязательный, валидируется validatePresetJson
  *   rules.md      — правила симуляции
  *   lore.md       — лор мира
+ *   storylines.json — filoni storici del mondo (standard H01), opzionale
  *   map.geojson   — кастомная карта (валидный JSON)
  *   flags/<name>.svg|png — флаги стран
  *   simulation/*.json + simulation/sources.md — catalogo di scenario (M01):
@@ -27,6 +28,7 @@ import {
   loadPreset,
   validatePresetJson,
 } from './preset-loader';
+import { validateStorylinesFile } from '../scenario/storylines';
 
 /** Коды ошибок импорта — маппятся роутом в HTTP-статусы */
 export type PresetZipErrorCode = 'INVALID_ZIP' | 'INVALID_PRESET' | 'EXISTS';
@@ -41,7 +43,7 @@ export class PresetZipError extends Error {
 }
 
 /** Корневые файлы пакета, разрешённые в архиве */
-const ALLOWED_ROOT_FILES = new Set(['preset.json', 'rules.md', 'lore.md', 'map.geojson']);
+const ALLOWED_ROOT_FILES = new Set(['preset.json', 'rules.md', 'lore.md', 'storylines.json', 'map.geojson']);
 
 /** Нормализация имени zip-записи: прямые слеши, без ведущего "./" */
 function normalizeEntryName(name: string): string {
@@ -96,6 +98,9 @@ export function buildPresetZip(id: string): Buffer | null {
   addIfExists('preset.json');
   addIfExists('rules.md');
   addIfExists('lore.md');
+  // H03 — lo standard non si perde in viaggio (H-I8): i filoni viaggiano col
+  // pacchetto come lore/rules, così export → import non li scarta.
+  addIfExists('storylines.json');
   addIfExists('map.geojson');
   // M01 µ4: il catalogo simulation/ viaggia con il pacchetto (esportato e
   // reimportabile senza perdita).
@@ -171,6 +176,23 @@ export function importPresetZip(
           JSON.parse(entry.getData().toString('utf-8'));
         } catch {
           throw new PresetZipError('INVALID_PRESET', 'map.geojson: il contenuto non è JSON valido');
+        }
+      }
+      // H03 — un `storylines.json` malformato è **bloccante** anche in import:
+      // non si scrive su disco un file che il loader rifiuterà, lasciando una
+      // cartella che non carica. Stessa disciplina di `simulation/` (MAT01).
+      if (name === 'storylines.json') {
+        let rawStorylines: unknown;
+        try {
+          rawStorylines = JSON.parse(entry.getData().toString('utf-8'));
+        } catch {
+          throw new PresetZipError('INVALID_PRESET', 'storylines.json: il contenuto non è JSON valido');
+        }
+        const issues = validateStorylinesFile(rawStorylines, 'storylines.json');
+        if (issues.length > 0) {
+          const details = issues.slice(0, 10).map(i => `${i.path} — ${i.message}`);
+          throw new PresetZipError('INVALID_PRESET',
+            `storylines.json rifiutato: ${issues.length} problemi. ${details.join(' | ')}`);
         }
       }
       files.push({ rel: name, data: entry.getData() });

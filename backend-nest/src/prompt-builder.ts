@@ -26,11 +26,13 @@ import {
   WORLD_PULSE_MAX_CANDIDATES,
   type WorldPulseCandidate,
   type WorldPulseSelectionInput,
+  type WorldPulseStoryline,
   type WorldPulseValidation,
 } from './prompts/simulation';
 import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshot';
 import { renderRealityConcerns } from './core/government/RealitySignals';
 import { HISTORICAL_BASELINE_RULE, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
+import type { NationSituationRecord } from './core/government/NationSituation';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, withAdvisorRequestMode, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
 import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat } from './core/government/NarrativeContextCompiler';
 import { COUNCIL_ISSUE_PROTOCOL, MAX_BRIEFING_COUNCIL_ISSUES, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
@@ -107,6 +109,13 @@ interface GameData {
   npcStrategicProfiles?: string;
   /** GAMEPLAY-LONG: registro strutturato degli impegni in vigore. */
   activeCommitments?: string;
+  /**
+   * H09 — Filoni **attivi** del preset: fanno entrare in scena i loro
+   * protagonisti nel respiro del mondo. Significato del preset, non fatti.
+   */
+  storylines?: WorldPulseStoryline[];
+  /** H06 — situazioni (e direzione) delle altre nazioni del teatro. */
+  polityNationSituations?: NationSituationRecord[];
   /** Processi in corso (esiti partial) che la simulazione deve portare avanti. */
   ongoingProcesses?: Array<{
     id: string;
@@ -1130,6 +1139,8 @@ export class PromptEngine {
       npcDossiers: game.npcStrategicProfiles || '',
       originDate: game.currentDate,
       targetDate: result?.targetDate || undefined,
+      // H09 — i filoni del preset: fanno entrare in scena i loro protagonisti.
+      storylines: game.storylines,
     };
   }
 

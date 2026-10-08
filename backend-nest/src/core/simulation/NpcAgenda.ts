@@ -23,7 +23,14 @@ export type NpcObjectiveType =
   | 'build-capability'     // aumentare la capacità militare
   | 'stabilize-economy'    // stabilizzare l'economia
   | 'reduce-dependency'    // ridurre la dipendenza strategica
-  | 'isolate-rival';       // isolare diplomaticamente un rivale
+  | 'isolate-rival'        // isolare diplomaticamente un rivale
+  /**
+   * Filone del preset (standard H01, piano H04): un nodo storico che il preset
+   * ha **scritto** — non derivato dallo stato. A differenza degli altri tipi non
+   * viene abbandonato quando manca un seme: esiste perché il mondo lo ha
+   * dichiarato, e resta finché lo stato non lo supera.
+   */
+  | 'storyline';
 
 export type NpcObjectiveStatus = 'active' | 'achieved' | 'abandoned' | 'superseded';
 export type NpcObjectiveMeasure = 'hostile-actors' | 'alliance' | 'balance' | 'military' | 'events';
@@ -91,10 +98,21 @@ export interface NpcAgendaProfile {
 
 /** Massimo di obiettivi attivi per polity: una strategia, non un elenco. */
 export const AGENDA_MAX_OBJECTIVES = 3;
+/**
+ * Tetto degli obiettivi di **filone** (H04): i filoni non sono obiettivi derivati
+ * e non competono con essi per lo spazio dell'agenda. Resta un tetto prudente,
+ * perché il motore non deve sostenere un elenco illimitato.
+ */
+export const AGENDA_MAX_STORYLINES = 6;
 /** Un obiettivo non viene abbandonato prima di questa finestra. */
 export const AGENDA_REVIEW_DAYS = 120;
 /** Crescita di progresso che vale una nuova revisione registrata. */
 export const AGENDA_PROGRESS_STEP = 10;
+
+/** Vero per gli obiettivi che il mondo ha **scritto** (filoni del preset). */
+export function isStorylineObjective(objective: Pick<NpcObjective, 'type'>): boolean {
+  return objective.type === 'storyline';
+}
 
 export const OBJECTIVE_LABEL: Record<NpcObjectiveType, string> = {
   'contain-hostile': 'contenere l’ostilità',
@@ -104,6 +122,7 @@ export const OBJECTIVE_LABEL: Record<NpcObjectiveType, string> = {
   'stabilize-economy': 'stabilizzare l’economia',
   'reduce-dependency': 'ridurre la dipendenza strategica',
   'isolate-rival': 'isolare il rivale',
+  'storyline': 'seguire il filone',
 };
 
 const clamp = (value: number, min = 0, max = 100): number => Math.max(min, Math.min(max, value));
@@ -293,6 +312,10 @@ export function objectiveAchieved(objective: Pick<NpcObjective, 'type' | 'measur
     case 'isolate-rival':
       // Obiettivi che si vedono solo in cronaca: bastano mosse coerenti registrate.
       return evidenceFor(objective, context) >= 4;
+    case 'storyline':
+      // Un filone non si «raggiunge» con un indicatore: si chiude solo quando lo
+      // stato lo **supera** (H04, `storylineObjectiveSuperseded`). Mai per stato.
+      return false;
     case 'preserve-alliance':
     default:
       return false;
@@ -307,6 +330,105 @@ export function agendaReviewDate(createdDate: string): string {
 /** Il tipo è ancora giustificato dallo stato attuale? */
 function seedStillSupported(type: NpcObjectiveType, seeds: readonly ObjectiveSeed[]): boolean {
   return seeds.some(seed => seed.type === type);
+}
+
+// ── H04 — Filoni del preset come obiettivi del mondo ────────────────────────
+//
+// Un filone del preset non è un'obiettivo *derivato* dallo stato: è un nodo
+// **scritto** dall'autore (standard H01). Vive per partita, e si **semea** in un
+// obiettivo NPC perché il mondo lo porti avanti. Due differenze dagli obiettivi
+// derivati: (1) non viene abbandonato quando manca un seme dello stato — esiste
+// perché il mondo lo ha dichiarato; (2) si chiude solo quando lo stato lo
+// **supera** in modo verificabile.
+
+/** Lo stato del mondo, visto da una polity, che rende un filone *superato*. */
+export interface StorylineEvidence {
+  /** Date in cui la partita ha toccato uno dei protagonisti (dalla cronaca). */
+  lastTouchedDate?: string | null;
+  /** Il filone è dichiarato risolto nel preset o dallo stato. */
+  resolved?: boolean;
+}
+
+/**
+ * Costruisce la **chiave stabile** dell'obiettivo di un filone. Non dipende dal
+ * turno (a differenza degli obiettivi derivati): il filone è unico per
+ * `(polity, storylineId)`, così non si duplica mai e sopravvive alle revisioni.
+ */
+export function storylineObjectiveId(polityId: string, storylineId: string): string {
+  return `${polityId}:storyline:${storylineId}`;
+}
+
+/** La descrizione leggibile di un filone del mondo, per dossier e cronaca. */
+export function describeStorylineObjective(input: {
+  storylineId: string;
+  title: string;
+  summary: string;
+  trajectory?: string;
+  parties: readonly string[];
+}): string {
+  const parties = input.parties.length ? ` (${input.parties.join(', ')})` : '';
+  const trajectory = input.trajectory ? ` Direzione: ${input.trajectory}` : '';
+  return `${input.title}${parties}: ${input.summary}${trajectory}`;
+}
+
+/**
+ * Semina (o reidrata) l'obiettivo di un filone, senza turno: è **idempotente**
+ * per `(polity, storylineId)`. `existing` conserva progresso, data di nascita e
+ * revisione; senza, nasce ora.
+ */
+export function seedStorylineObjective(input: {
+  polityId: string;
+  storylineId: string;
+  title: string;
+  summary: string;
+  trajectory?: string;
+  parties: readonly string[];
+  priority: number;
+  measure: NpcObjectiveMeasure;
+  baseline: number | null;
+  reason: string;
+}, existing: NpcObjective | null, at: { date: string; turn: number }): NpcObjective {
+  const id = storylineObjectiveId(input.polityId, input.storylineId);
+  const description = describeStorylineObjective(input);
+  const priority = clamp(input.priority, 1, 3);
+  const base: NpcObjective = {
+    id,
+    polityId: input.polityId,
+    type: 'storyline',
+    targetPolityId: input.parties[0] ?? null,
+    targetRegionId: null,
+    description,
+    priority,
+    status: 'active',
+    progress: existing?.progress ?? 0,
+    measure: input.measure,
+    baseline: input.baseline,
+    reason: input.reason,
+    createdDate: existing?.createdDate ?? at.date,
+    createdTurn: existing?.createdTurn ?? at.turn,
+    reviewDate: existing?.reviewDate ?? agendaReviewDate(at.date),
+    reviewedDate: at.date,
+    reviewedTurn: at.turn,
+  };
+  return base;
+}
+
+/**
+ * Il filone è **superato**? Solo con un criterio verificabile: dichiarato
+ * risolto, oppure non toccato dalla cronaca per almeno `stalenessDays`. Non è
+ * un'impressione del modello.
+ */
+export function storylineObjectiveSuperseded(
+  evidence: StorylineEvidence | undefined,
+  at: { date: string },
+  stalenessDays = AGENDA_REVIEW_DAYS,
+): boolean {
+  if (!evidence) return false;
+  if (evidence.resolved) return true;
+  if (evidence.lastTouchedDate) {
+    return agendaDaysBetween(evidence.lastTouchedDate, at.date) >= stalenessDays;
+  }
+  return false;
 }
 
 export interface AgendaReview {
@@ -375,6 +497,12 @@ export function reviewAgenda(
     }
     const pastReview = agendaDaysBetween(objective.createdDate, input.date) >= AGENDA_REVIEW_DAYS;
     if (!support && pastReview) {
+      // H04 — un filone NON si abbandona perché manca un seme dello stato: è
+      // scritto dal mondo, non derivato. Si chiuderà quando lo stato lo supera.
+      if (isStorylineObjective(objective)) {
+        kept.push(objective);
+        continue;
+      }
       closed.push({ ...objective, status: 'abandoned', reviewedDate: input.date, reviewedTurn: input.turn });
       changed = true;
       continue;
@@ -400,13 +528,21 @@ export function reviewAgenda(
   const openTypes = new Set(kept.map(objective => objective.type));
   const candidates = seeds.filter(seed => !openTypes.has(seed.type));
   for (const seed of candidates) {
-    const urgent = seed.priority >= 3;
-    if (kept.length >= AGENDA_MAX_OBJECTIVES) {
+    // I filoni del preset hanno un tetto **proprio** e non sostituiscono né
+    // vengono sostituiti dagli obiettivi derivati: sono un livello del mondo a
+    // parte. Tutti gli altri restano soggetti ad `AGENDA_MAX_OBJECTIVES`.
+    const storyline = seed.type === 'storyline';
+    const cap = storyline ? AGENDA_MAX_STORYLINES : AGENDA_MAX_OBJECTIVES;
+    const sameLane = kept.filter(objective => isStorylineObjective(objective) === storyline).length;
+    if (sameLane >= cap) {
+      if (storyline) continue; // un filone in più aspetta: non scalza nulla
+      const urgent = seed.priority >= 3;
       if (!urgent) break;
-      // Un obiettivo decisivo può sostituire il più debole, ma solo se quello
-      // ha già avuto la sua finestra di revisione: niente colpi di testa.
+      // Un obiettivo decisivo può sostituire il più debole della **stessa
+      // categoria** (derivato), mai un filone, e solo se quello ha già avuto la
+      // sua finestra di revisione: niente colpi di testa.
       const replaceable = kept
-        .filter(objective => agendaDaysBetween(objective.createdDate, input.date) >= AGENDA_REVIEW_DAYS)
+        .filter(objective => !isStorylineObjective(objective) && agendaDaysBetween(objective.createdDate, input.date) >= AGENDA_REVIEW_DAYS)
         .sort((a, b) => a.priority - b.priority || a.createdTurn - b.createdTurn)[0];
       if (!replaceable) break;
       kept.splice(kept.indexOf(replaceable), 1);

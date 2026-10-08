@@ -29,6 +29,7 @@ import fs from 'fs';
 import path from 'path';
 import { isMapDetail, isMapGrouping, normalizeMapDetail, normalizeMapGrouping, type MapDetail } from './map-detail';
 import { isNativeMapId, normalizeMapBase, type NativeMapId } from './native-maps';
+import { parseStorylinesFile, type StorylinesFile } from '../scenario/storylines';
 
 export const PRESETS_DIR = path.join(process.cwd(), 'data', 'presets');
 export const LEGACY_TEMPLATES_DIR = path.join(process.cwd(), 'data', 'templates');
@@ -66,6 +67,12 @@ export interface PresetPackage {
   simulation_rules?: string;
   /** lore.md — расширенный лор */
   lore?: string;
+  /**
+   * storylines.json — i filoni storici del mondo (standard H01).
+   * Opzionale: un preset senza il file resta valido e si comporta come prima.
+   * I filoni danno **significato e trigger**, mai numeri, e vivono per partita.
+   */
+  storylines?: StorylinesFile;
   /** Livello di dettaglio della mappa: nations | grouped | full (opzionale). */
   map_detail?: MapDetail;
   /** Proprietà GeoJSON usata per il raggruppamento in `grouped` (opzionale). */
@@ -99,6 +106,21 @@ function readOptionalText(dir: string, file: string): string | undefined {
     if (fs.existsSync(p)) return fs.readFileSync(p, 'utf-8').trim();
   } catch { /* игнорируем — опциональный файл */ }
   return undefined;
+}
+
+/**
+ * Filoni del preset (standard H01). Il file è **opzionale**: assente → nessun
+ * filone, nessun errore (retrocompatibilità H-I7). Se invece il file **esiste**
+ * ma è malformato, l'errore è **bloccante**: un filone sbagliato non deve
+ * degradare in silenzio in un mondo senza trama. La lettura di `preset.json`
+ * avviene già dentro un try/catch che scarta il preset rotto, quindi un errore
+ * qui è coerente con la disciplina del loader.
+ */
+function readOptionalStorylines(dir: string): StorylinesFile | undefined {
+  const p = path.join(dir, 'storylines.json');
+  if (!fs.existsSync(p)) return undefined;
+  const raw = JSON.parse(fs.readFileSync(p, 'utf-8'));
+  return parseStorylinesFile(raw, path.basename(p));
 }
 
 function listFlags(dir: string): string[] {
@@ -203,6 +225,7 @@ function loadFromDir(dir: string): PresetPackage | null {
       ...base,
       simulation_rules: readOptionalText(dir, 'rules.md'),
       lore: readOptionalText(dir, 'lore.md'),
+      storylines: readOptionalStorylines(dir),
       has_custom_map: fs.existsSync(path.join(dir, 'map.geojson')),
       flags: listFlags(dir),
       source: 'preset',

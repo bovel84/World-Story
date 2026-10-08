@@ -594,6 +594,8 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             nationalCrisis={nation.nationalCrisis}
             strategicAgenda={nation.strategicAgenda}
             commitments={nation.commitments}
+            // H11 — i filoni del mondo che toccano questa nazione.
+            storylines={nation.storylines}
             briefing={briefing}
             governmentVoices={nation.governmentVoices}
             governmentVoicesLoading={nation.governmentVoicesLoading}

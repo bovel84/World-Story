@@ -612,6 +612,21 @@ export function initDatabase() {
       PRIMARY KEY (game_id, polity_id, start_date)
     )
   `);
+  // H05 — Situazione della nazione alla data di partenza (presente + direzione).
+  // Immutabile per game/polity/divergence come la baseline storica: si genera
+  // una volta e si legge sempre.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_polity_nation_situations (
+      game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      polity_id TEXT NOT NULL,
+      country_name TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      situation TEXT NOT NULL,
+      generated_at TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (game_id, polity_id, start_date)
+    )
+  `);
   // Import the previous player-only background once. `worlds.start_date` is
   // guaranteed by the migration above; the remaining guards only protect against
   // exotic schemas and keep the import idempotent. Consumers apply the stricter

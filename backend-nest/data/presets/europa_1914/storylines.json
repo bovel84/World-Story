@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "as_of": "1914-06-28",
+  "storylines": [
+    {
+      "id": "sarajevo-ultimatum-serbia",
+      "title": "L'ultimatum alla Serbia",
+      "domain": "esteri",
+      "parties": ["AUT", "SRB", "RUS", "DEU"],
+      "region": "Balcani",
+      "state": "aperto",
+      "pressure": 3,
+      "summary": "Dopo Sarajevo, Vienna vuole regolare i conti con Belgrado; Berlino promette appoggio incondizionato, Pietroburgo non abbandonerà la Serbia. Un ultimatum è sul tavolo.",
+      "trajectory": "Se nessuno lo devia, l'ultimatum e la mobilitazione generale trascinano le potenze in guerra entro settimane.",
+      "triggers": [
+        "ultimatum respinto o accettato solo in parte",
+        "mobilitazione generale di una grande potenza",
+        "mediazione diplomatica respinta"
+      ]
+    },
+    {
+      "id": "balcani-polizza",
+      "title": "La polveriera balcanica",
+      "domain": "guerra",
+      "parties": ["AUT", "SRB", "RUS", "TUR"],
+      "region": "Balcani",
+      "state": "aperto",
+      "pressure": 2,
+      "summary": "Le guerre balcaniche hanno lasciato rivalità irrisolte tra Austria-Ungheria, Serbia e l'Impero ottomano; il nazionalismo slavo e l'irredentismo tengono la regione instabile.",
+      "trajectory": "Se nessuno la devia, ogni crisi locale trascina dentro le grandi potenze per via degli schieramenti.",
+      "triggers": [
+        "incidente di confine",
+        "agitazione nazionalista",
+        "movimento di truppe nella regione"
+      ]
+    },
+    {
+      "id": "corsa-navale-anglogermanica",
+      "title": "La corsa agli armamenti",
+      "domain": "guerra",
+      "parties": ["GBR", "DEU"],
+      "region": "Mare del Nord",
+      "state": "aperto",
+      "pressure": 2,
+      "summary": "La rivalità navale tra Londra e Berlino e la corsa agli armamenti hanno irrigidito i blocchi: Triplice Alleanza contro Triplice Intesa, senza più margine di manovra.",
+      "trajectory": "Se nessuno la devia, i piani di guerra e le ferrovie dettano i tempi più della politica.",
+      "triggers": [
+        "varco di nuove navi o leva militare",
+        "colloqui anglo-tedeschi falliti",
+        "crisi coloniale"
+      ]
+    }
+  ]
+}

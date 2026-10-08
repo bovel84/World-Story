@@ -90,13 +90,15 @@ describe('preset-zip: экспорт', () => {
     expect(raw.start_date).toBe('1970-01-01');
   });
 
-  it('экспорт штатного пакета europa_1914 → preset.json + rules.md + lore.md', () => {
+  it('экспорт штатного пакета europa_1914 → preset.json + rules.md + lore.md + storylines.json', () => {
     const buf = buildPresetZip('europa_1914');
     expect(buf).toBeTruthy();
 
     const zip = new AdmZip(buf!);
     const names = zip.getEntries().map(e => e.entryName).sort();
-    expect(names).toEqual(['lore.md', 'preset.json', 'rules.md']);
+    // H03: lo standard dei filoni viaggia col pacchetto (round-trip in
+    // storylines-conformance.test.ts); qui si difende la sua presenza nel zip.
+    expect(names).toEqual(['lore.md', 'preset.json', 'rules.md', 'storylines.json']);
 
     const raw = JSON.parse(zip.getEntry('preset.json')!.getData().toString('utf-8'));
     expect(raw.id).toBe('europa_1914');

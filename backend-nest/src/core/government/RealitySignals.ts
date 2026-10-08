@@ -183,6 +183,20 @@ export function advisorBriefingSentences(snapshot: VerifiedWorldSnapshot): strin
   return `Presidente, ${assessment.charAt(0).toLocaleLowerCase()}${assessment.slice(1)}. ${secondaryAssessment ? `${secondaryAssessment}. ` : ''}${constraints}. ${caution}.${signed}`;
 }
 
+/**
+ * H07 — La `domain` di un filone è una **sedia del gabinetto** (standard H01),
+ * non un dominio-segnale. Questa mappa traduce l'una nell'altro, in un punto
+ * solo: è il confine tra lo standard dei filoni e il motore dei segnali.
+ */
+const SEAT_TO_SIGNAL_DOMAIN: Record<string, RealitySignalDomain> = {
+  tesoro: 'economy', lavori: 'infrastructure', istruzione: 'social', sanita: 'social',
+  esteri: 'diplomacy', interno: 'social', guerra: 'military',
+};
+
+export function seatToSignalDomain(seat: string): RealitySignalDomain {
+  return SEAT_TO_SIGNAL_DOMAIN[seat] ?? 'diplomacy';
+}
+
 export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySignal[] {
   const signals: RealitySignal[] = [];
   const facts = snapshot.facts;
@@ -422,6 +436,19 @@ export function buildRealitySignals(snapshot: VerifiedWorldSnapshot): RealitySig
       subject: name,
       factKeys: [], sourceRefs: [`ongoingProcesses.${project.id}`],
       reason: `«${name}» oltre la data attesa`,
+    });
+  }
+
+  // FILONI DEL PRESET — H07. Un filone che tocca il giocatore è una questione
+  // reale del mondo: entra come segnale con la sua chiave, così il Consulente
+  // può riconoscerlo e proporne la storia. NON è un fatto del motore (nessun
+  // factKey): è significato del preset, subordinato allo stato (H-I2).
+  for (const storyline of snapshot.storylines ?? []) {
+    push({
+      key: `storyline:${storyline.id}`, domain: seatToSignalDomain(storyline.domain), importance: Math.max(1, Math.min(3, storyline.pressure)),
+      title: storyline.title, subject: storyline.title,
+      factKeys: [], sourceRefs: [`storylines.${storyline.id}`],
+      reason: `${storyline.title}: ${storyline.summary}`,
     });
   }
 

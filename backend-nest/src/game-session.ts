@@ -64,6 +64,10 @@ import type { FactionMemoryEvent } from './core/simulation/FactionMemory';
 import { commitmentsWorthAttention, type Commitment } from './core/simulation/Commitments';
 import type { CommitmentResult } from './game/CommitmentService';
 import { NpcAgendaService } from './game/NpcAgendaService';
+import { buildStorylineSeeds } from './game/StorylineSeeding';
+import { loadPreset } from './utils/preset-loader';
+import { generateNationSituation, renderNationSituation, type NationSituationRecord } from './core/government/NationSituation';
+import type { Storyline } from './scenario/storylines';
 import { CommitmentService } from './game/CommitmentService';
 import type { GovernmentVoices } from './prompts/government';
 import { annualDebtServiceMld, creditHeadroom, debtOf, issueSovereignDebt, type MaterialFulfillment, type ResourceStock } from './core/simulation/MaterialEconomy';
@@ -414,6 +418,8 @@ export class GameSession {
   }
   /** Coalesce lazy generation; failed backgrounds are retried at most once per turn. */
   private historicalBaselineRequests = new Map<string, { turn: number; settled: boolean; promise: Promise<PolityHistoricalBaseline | null> }>();
+  /** H05 — richieste in volo della situazione della nazione (single-flight), separate dalla baseline. */
+  private nationSituationRequests = new Map<string, { turn: number; settled: boolean; promise: Promise<NationSituationRecord | null> }>();
   /** Read model della timeline e dei processi (Fase 1: estratto da GameSession). */
   private timeline: TimelineService;
   /** Geometria e risoluzione regioni (Fase 1: estratto da GameSession). */
@@ -1940,6 +1946,9 @@ export class GameSession {
       currentDate: () => this.currentDate,
       currentTurn: () => this.currentTurn,
       isStrictGame: () => this.isStrictGame(),
+      // H12 — l'agenda è per **ramo**: dopo un fork la strategia del ramo nuovo
+      // non deve leggere quella del ramo di partenza. Prima era `main` fisso.
+      branchId: () => this.fenceContext().branchId,
     });
     this.commitments = new CommitmentService({
       gameId: this.id,
@@ -2115,6 +2124,9 @@ export class GameSession {
         return this.buildNpcStrategicDossiers(focusTexts, accounts);
       },
       activeCommitments: () => this.commitments.describeForPrompt(),
+      // H09 — i filoni attivi del mondo (tutte le parti, non solo il giocatore):
+      // il respiro del mondo racconta anche le nazioni non giocate.
+      activeStorylinesForWorld: () => this.activeWorldStorylines(),
       relationships: () => this.diplomacy.toJSON(),
       chatTranscripts: () => this.diplomacy.buildChatTranscripts(),
       actions: () => this.actions,
@@ -2239,6 +2251,8 @@ export class GameSession {
       broadcast: (type, data) => this.broadcast(type, data),
       buildGameData: (...args: any[]) => (this.buildGameData as any)(...args),
       preparePolityHistoricalBaselines: (ids, signal) => this.preparePolityHistoricalBaselines(ids, signal),
+      // H06 — la situazione (e la direzione) degli NPC del teatro.
+      preparePolityNationSituations: (ids, signal) => this.preparePolityNationSituations(ids, signal),
       buildResolvers: () => this.buildResolvers(),
       canonicalizeEventReactions: (...args: any[]) => (this.canonicalizeEventReactions as any)(...args),
       captureCheckpointData: () => this.captureCheckpointData(),
@@ -2422,6 +2436,10 @@ export class GameSession {
       // Re-read canonical persistence on every request: no cached observations,
       // parent-branch baselines, or stale snapshots surviving session restore.
       previousSnapshot: previousSnapshot === undefined ? readPreviousVerifiedWorldSnapshot(gameData, branchId) : previousSnapshot,
+      // H07 — i filoni del presets che toccano il giocatore: diventano segnali e
+      // anchor, così il Consulente può proporne la storia. Significato del mondo,
+      // non un fatto del motore.
+      storylines: this.playerStorylines(),
     });
     snapshot.dossier = readGovernmentDossier(snapshot);
     return snapshot;
@@ -3353,6 +3371,7 @@ export class GameSession {
     const key = `${this.currentTurn}:${this.currentDate}`;
     if (this.npcAgendaKey === key) return;
     this.npcAgendaKey = key;
+    this.seedPresetStorylines();
     const contexts = this.worldIntel.npcAgendaContexts(this.sessionAccounts());
     const targets = Object.entries(contexts).map(([polityId, entry]) => ({
       polityId, profile: entry.profile, context: entry.context,
@@ -3363,6 +3382,39 @@ export class GameSession {
     }
     for (const objective of result.closed) {
       console.log(`[GameSession] Agenda strategica: ${objective.polityId} chiude «${objective.description}» (${objective.status}).`);
+    }
+  }
+
+  /**
+   * H04 — Semina i filoni del preset come obiettivi del mondo per questa
+   * partita. Indipendente dalla nazione scelta: i filoni ci sono comunque, per
+   * ogni polity protagonista presente nel mondo. Idempotente per
+   * `(polity, storylineId)`. Il preset si legge dal `template_id` del mondo; se
+   * è assente (mondi legacy) o non ha filoni, non succede nulla.
+   */
+  private seedPresetStorylines(): void {
+    try {
+      const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
+      const templateId = worldRow?.template_id;
+      if (typeof templateId !== 'string' || !templateId) return;
+      const preset = loadPreset(templateId);
+      if (!preset?.storylines) return;
+      const presentPolities = [...new Set([...this.regions.values()].map(region => region.owner))]
+        .filter((owner): owner is string => !!owner && owner !== 'neutral');
+      const seeds = buildStorylineSeeds({
+        file: preset.storylines,
+        date: this.currentDate,
+        presentPolities,
+      });
+      const result = this.npcAgenda.seedStorylines(seeds);
+      for (const objective of result.opened) {
+        console.log(`[GameSession] Filone del mondo: ${objective.polityId} segue «${objective.description}» (priorità ${objective.priority}/3).`);
+      }
+      for (const objective of result.closed) {
+        console.log(`[GameSession] Filone del mondo: ${objective.polityId} chiude «${objective.description}» (${objective.status}).`);
+      }
+    } catch (error) {
+      console.warn('[GameSession] Semina dei filoni non riuscita:', error);
     }
   }
 
@@ -3548,11 +3600,20 @@ export class GameSession {
     // Il focus è risolto DOPO il contesto strategico: serve la cronaca completa
     // (finestra + veto risoluzioni) per non riattivare una crisi già chiusa.
     const result = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue, own?.historicalBackground, undefined, mode);
+    // H05 — la situazione della nazione entra come seconda fonte (già generata in
+    // apertura; qui è sola lettura, nessuna chiamata al provider).
+    const nationSituation = this.cachedNationSituation(this.playerPolityId);
+    if (nationSituation) result.advisorContext.nationSituation = nationSituation.situation;
     const related = this.mentionedNpcPolityIds([query]).slice(0, 3).flatMap(id => {
       const baseline = this.cachedHistoricalBaseline(id); return baseline ? [baseline] : [];
     });
     result.advisorContext.temporalScope = { initialDate: this.historicalStartDate || null, currentDate: this.currentDate };
     result.advisorContext.polityHistoricalBaselines = [...(own ? [own] : []), ...related];
+    // H06 — la situazione (e la direzione) delle altre nazioni nominate: stessa
+    // lettura delle baseline NPC, sola lettura.
+    const relatedSituations = this.mentionedNpcPolityIds([query]).slice(0, 3)
+      .flatMap(id => { const record = this.cachedNationSituation(id); return record ? [record] : []; });
+    if (relatedSituations.length) result.advisorContext.polityNationSituations = relatedSituations;
     result.advisorContext = withAdvisorStrategicContext(result.advisorContext, this.historicalStartDate, this.results, query);
     if (focusSituation !== undefined) result.advisorContext.focusSituation = resolveFocusSituation(result.advisorContext.verifiedWorldSnapshot, focusSituation, result.advisorContext);
     return result;
@@ -3599,6 +3660,105 @@ export class GameSession {
     return (await this.getPolityHistoricalBaseline(this.playerPolityId, signal))?.historicalBackground ?? null;
   }
 
+  // ── H05 — Situazione iniziale della nazione (presente + direzione) ─────────
+  //
+  // Seconda fonte del contesto del mondo: copre **ogni** nazione, anche quella
+  // che il preset non nomina. Modello della baseline storica (per polity, non per
+  // giocatore), ma al **presente** e **subordinata ai filoni del preset**.
+
+  private cachedNationSituation(polityId: string): NationSituationRecord | null {
+    return gameRepository.getNationSituation(this.id, polityId, this.historicalStartDate);
+  }
+
+  /** H07 — i filoni attivi del preset che toccano la nazione del giocatore. */
+  private playerStorylines(): Storyline[] {
+    return this.activeStorylines().filter(s => s.parties.includes(this.playerPolityId));
+  }
+
+  /**
+   * H11 — I filoni del mondo che toccano il giocatore, per il Dossier. Significato
+   * del preset, non un fatto: nessuna cifra. Sola lettura, nessuna chiamata LLM.
+   */
+  getPlayerStorylines(): Array<{ id: string; title: string; domain: string; parties: string[]; state: string; pressure: number; summary: string; trajectory?: string }> {
+    return this.playerStorylines().map(storyline => ({
+      id: storyline.id, title: storyline.title, domain: storyline.domain,
+      parties: [...storyline.parties], state: storyline.state, pressure: storyline.pressure,
+      summary: storyline.summary, ...(storyline.trajectory ? { trajectory: storyline.trajectory } : {}),
+    }));
+  }
+
+  /** H09 — tutti i filoni attivi del preset (tutte le parti): respiro del mondo. */
+  private activeWorldStorylines(): Storyline[] {
+    return this.activeStorylines();
+  }
+
+  /** I filoni del preset, filtrati alla data corrente (`active_from`/`until`). */
+  private activeStorylines(): Storyline[] {
+    try {
+      const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
+      const templateId = worldRow?.template_id;
+      if (typeof templateId !== 'string' || !templateId) return [];
+      const preset = loadPreset(templateId);
+      const all = preset?.storylines?.storylines ?? [];
+      if (!all.length || !this.currentDate) return all;
+      return all.filter(s =>
+        (!s.active_from || this.currentDate >= s.active_from)
+        && (!s.active_until || this.currentDate <= s.active_until));
+    } catch { return []; }
+  }
+
+  /** I filoni del preset che toccano questa polity: vincolano la generazione. */
+  private storylinesForPolity(polityId: string): Storyline[] {
+    try {
+      const worldRow = worldRepository.findById(this.worldId) as { template_id?: unknown } | undefined;
+      const templateId = worldRow?.template_id;
+      if (typeof templateId !== 'string' || !templateId) return [];
+      const preset = loadPreset(templateId);
+      if (!preset?.storylines) return [];
+      return preset.storylines.storylines.filter(s => s.parties.includes(polityId));
+    } catch { return []; }
+  }
+
+  /**
+   * Genera (una volta) la situazione della nazione. Immutabile per
+   * `(game, polity, startDate)`; fail-closed — se il provider non risponde o il
+   * testo è troppo generico, resta `null` e il Consulente usa la sola baseline.
+   */
+  async getPolityNationSituation(polityId: string, signal?: AbortSignal): Promise<NationSituationRecord | null> {
+    const cached = this.cachedNationSituation(polityId);
+    if (cached) return cached;
+    if (!this.historicalStartDate || polityId === 'neutral' || ![...this.regions.values()].some(region => region.owner === polityId)) return null;
+    const key = `${polityId}|${this.historicalStartDate}`;
+    const pending = this.nationSituationRequests.get(key);
+    if (pending && (!pending.settled || pending.turn === this.currentTurn)) return awaitHistoricalBaseline(pending.promise, signal);
+    if (signal?.aborted) return null;
+    const request = {
+      worldName: this.state.worldName, polityId,
+      countryName: countryRepository.findByCode(polityId)?.name || this.publicPolityName(polityId),
+      startDate: this.historicalStartDate, premise: this.state.worldBasePrompt,
+      storylines: this.storylinesForPolity(polityId),
+    };
+    const promise = (async (): Promise<NationSituationRecord | null> => {
+      const controller = new AbortController();
+      const situation = await awaitHistoricalBaseline(generateNationSituation(request, async (system, prompt) => {
+        const response = await this.llm.generate('advisor', system, prompt, { temperature: 0.3, maxTokens: 2_000, signal: controller.signal });
+        return String(response.content ?? '');
+      }), undefined, undefined, () => controller.abort());
+      if (!situation) return null;
+      try {
+        gameRepository.storeNationSituation(this.id, {
+          polityId, countryName: request.countryName, startDate: request.startDate,
+          situation, generatedAt: new Date().toISOString(), version: 1,
+        });
+        return this.cachedNationSituation(polityId);
+      } catch { return null; }
+    })();
+    const entry = { turn: this.currentTurn, settled: false, promise };
+    this.nationSituationRequests.set(key, entry);
+    void promise.then(() => { entry.settled = true; }, () => { entry.settled = true; });
+    return awaitHistoricalBaseline(promise, signal);
+  }
+
   /**
    * Read-only view of already-persisted history. Conversational paths (minister,
    * council, diplomacy reply, advisor turn) must never trigger a provider call:
@@ -3624,6 +3784,34 @@ export class GameSession {
     return ids.flatMap(id => { const baseline = this.cachedHistoricalBaseline(id); return baseline ? [baseline] : []; });
   }
 
+  // ── H06 — Situazione (e traiettoria) delle ALTRE nazioni ───────────────────
+  //
+  // Gli NPC del teatro ricevono la loro situazione come il giocatore: stessa
+  // macchina di H05, per politia, non per giocatore. Così il mondo ha una
+  // **direzione** dichiarata anche per chi non è giocato — ed è una tendenza,
+  // mai una profezia (H-I12).
+
+  /** Situazioni già persistite delle polity indicate (sola lettura). */
+  persistedPolityNationSituations(polityIds: readonly string[]): NationSituationRecord[] {
+    const owners = new Set([...this.regions.values()].map(region => region.owner));
+    const ids = [...new Set([this.playerPolityId, ...polityIds])]
+      .filter(id => id !== 'neutral' && (id === this.playerPolityId || owners.has(id))).slice(0, 5);
+    if (!this.historicalStartDate || !ids.length) return [];
+    try { return gameRepository.getNationSituations(this.id, ids, this.historicalStartDate); }
+    catch { return []; }
+  }
+
+  /** Genera (bounded) la situazione delle polity indicate, per il teatro NPC. */
+  async preparePolityNationSituations(polityIds: readonly string[], signal?: AbortSignal): Promise<NationSituationRecord[]> {
+    if (signal?.aborted) return [];
+    const owners = new Set([...this.regions.values()].map(region => region.owner));
+    const ids = [...new Set([this.playerPolityId, ...polityIds])]
+      .filter(id => id !== 'neutral' && (id === this.playerPolityId || owners.has(id))).slice(0, 5);
+    await awaitHistoricalBaseline(Promise.all(ids.map(id => this.getPolityNationSituation(id))), signal, 2_000);
+    if (signal?.aborted) return [];
+    return this.persistedPolityNationSituations(ids);
+  }
+
   /** Read-only context; deterministic prose is recovery, not the primary opening. */
   getRealityAdvisorContext(): RealityAdvisorResult {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
@@ -3640,6 +3828,10 @@ export class GameSession {
     if (this.hasActiveRun()) throw new SimulationInProgressError();
     const fence = this.fenceContext();
     await this.getHistoricalBaseline(signal);
+    // H05 — alla prima apertura si genera anche la situazione della nazione
+    // (presente + direzione), con lo stesso budget e lo stesso fence della
+    // baseline: è la seconda fonte del contesto.
+    await this.getPolityNationSituation(this.playerPolityId, signal);
     this.assertFenceValid(fence);
     const context = this.advisorContext('', undefined, undefined, 'briefing');
     const gameData = this.buildGameData();

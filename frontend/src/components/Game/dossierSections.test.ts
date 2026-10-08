@@ -10,13 +10,14 @@
  * il falso verde: il totale dei blocchi contati deve essere quello misurato —
  * se il parser si rompe, il test fallisce invece di passare a vuoto.
  *
- * Conteggio: `DossierBlock` interni al dossier = 26. Le schede **vive**
+ * Conteggio: `DossierBlock` interni al dossier = 27. Le schede **vive**
  * (`NationalDossierLive`) non sono `DossierBlock`: portano le cifre attuali vs
  * Turno 0 e sostituiscono le vecchie card duplicate. Due blocchi del vecchio
  * schedario erano già usciti (V01: «Sfide del momento»; D-1: «Oggetti del
  * paese»); il consolidamento del Dossier vivo ne ha rimossi altri cinque
  * («Coesione interna», «Tecnologie sbloccate», «Capitale umano», «Flussi
- * mensili», «Arsenale») e ha fuso le metriche residue.
+ * mensili», «Arsenale») e ha fuso le metriche residue. **H11** (Storie del mondo
+ * e preset) aggiunge «Filoni del mondo» in Situazione: 26 → 27.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -57,7 +58,7 @@ function blocksBySection(source: string): Map<string, string[]> {
 
 /** La mappatura obbligatoria del piano (§3), come titoli attesi per sezione. */
 const EXPECTED: Record<string, string[]> = {
-  situazione: ['Indicatori di tenuta', 'Crisi della nazione', 'Decisioni richieste'],
+  situazione: ['Indicatori di tenuta', 'Crisi della nazione', 'Decisioni richieste', 'Filoni del mondo'],
   regno: [
     'Quadro del governo', 'Consiglio dei ministri',
     'Assetto istituzionale', 'Politica fiscale', 'Investimento nel popolo',
@@ -86,13 +87,13 @@ describe('V03 — il dossier ha quattro sezioni, mappate obbligatoriamente', () 
     expect(STORE).toMatch(/NATION_SECTIONS:\s*NationSection\[\]\s*=\s*\[\s*'situazione',\s*'regno',\s*'tesoro',\s*'statoMaggiore',?\s*\]/);
   });
 
-  it('la guardia vede davvero i blocchi (26 nel dossier)', () => {
+  it('la guardia vede davvero i blocchi (27 nel dossier)', () => {
     const total = [...bySection.values()].reduce((n, titles) => n + titles.length, 0);
-    // Conteggio per sezione: 3 + 5 + 9 + 9 = 26. Cinque blocchi hanno lasciato il
+    // Conteggio per sezione: 4 + 5 + 9 + 9 = 27. Cinque blocchi hanno lasciato il
     // dossier nel consolidamento (vedi l'intestazione); le schede vive portano le
     // cifre attuali vs Turno 0. Se il parser si rompe, qui si vede subito.
-    expect(total, 'il parser non vede i 26 blocchi del dossier').toBe(26);
-    expect(bySection.get('situazione')?.length).toBe(3);
+    expect(total, 'il parser non vede i 27 blocchi del dossier').toBe(27);
+    expect(bySection.get('situazione')?.length).toBe(4);
     expect(bySection.get('regno')?.length).toBe(5);
     expect(bySection.get('tesoro')?.length).toBe(9);
     expect(bySection.get('statoMaggiore')?.length).toBe(9);

@@ -4,6 +4,7 @@
  * Estratti da `NationDock.tsx` (blocco 2, punto 4): comportamento invariato.
  */
 import React, { useState } from 'react';
+import type { NationDockProps } from './types';
 import type {
   BudgetLine, CrisisRisk, CrisisSnapshot, GovernmentFaction,
   Commitment, NaturalResourceSummary, PeacetimePressure, PowerAgenda, SovereignDebtTranche,
@@ -123,6 +124,46 @@ export function DossierBlock({
 
 export function Footnote({ children }: { children: React.ReactNode }) {
   return <p className="nation-footnote">{children}</p>;
+}
+
+/** Lo stato del filone → etichetta leggibile e tono. Mai un numero. */
+const STORYLINE_STATE_LABEL: Record<string, string> = {
+  aperto: 'Aperto',
+  congelato: 'Congelato',
+  risolto: 'Risolto',
+  divergente: 'Divergente',
+};
+
+/**
+ * H11 — I filoni del mondo che toccano questa nazione. Sono **significato** del
+ * preset, non un fatto del motore: nessuna cifra, e la `trajectory` è una
+ * tendenza — si dice dove la cosa sta andando, non cosa accadrà.
+ */
+export function StorylinesList({ storylines }: { storylines: NonNullable<NationDockProps['storylines']> }) {
+  if (storylines.length === 0) return null;
+  return (
+    <ul className="storylines-list">
+      {[...storylines].sort((a, b) => b.pressure - a.pressure || a.title.localeCompare(b.title)).map(storyline => {
+        const tone = storyline.pressure >= 3 ? 'critical' : storyline.pressure === 2 ? 'warn' : 'calm';
+        return (
+          <li key={storyline.id} className={`storyline-item is-${tone}`} data-state={storyline.state}>
+            <div className="storyline-head">
+              <span className="storyline-title">{storyline.title}</span>
+              <span className="storyline-state" aria-label={`Stato: ${STORYLINE_STATE_LABEL[storyline.state] ?? storyline.state}`}>
+                {STORYLINE_STATE_LABEL[storyline.state] ?? storyline.state}
+              </span>
+            </div>
+            <p className="storyline-summary">{storyline.summary}</p>
+            {storyline.trajectory && (
+              <p className="storyline-trajectory">
+                <span className="storyline-trajectory-label">Direzione</span> {storyline.trajectory}
+              </p>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 /**
