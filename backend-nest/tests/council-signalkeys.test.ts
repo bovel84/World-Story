@@ -154,10 +154,12 @@ describe('WS-COUNCIL-SIGNALKEYS — signalKeys come collegamento canonico', () =
     expect(parseCouncilIssues(snapshot(), 'Il quadro è stabile, non vedo decisioni urgenti.').issues).toEqual([]);
   });
 
-  it('il prompt dice che una proposta decisionale DEVE produrre una council_issue', () => {
+  it('il prompt dice che una questione politica DEVE produrre una council_issue senza soluzioni', () => {
     const prompt = buildRealityAdvisorPrompt(buildRealityAdvisorContext(snapshot()).advisorContext, 'Come procediamo?');
-    expect(prompt).toContain('DEVI emettere anche la relativa scheda');
+    expect(prompt).toContain('DEVI emettere la relativa scheda');
     expect(prompt).toContain('council_issue');
+    expect(prompt).not.toContain('"options"');
+    expect(prompt).toContain('Le soluzioni devono emergere SOLO nel Consiglio');
     expect(prompt).not.toContain('questioni al Consiglio sono facoltative');
   });
 
