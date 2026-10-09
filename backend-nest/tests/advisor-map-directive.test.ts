@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt } from '../src/core/government/RealityAdvisor';
+import { MINISTER_DIALOGUE_PROTOCOL } from '../src/core/government/MinisterDialogueRules';
 
 function advisorPrompt(message: string, audience: 'advisor' | 'minister' = 'advisor'): string {
   const snapshot = buildVerifiedWorldSnapshot({
@@ -60,6 +61,23 @@ describe('M05 — la direttiva mappa nel prompt REALE del Consulente', () => {
   it('non ha rimosso i protocolli esistenti', () => {
     expect(prompt).toContain('council_issue');
     expect(prompt).toContain('CONVERSATION MODE');
+  });
+});
+
+describe('M-PROGETTI — la mappa serve anche a spiegare un progetto o un\'idea', () => {
+  it('il prompt REALE del Consulente autorizza la mappa per un progetto/idea, senza derogare a M-I1', () => {
+    const prompt = advisorPrompt('Come svilupperesti il progetto della rete ferroviaria?');
+    expect(prompt).toMatch(/tuo progetto o una tua idea/i);
+    // M-I1 resta: il Consulente dichiara cosa mostrare, mai gli id.
+    expect(prompt).toMatch(/non scrivere mai gli id delle regioni/i);
+  });
+
+  it('il protocollo REALE del ministro (composeMinisterDialoguePrompt) autorizza la mappa di progetto con id canonici', () => {
+    // `MINISTER_DIALOGUE_PROTOCOL` è interpolato in `composeMinisterDialoguePrompt`
+    // (MinisterDialogue.ts), il prompt usato dal Consiglio.
+    expect(MINISTER_DIALOGUE_PROTOCOL).toMatch(/tuo progetto o una tua idea/i);
+    expect(MINISTER_DIALOGUE_PROTOCOL).toMatch(/regionIds/);
+    expect(MINISTER_DIALOGUE_PROTOCOL).toMatch(/id canonici/i);
   });
 });
 

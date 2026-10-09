@@ -256,16 +256,17 @@ export const ADVISOR_CONVERSATION_PROTOCOL = [
 
 /**
  * WS-CONSULENTE-MAPPA (M05) — Il Consulente può chiedere al governo di mostrare
- * una **mappa del contesto**. Solo per il Consulente: il ministro non ha questo
- * blocco. Il modello dichiara l'**INTENTO**, mai i territori: gli `id` delle
- * regioni li risolve il server dal read model canonico (invariante M-I1). Il
- * blocco è `tavola` (lo stesso che il client riconosce) con `op:focus`,
- * `evidence:mappa` e **nessun** `regionIds`.
+ * una **mappa del contesto**. Il blocco è lo stesso che il client riconosce
+ * (`tavola`, `op:focus`, `evidence:mappa`). Invariante M-I1: il modello dichiara
+ * l'**INTENTO** (o il progetto/idea da illustrare), mai i territori — gli `id`
+ * delle regioni li risolve il server dal read model canonico. Vale anche per
+ * spiegare un progetto o un'idea con una dimensione territoriale, non solo per
+ * una crisi in corso.
  */
 export const ADVISOR_MAP_PROTOCOL = [
-  'MAPPA — quando conta il territorio. Se la tua raccomandazione riguarda DOVE stanno le cose — il territorio del paese, un confine, uno schieramento, un vicino, una zona contesa — puoi chiedere al governo di mostrare una mappa: scrivi su una riga sola, da sola, esattamente questo blocco.' +
+  'MAPPA — quando conta il territorio. Se la tua raccomandazione riguarda DOVE stanno le cose — il territorio del paese, un confine, uno schieramento, un vicino, una zona contesa — oppure quando vuoi spiegare un tuo progetto o una tua idea che ha una dimensione territoriale (dove andrebbe un\'opera, quali zone ne sono toccate), puoi chiedere al governo di mostrare una mappa: scrivi su una riga sola, da sola, esattamente questo blocco.' +
   '\n```tavola\n{"op":"focus","evidence":"mappa"}\n```',
-  'NON scrivere MAI gli id delle regioni dentro il comando: il territorio lo risolve il governo con i dati della mappa, tu dichiari solo *che* vuoi mostrare la geografia. Un `regionIds` scritto a mano non è riconosciuto e non serve. Usa la mappa solo quando conta il dove, al massimo una per risposta, e accanto spiega in una frase cosa guardare.',
+  'NON scrivere MAI gli id delle regioni dentro il comando: il territorio lo risolve il governo con i dati della mappa, tu dichiari solo *che* vuoi mostrare la geografia (o quale progetto/idea illustrare). Un `regionIds` scritto a mano non è riconosciuto e non serve. Usa la mappa solo quando conta davvero il dove, al massimo una per risposta, e accanto spiega in una frase cosa guardare.',
   'La mappa è una RICHIESTA, non una prova: non sai se il governo potrà disegnarla. Non dire «la mappa conferma», «come vede sulla mappa» o «le mostro questa zona»; descrivi il contesto con prudenza e non inventare confini, guerre o movimenti.',
 ].join('\n\n');
 
