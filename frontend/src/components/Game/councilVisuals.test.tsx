@@ -43,10 +43,14 @@ describe('Council inline verified maps, all seats', () => {
     expect(resolveGovernmentVisuals(current.messages.at(-1)!, snapshot)[0].regionIds).toEqual(['r0', 'r1']);
   });
 
-  it('multiple hostile relations require a canonical interlocutor; no naming guesses', () => {
+  it('multiple hostile relations never guess a naming interlocutor: the neutral national map instead', () => {
     const multiple = { ...snapshot, relationships: { A: { B: 'hostile', C: 'hostile' } } };
     const message = receiveCouncilReply(room(), CABINET_SEATS[0], 'La questione riguarda il Paese B.', 'reply', snapshot.scopeKey).messages.at(-1)!;
-    expect(resolveGovernmentVisuals(message, multiple)).toEqual([]);
+    // Mappa generica senza riferimento verificato (due ostili ambigui): politica
+    // nazionale neutra, mai una scelta arbitraria dell'interlocutore.
+    const neutral = resolveGovernmentVisuals(message, multiple)[0];
+    expect(neutral.title).toBe('Contesto territoriale');
+    expect(neutral.regionIds).toEqual(['r0']);
     const exact = { ...message, visualRequest: { ...message.visualRequest!, signalKeys: ['hostile-relations:C'] } };
     expect(resolveGovernmentVisuals(exact, multiple)[0].regionIds).toEqual(['r0', 'r2']);
   });
@@ -95,7 +99,7 @@ describe('Council inline verified maps, all seats', () => {
   it('explicit request with no verified geography shows the owned territory, declared', () => {
     const current = receiveCouncilReply(room(CABINET_SEATS[0], false), CABINET_SEATS[0], 'Una vecchia guerra nel Territorio A.', 'reply', snapshot.scopeKey);
     expect(renderRoom(current)).toContain('government-visual-card');
-    expect(renderRoom(current)).toContain('Territori di riferimento; non indica operazioni o aree di conflitto.');
+    expect(renderRoom(current)).toContain('Territori di riferimento; non indica operazioni, crisi o aree di conflitto.');
   });
 
   it('mere historical prose without an explicit request produces no card', () => {

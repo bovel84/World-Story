@@ -7,7 +7,8 @@
  * storage rotto non rompe la conversazione.
  */
 import type { AdvisorMessage } from '../../stores/chatStore';
-import { readGovernmentVisualMetadata } from './governmentVisualRequest';
+import { readGovernmentVisualMetadata, type GovernmentMapRequest } from './governmentVisualRequest';
+import type { PresentationDirective } from './presentation';
 import type { AdvisorSituation, CouncilIssue } from '../../services/api';
 
 const PREFIX = 'ws.advisor';
@@ -200,6 +201,12 @@ export interface AdvisorOpening {
   /** WS-CONSULENTE-SITUAZIONI — Le situazioni cliccabili, distinte dalle proposte. */
   situations?: AdvisorSituation[];
   date: string | null;
+  /** M-APERTURA — La direttiva `tavola` della risposta iniziale, validata: come
+   *  per i messaggi, resta metadato UI e non entra mai nel prompt. */
+  evidence?: readonly PresentationDirective[];
+  /** M-APERTURA — La richiesta geografica dell'apertura, con il suo `scopeKey`
+   *  di generazione: al reload non viene ri-stampata su un mondo nuovo. */
+  visualRequest?: GovernmentMapRequest;
 }
 
 // Previous cached openings used the initial-mandate request even on later turns,
@@ -219,7 +226,7 @@ export function loadAdvisorOpening(key: string): AdvisorOpening | null {
   try {
     const raw = storage.getItem(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { reply?: unknown; issues?: unknown; situations?: unknown; date?: unknown } | null;
+    const parsed = JSON.parse(raw) as { reply?: unknown; issues?: unknown; situations?: unknown; date?: unknown; evidence?: unknown; visualRequest?: unknown } | null;
     const reply = text(parsed?.reply);
     if (!reply) return null;
     const situations = sanitizeSituations(parsed?.situations);
@@ -227,6 +234,9 @@ export function loadAdvisorOpening(key: string): AdvisorOpening | null {
       reply,
       issues: sanitizeIssues(parsed?.issues) ?? [],
       ...(situations ? { situations } : {}),
+      // M-APERTURA — Gli stessi metadati UI dei messaggi: rivalidati, mai
+      // ri-stampati. Un'apertura vecchia senza di essi resta senza mappa.
+      ...readGovernmentVisualMetadata({ evidence: parsed?.evidence, visualRequest: parsed?.visualRequest }),
       date: typeof parsed?.date === 'string' && parsed.date ? parsed.date : null,
     };
   } catch {
@@ -242,6 +252,8 @@ export function saveAdvisorOpening(key: string, opening: AdvisorOpening): void {
       reply: opening.reply,
       ...(opening.issues.length ? { issues: opening.issues } : {}),
       ...(opening.situations?.length ? { situations: opening.situations } : {}),
+      ...(opening.evidence?.length ? { evidence: opening.evidence } : {}),
+      ...(opening.visualRequest ? { visualRequest: opening.visualRequest } : {}),
       date: opening.date,
     }));
   } catch {

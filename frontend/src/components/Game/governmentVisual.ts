@@ -14,6 +14,8 @@ interface VisualBase {
   /** Transient UI provenance, never persisted or sent to a model. */
   scopeKey: string;
 }
+/** La mappa politica nazionale mostra un quadro, mai una crisi: lo dichiara. */
+const NEUTRAL_NATIONAL_DESCRIPTION = 'Territori di riferimento; non indica operazioni, crisi o aree di conflitto.';
 export interface MapFocusVisual extends VisualBase {
   type: 'map-focus';
   regionIds: readonly string[];
@@ -102,6 +104,16 @@ export function resolveGovernmentVisuals(message: GovernmentVisualMessage, snaps
   const explicitIds = [...maps].reverse().find(directive => directive.regionIds?.length)?.regionIds;
   const checkedIds = explicitIds && regionIdsForFocus({ regionIds: explicitIds, requestId: 0 }, snapshot.index.regionsById);
   if (explicitIds && !checkedIds?.length) return []; // Never substitute rejected IDs with another map.
+  const player = snapshot.playerPolityId;
+  const ownedRegions = player ? [...snapshot.index.regionsById.values()].filter(region => region.owner === player) : [];
+  const neutralPoliticalCard = (): MapFocusVisual => ({ type: 'map-focus', title: 'Contesto territoriale', description: NEUTRAL_NATIONAL_DESCRIPTION, regionIds: ownedRegions.map(region => region.id), scopeKey: snapshot.scopeKey });
+  // A — Mappa NAZIONALE esplicita: il territorio posseduto vince sui segnali
+  // della questione (una relazione non verificata o un fronte chiuso non devono
+  // cancellarla). Gli id espliciti/ereditati restano il riferimento più
+  // specifico e passano prima; id invalidi hanno già fatto uscire sopra.
+  if (message.visualRequest?.intent === 'national' && !checkedIds?.length && !message.visualRequest.regionIds?.length) {
+    return ownedRegions.length ? [neutralPoliticalCard()] : [];
+  }
   const cards: MapFocusVisual[] = [];
   if (snapshot.militaryAvailable !== false) for (const key of keys) {
     if (!key.startsWith('conflict:')) continue;
@@ -120,7 +132,6 @@ export function resolveGovernmentVisuals(message: GovernmentVisualMessage, snaps
     const regionIds = regionIdsForFocus({ regionIds: message.visualRequest.regionIds, requestId: 0 }, snapshot.index.regionsById);
     return regionIds.length ? [{ type: 'map-focus', title: 'Contesto territoriale', description: 'Territori di riferimento; non indica operazioni o aree di conflitto.', regionIds, scopeKey: snapshot.scopeKey }] : [];
   }
-  const player = snapshot.playerPolityId;
   // Diplomatic context is only drawn on an explicit map request: a routine
   // mention of a hostile relation must not force a card on every reply.
   if (!message.visualRequest) return [];
@@ -137,19 +148,44 @@ export function resolveGovernmentVisuals(message: GovernmentVisualMessage, snaps
     }
   }
   if (cards.length) return cards.filter((card, i) => cards.findIndex(other => identity(other.regionIds) === identity(card.regionIds)) === i);
-  // M01 — Ultima risorsa: una richiesta **esplicita** senza alcun riferimento
-  // geografico più preciso mostra il territorio posseduto, dal read model.
-  // Bloccata solo da una chiave **situazionale** (guerra, relazione): quelle
-  // hanno già avuto la loro strada sopra (fronti/diplomazia) e non vanno
-  // soprapposte con una mappa politica. Una chiave non geografica (economia,
-  // società, prontezza) NON blocca: il Presidente ha chiesto la mappa.
   const situationalGeography = [...keys].some(key =>
     key.startsWith('conflict:') || key === 'hostile-relations' || key.startsWith('hostile-relations:'));
-  const ownedRegions = [...snapshot.index.regionsById.values()].filter(region => player && region.owner === player);
-  if (!situationalGeography && ownedRegions.length) {
-    return [{ type: 'map-focus', title: 'Contesto territoriale', description: 'Territori di riferimento; non indica operazioni o aree di conflitto.', regionIds: ownedRegions.map(region => region.id), scopeKey: snapshot.scopeKey }];
+  // B — Mappa della QUESTIONE: solo riferimenti verificati. Se non ne esistono,
+  // niente carta: una mappa nazionale al posto della crisi sarebbe fuorviante.
+  if (message.visualRequest.intent === 'situation') return [];
+  // C — Mappa GENERICA (o richiesta legacy senza intento): i riferimenti
+  // verificati hanno già avuto la loro strada; in mancanza, una mappa politica
+  // nazionale neutra, dichiarata tale. La richiesta legacy resta protetta dalla
+  // vecchia guardia situazionale.
+  if (ownedRegions.length && (message.visualRequest.intent === 'generic'
+    || (message.visualRequest.intent === undefined && !situationalGeography))) {
+    return [neutralPoliticalCard()];
   }
   return [];
+}
+
+/**
+ * M-DIAG — Perché una richiesta di mappa non ha prodotto una card. Diagnostica
+ * **solo di sviluppo** (mai testo tecnico al giocatore): segue l'ordine dei
+ * rifiuti del resolver, così il motivo è identificabile senza log continui.
+ * `null` = il resolver avrebbe prodotto qualcosa (o non c'era richiesta).
+ */
+export type GovernmentVisualDenial = 'snapshot-unavailable' | 'snapshot-scope-mismatch' | 'no-request' | 'invalid-region-id' | 'no-verified-reference' | 'no-owned-territory';
+
+export function explainGovernmentVisualDenial(message: GovernmentVisualMessage, snapshot: GovernmentVisualSnapshot | undefined): GovernmentVisualDenial | null {
+  if (!snapshot) return 'snapshot-unavailable';
+  if (message.role !== 'assistant' || !message.visualRequest) return 'no-request';
+  if (resolveGovernmentVisuals(message, snapshot).length) return null;
+  if (message.visualRequest.scopeKey && message.visualRequest.scopeKey !== snapshot.scopeKey) return 'snapshot-scope-mismatch';
+  const maps = (message.evidence ?? []).filter(directive => directive.evidence === 'mappa' && ['show', 'focus'].includes(directive.op));
+  if (maps.some(directive => directive.invalidRegionIds)) return 'invalid-region-id';
+  const explicitIds = [...maps].reverse().find(directive => directive.regionIds?.length)?.regionIds;
+  if (explicitIds && !regionIdsForFocus({ regionIds: explicitIds, requestId: 0 }, snapshot.index.regionsById).length) return 'invalid-region-id';
+  if (message.visualRequest.regionIds?.length) return 'invalid-region-id';
+  // B — nessun riferimento verificato per la questione: non si ripiega.
+  if (message.visualRequest.intent === 'situation') return 'no-verified-reference';
+  // A/C senza territorio posseduto (né player né regioni).
+  return playerOwnedRegionIds(snapshot).length ? null : 'no-owned-territory';
 }
 
 /** Also used at the final click boundary: a queued callback cannot cross epochs. */

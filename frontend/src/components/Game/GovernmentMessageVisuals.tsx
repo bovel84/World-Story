@@ -1,6 +1,6 @@
 import { memo, useMemo, type ReactNode } from 'react';
 import { GovernmentVisualCard } from './GovernmentVisualCard';
-import { resolveGovernmentVisuals, type GovernmentVisualMessage, type GovernmentVisualSnapshot, type MapFocusVisual } from './governmentVisual';
+import { resolveGovernmentVisuals, explainGovernmentVisualDenial, type GovernmentVisualMessage, type GovernmentVisualSnapshot, type MapFocusVisual } from './governmentVisual';
 import { NO_VERIFIED_GEOGRAPHY, safeGovernmentVisualText } from './governmentVisualRequest';
 
 /** Ephemeral, read-only attachment below a message; nothing enters chat storage. */
@@ -11,9 +11,12 @@ export const GovernmentMessageVisuals = memo(function GovernmentMessageVisuals({
   renderText?: (hasVisual: boolean) => ReactNode;
 }) {
   const cards = useMemo(() => snapshot ? resolveGovernmentVisuals(message, snapshot) : [], [message, snapshot]);
+  // M-DIAG — Il motivo del rifiuto è un attributo **solo in sviluppo**; il
+  // giocatore continua a vedere soltanto la frase dichiarata.
+  const denial = import.meta.env.DEV && !cards.length && message.role === 'assistant' && message.visualRequest ? explainGovernmentVisualDenial(message, snapshot) : null;
   return <>{renderText?.(cards.length > 0)}
     {snapshot && cards.map((card, index) => <GovernmentVisualCard key={index} card={card} snapshot={snapshot} onFocusMap={onFocusMap} />)}
     {message.role === 'assistant' && message.visualRequest && !cards.length && !(renderText && safeGovernmentVisualText(message.content ?? '', false).includes(NO_VERIFIED_GEOGRAPHY))
-      && <p className="government-visual-description" role="status">{NO_VERIFIED_GEOGRAPHY}</p>}
+      && <p className="government-visual-description" role="status" data-denial={denial ?? undefined}>{NO_VERIFIED_GEOGRAPHY}</p>}
   </>;
 });
