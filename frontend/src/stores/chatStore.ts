@@ -10,6 +10,8 @@ import { create } from 'zustand';
 import { chatsApi, type ChatSummaryData, type ChatMessageData, type CouncilIssue, type AdvisorSituation } from '../services/api';
 import { archiveSiblingThreads, lastChatMessage, orderChatMessages } from '../components/Game/chatTimeline';
 import { tagLegacyTurns } from '../components/Game/advisorTurns';
+import type { GovernmentMapRequest } from '../components/Game/governmentVisualRequest';
+import type { PresentationDirective } from '../components/Game/presentation';
 
 export type ChatSummary = ChatSummaryData;
 export type ChatMessage = ChatMessageData;
@@ -22,6 +24,9 @@ export interface AdvisorMessage {
   issues?: CouncilIssue[];
   /** WS-CONSULENTE-SITUAZIONI — Situazioni cliccabili, distinte dalle proposte. */
   situations?: AdvisorSituation[];
+  /** Optional read-only presentation metadata; excluded from LLM history. */
+  evidence?: readonly PresentationDirective[];
+  visualRequest?: GovernmentMapRequest;
 /** Commento proattivo del consulente dopo il turno (SSE advisor_proactive) */
   proactive?: boolean;
   /**

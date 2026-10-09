@@ -65,10 +65,18 @@ describe('parsePresentation', () => {
   });
 
   it('sanifica i regionIds: solo id brevi e sicuri', () => {
-    const longId = 'x'.repeat(40);
+    const longId = 'x'.repeat(129);
     const raw = '{"op":"focus","evidence":"mappa","regionIds":["ALPHA","a b","BETA","' + longId + '"]}';
     const parsed = parsePresentation('```tavola\n' + raw + '\n```');
-    expect(parsed.directive).toEqual({ op: 'focus', evidence: 'mappa', regionIds: ['ALPHA', 'BETA'] });
+    expect(parsed.directive).toEqual({ op: 'focus', evidence: 'mappa', regionIds: ['ALPHA', 'BETA'], invalidRegionIds: true });
+  });
+
+  it('accetta UUID e ID namespaced canonici; segnala liste mappa vuote o troncate', () => {
+    const ids = ['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'region:province.1'];
+    const parse = (regionIds: unknown) => parsePresentation('```tavola\n' + JSON.stringify({ op: 'show', evidence: 'mappa', regionIds }) + '\n```').directive;
+    expect(parse(ids)?.regionIds).toEqual(ids);
+    expect(parse(ids)?.invalidRegionIds).toBeUndefined();
+    for (const regionIds of [[], 'ALPHA', Array(21).fill('ALPHA')]) expect(parse(regionIds)?.invalidRegionIds).toBe(true);
   });
 
   it('non rende un blocco incompleto: lo rimuove dal testo durante lo streaming', () => {

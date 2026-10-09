@@ -52,9 +52,11 @@ describe('Government visual resolver — current canonical geography only', () =
     const base = { scopeKey: 'fresh-UI-epoch', canonicalSnapshotKey: militarySnapshotKey, militarySnapshotKey, index: snapshot().index, unavailable: false };
     expect(buildGovernmentVisualSnapshot(base)?.index).toBe(base.index);
     for (const next of [{ ...game, id: 'B' }, { ...game, headBranchId: 'branch2' }, { ...game, currentTurn: 1 }, { ...game, worldRevision: 4 }]) {
-      expect(buildGovernmentVisualSnapshot({ ...base, canonicalSnapshotKey: actionSnapshotKey(next) })).toBeUndefined();
+      const current = buildGovernmentVisualSnapshot({ ...base, canonicalSnapshotKey: actionSnapshotKey(next) })!;
+      expect(current.militaryAvailable).toBe(false);
+      expect(resolveGovernmentVisuals({ role: 'assistant', situations: [{ signalKeys: ['conflict:border'] }] }, current)).toEqual([]);
     }
-    expect(buildGovernmentVisualSnapshot({ ...base, militarySnapshotKey: null })).toBeUndefined();
+    expect(buildGovernmentVisualSnapshot({ ...base, militarySnapshotKey: null })?.militaryAvailable).toBe(false);
     expect(buildGovernmentVisualSnapshot({ ...base, unavailable: true })).toBeUndefined();
     expect(governmentVisualEpoch({ state: { gameId: 'A', branchId: 'b', worldRevision: 1 }, commandGeneration: 2 })).not.toEqual(
       governmentVisualEpoch({ state: { gameId: 'A', branchId: 'b', worldRevision: 1 }, commandGeneration: 3 }));

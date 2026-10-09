@@ -149,6 +149,8 @@ export interface NationSnapshot {
   refreshMilitaryState: () => Promise<void>;
   /** MAP P3 — relazioni canoniche per il layer Diplomazia (fail-closed). */
   relationships: RelationshipMap | null;
+  /** Provenance of the already-loaded diplomatic read model. */
+  relationshipsSnapshotKey: string | null;
   /**
    * N01 — nomi pubblici delle polity, dalla stessa risposta della matrice.
    * `null` = il motore non li ha pubblicati (o la fonte è caduta): il nome della
@@ -241,6 +243,7 @@ export function useNationSnapshot({
   const [worldMapAssetsError, setWorldMapAssetsError] = useState<string | null>(null);
   const worldMapAssetsRequest = useRef(0);
   const [relationships, setRelationships] = useState<RelationshipMap | null>(null);
+  const [relationshipsSnapshotKey, setRelationshipsSnapshotKey] = useState<string | null>(null);
   // N01: i nomi pubblici delle polity arrivano dalla **stessa** risposta che
   // porta la matrice (`{ relationships, names }`). Prima venivano scartati, e il
   // nome della nazione finiva per essere ricavato dalla geografia — col risultato
@@ -281,6 +284,7 @@ export function useNationSnapshot({
     setRelationshipsLoading(false);
     setRelationshipsError(null);
     relationshipsRequest.current += 1;
+    setRelationshipsSnapshotKey(null);
     setWorldMapAssets(null);
     setWorldMapAssetsStatus('loading');
     setWorldMapAssetsError(null);
@@ -328,6 +332,7 @@ export function useNationSnapshot({
     setMilitaryStateError(null);
     setRelationships(null);
     setRelationshipsError(null);
+    setRelationshipsSnapshotKey(null);
   }, [gameId]);
 
   /**
@@ -343,6 +348,7 @@ export function useNationSnapshot({
     setRelationshipsLoading(true);
     setRelationshipsError(null);
     setRelationships(null);
+    setRelationshipsSnapshotKey(null);
     try {
       const data = await gameApi.getRelationships(gameId);
       if (request !== relationshipsRequest.current) return;
@@ -351,6 +357,7 @@ export function useNationSnapshot({
       // risposta, un solo stato: nessuna seconda fonte di nomi nel client.
       setRelationships(data?.relationships || {});
       setRelationshipNames(data?.names || null);
+      setRelationshipsSnapshotKey(militarySourceKey);
     } catch (error) {
       if (request !== relationshipsRequest.current) return;
       console.warn('[App] Relazioni diplomatiche non disponibili:', error);
@@ -362,7 +369,7 @@ export function useNationSnapshot({
     } finally {
       if (request === relationshipsRequest.current) setRelationshipsLoading(false);
     }
-  }, [gameId]);
+  }, [gameId, militarySourceKey]);
 
   /**
    * MAP P6 — giacimenti e impianti canonici di **tutte** le potenze. Fail closed:
@@ -777,6 +784,7 @@ export function useNationSnapshot({
     militarySnapshotKey,
     refreshMilitaryState,
     relationships,
+    relationshipsSnapshotKey,
     relationshipNames,
     relationshipsLoading,
     relationshipsError,

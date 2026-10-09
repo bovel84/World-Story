@@ -61,6 +61,9 @@ export const CANVAS_OP_SEMANTICS: Record<PresentationOperation, string> = {
 export const MAX_NEW_EVIDENCES_PER_REPLY = 3;
 /** P3 — Quante evidenze principali stanno visibili sulla tela. */
 export const MAX_MAIN_EVIDENCES = 2;
+/** Bounded canonical references, including UUID and namespaced region IDs. */
+export const MAX_MAP_REGION_IDS = 20;
+const safeRegionId = (id: unknown): id is string => typeof id === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(id);
 
 const KEY_LABEL: Record<EvidenceKey, string> = {
   spesa: 'Dove va la spesa',
@@ -97,6 +100,8 @@ export interface PresentationDirective {
    * riferimenti, non geometrie: il path resta quello del read model.
    */
   readonly regionIds?: readonly string[];
+  /** Parser provenance, not an LLM field: never draw a silently reduced map. */
+  readonly invalidRegionIds?: boolean;
   /**
    * WS-GOVUX-P3 — Il **bersaglio** mirato di `annotate`/`dismiss` (default:
    * `evidence`). Serve a rimuovere/aggiornare un'evidenza della tela senza
@@ -196,7 +201,7 @@ const FENCE_BLOCK = /```\s*tavola\s*([\s\S]*?)```/gi;
  * Un JSON minimale, poi un ripiego `op=… evidence=…`: i provider piccoli
  * sbagliano la sintassi, ma non devono poter introdurre campi arbitrari.
  */
-function validateDirective(raw: string): PresentationDirective | null {
+export function validateDirective(raw: string): PresentationDirective | null {
   const cleaned = raw.trim();
   if (!cleaned) return null;
   // Rifiuto netto di qualunque payload che sembri markup o codice.
@@ -247,9 +252,11 @@ function validateDirective(raw: string): PresentationDirective | null {
   // che non è un id sicuro viene scartato; se non ne resta nessuno, si omette.
   const regionIds = Array.isArray(candidate.regionIds)
     ? candidate.regionIds
-      .filter((id): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(id))
-      .slice(0, 20)
+      .filter(safeRegionId)
+      .slice(0, MAX_MAP_REGION_IDS)
     : undefined;
+  const invalidRegionIds = evidence === 'mappa' && candidate.regionIds !== undefined
+    && (!Array.isArray(candidate.regionIds) || !candidate.regionIds.length || candidate.regionIds.length > MAX_MAP_REGION_IDS || !candidate.regionIds.every(safeRegionId));
 
   // WS-GOVUX-P3 — Il bersaglio mirato (solo una chiave di evidenza nota) e la
   // versione di stato (intero non negativo). Valori non validi ⇒ omessi, non
@@ -268,6 +275,7 @@ function validateDirective(raw: string): PresentationDirective | null {
     ...(evidence ? { evidence } : {}),
     ...(note ? { note } : {}),
     ...(regionIds && regionIds.length > 0 ? { regionIds } : {}),
+    ...(invalidRegionIds ? { invalidRegionIds: true } : {}),
     ...(target ? { target } : {}),
     ...(version !== undefined ? { version } : {}),
   };

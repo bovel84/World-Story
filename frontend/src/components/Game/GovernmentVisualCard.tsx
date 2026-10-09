@@ -1,6 +1,7 @@
 import type { MapFocusVisual, GovernmentVisualSnapshot } from './governmentVisual';
 import { governmentVisualModel } from './governmentVisual';
 import { svgPathBounds, zoneCentroid } from './regionFocus';
+import { MAX_MAP_REGION_IDS } from './presentation';
 import './governmentVisual.css';
 
 export interface GovernmentVisualCardProps {
@@ -25,8 +26,8 @@ export function GovernmentVisualCard({ card, snapshot, onFocusMap }: GovernmentV
           {model.preview!.paths.length <= 4 && center && <text x={center.x} y={center.y} textAnchor="middle" dominantBaseline="middle" fontSize={Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) / 10} fill="#fff">{path.name}</text>}
         </g>;
       })}
-    </svg> : <p className="government-visual-fallback" role="status">Geometria non disponibile per una rappresentazione completa e affidabile.</p>}
-    <p className="government-visual-regions">{model.regions.map(region => region.name).join(' · ')}</p>
+    </svg> : <p className="government-visual-fallback" role="status">{model.regions.length > MAX_MAP_REGION_IDS ? 'Contesto territoriale esteso: apri la mappa principale per tutti i territori.' : 'Geometria non disponibile per una rappresentazione completa e affidabile.'}</p>}
+    <p className="government-visual-regions">{model.regions.length <= MAX_MAP_REGION_IDS ? model.regions.map(region => region.name).join(' · ') : `${model.regions.length} territori canonici`}</p>
     <ul className="government-visual-legend" aria-label="Proprietà attuale dei territori">
       {model.legend.map((entry, index) => <li key={index}><span className="government-visual-swatch" style={{ backgroundColor: entry.color }} aria-hidden="true" />{entry.label}</li>)}
     </ul>

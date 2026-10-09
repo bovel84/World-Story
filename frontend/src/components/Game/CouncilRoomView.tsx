@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useMemo, type ReactNode } from 'react';
 import { GovernmentBottomSheet } from '../ui/GovernmentBottomSheet';
 import type { CouncilIssue } from '../../services/api';
 import { CouncilIssueInline } from './CouncilIssueInline';
 import { RichText } from './RichText';
+import { GovernmentMessageVisuals } from './GovernmentMessageVisuals';
+import { safeGovernmentVisualText } from './governmentVisualRequest';
+import { resolveGovernmentVisuals, type GovernmentVisualSnapshot, type MapFocusVisual } from './governmentVisual';
 import { seatSpeaker } from './councilMeeting';
 import { councilOpenQuestions, councilText, type CouncilRoomState } from './councilRoom';
 import { activeProposal } from './decisionWorkspace';
@@ -12,6 +15,8 @@ import { CABINET_SEATS, type CabinetSeat } from './seatDecisionBoards';
 
 export interface CouncilRoomViewProps {
   room: CouncilRoomState;
+  visualSnapshot?: GovernmentVisualSnapshot;
+  onFocusMap?: (card: MapFocusVisual) => void;
   evidenceIndex: Partial<Record<CabinetSeat, EvidenceCardIndex>>;
   onFocusEvidence: (seat: CabinetSeat, card: InlineEvidenceCard) => void;
   nationalName: string;
@@ -51,7 +56,7 @@ function prefersReducedMotion(): boolean {
 }
 
 export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, nationalName, currentDate, isMobile, busy, speaking, streamText, input, target,
-  onInput, onTarget, onSend, onInterrupt, onConvene, onOpenIssue, onBack, onClose, onConclude, onSheetChange, board, draftPrepared, notice, error, failure, onRetry }: CouncilRoomViewProps) {
+  onInput, onTarget, onSend, onInterrupt, onConvene, onOpenIssue, onBack, onClose, onConclude, onSheetChange, board, draftPrepared, notice, error, failure, onRetry, visualSnapshot, onFocusMap }: CouncilRoomViewProps) {
   const [boardOpen, setBoardOpen] = useState(false);
   const [conveneOpen, setConveneOpen] = useState(false);
   const [unread, setUnread] = useState(false);
@@ -100,6 +105,7 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
     .filter((seat): seat is CabinetSeat => CABINET_SEATS.includes(seat as CabinetSeat) && !room.participants.includes(seat as CabinetSeat));
   const replies = room.messages.filter(message => message.kind === 'speech' && message.role === 'assistant');
   const lastReply = replies[replies.length - 1];
+  const lastReplyHasMap = useMemo(() => Boolean(lastReply && visualSnapshot && resolveGovernmentVisuals(lastReply, visualSnapshot).length), [lastReply, visualSnapshot]);
   const closeBoard = (): void => { setBoardOpen(false); boardButtonRef.current?.focus(); };
 
   return (
@@ -140,7 +146,9 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
             ) : (
               <article key={message.id} data-message-id={message.id} className={`council-room-message ${message.role}${message.kind === 'error' ? ' error' : ''}`} data-seat={message.seat}>
                 <p className="council-room-speaker">{message.role === 'user' ? 'Presidente' : message.seat ? seatSpeaker(message.seat) : 'Consiglio'}</p>
-                <div className="council-room-prose"><RichText text={message.role === 'assistant' ? councilText(message.content) : message.content} /></div>
+                {message.role === 'assistant' ? <GovernmentMessageVisuals message={message} snapshot={visualSnapshot} onFocusMap={onFocusMap}
+                  renderText={hasVisual => <div className="council-room-prose"><RichText text={safeGovernmentVisualText(message.content, hasVisual)} /></div>} />
+                  : <div className="council-room-prose"><RichText text={message.content} /></div>}
                 {message.role === 'assistant' && onOpenIssue && message.proposedIssues?.map(issue => <CouncilIssueInline key={issue.id} issue={issue} onOpenIssue={onOpenIssue} disabled={busy} />)}
                 {message.seat && inlineEvidenceCards({ directives: message.evidence ?? [], messageId: message.id, index: evidenceIndex[message.seat] ?? {} }).map(card => <button type="button" key={card.key} className="council-room-evidence-link" onClick={() => { setBoardOpen(true); onFocusEvidence(message.seat!, card); }}>Apri {card.title} sulla Tavola ↗</button>)}
                 {room.invitations.filter(invitation => invitation.id.startsWith(`${message.id}:`)).map(invitation => (
@@ -161,12 +169,12 @@ export function CouncilRoomView({ room, evidenceIndex, onFocusEvidence, national
             )}
             {busy && speaking && <article className="council-room-message assistant council-room-stream" data-seat={speaking}>
               <p className="council-room-speaker">{seatSpeaker(speaking)}</p>
-              <div className="council-room-prose">{streamText ? <RichText text={councilText(streamText)} /> : <span className="advisor-typing" role="status" aria-label="Il ministro sta preparando il suo intervento"><i /><i /><i /></span>}</div>
+              <div className="council-room-prose">{streamText ? <RichText text={safeGovernmentVisualText(councilText(streamText), false)} /> : <span className="advisor-typing" role="status" aria-label="Il ministro sta preparando il suo intervento"><i /><i /><i /></span>}</div>
             </article>}
             {error && <p className="council-room-error" role="alert">{error}</p>}
             {notice && <p className="council-room-notice" role="status">{notice}</p>}
           </div>
-          <p className="sr-only" role="status" aria-live="polite">{!busy ? lastReply?.content.slice(0, 600) : ''}</p>
+          <p className="sr-only" role="status" aria-live="polite">{!busy && lastReply ? safeGovernmentVisualText(lastReply.content, lastReplyHasMap).slice(0, 600) : ''}</p>
           {unread && <button type="button" className="council-room-unread" onClick={() => {
             const thread = threadRef.current;
             if (thread) thread.scrollTop = thread.scrollHeight;
