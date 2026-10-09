@@ -7,6 +7,7 @@
  * storage rotto non rompe la conversazione.
  */
 import type { AdvisorMessage } from '../../stores/chatStore';
+import { readGovernmentVisualMetadata } from './governmentVisualRequest';
 import type { AdvisorSituation, CouncilIssue } from '../../services/api';
 
 const PREFIX = 'ws.advisor';
@@ -139,7 +140,7 @@ function readBucket(storage: Storage, key: string): AdvisorMessage[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.flatMap(item => {
       if (!item || typeof item !== 'object') return [];
-      const message = item as { role?: unknown; content?: unknown; turn?: unknown; proactive?: unknown; issues?: unknown; situations?: unknown };
+      const message = item as { role?: unknown; content?: unknown; turn?: unknown; proactive?: unknown; issues?: unknown; situations?: unknown; evidence?: unknown; visualRequest?: unknown };
       if ((message.role !== 'user' && message.role !== 'assistant') || typeof message.content !== 'string' || !message.content.trim()) return [];
       const issues = sanitizeIssues(message.issues);
       const situations = sanitizeSituations(message.situations);
@@ -150,6 +151,7 @@ function readBucket(storage: Storage, key: string): AdvisorMessage[] {
         ...(message.proactive === true ? { proactive: true } : {}),
         ...(issues ? { issues } : {}),
         ...(situations ? { situations } : {}),
+        ...readGovernmentVisualMetadata(message),
       }] as AdvisorMessage[];
     }).slice(-MAX_MESSAGES);
   } catch {
@@ -263,6 +265,9 @@ export function saveAdvisorMessages(key: string, messages: readonly AdvisorMessa
         ...(message.issues?.length ? { issues: message.issues } : {}),
         // WS-CONSULENTE-SITUAZIONI — Le situazioni restano cliccabili dopo il reload.
         ...(message.situations?.length ? { situations: message.situations } : {}),
+        // Read-only presentation metadata: never sent to the LLM, revalidated on load.
+        ...(message.evidence?.length ? { evidence: message.evidence } : {}),
+        ...(message.visualRequest ? { visualRequest: message.visualRequest } : {}),
       }));
     if (!payload.length) storage.removeItem(key);
     else storage.setItem(key, JSON.stringify(payload));

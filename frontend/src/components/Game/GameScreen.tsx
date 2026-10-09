@@ -119,14 +119,20 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   // La stessa identità di snapshot alimenta i **due** punti d'uso di
   // `UnitActionPanel`: context inspector della mappa e sala di governo del
   // dossier nazionale (DeskContent → NationDock → ObjectsBoard).
+  const {
+    currentRegion, playerPolityId, nationalName, nationalRegions, nationalAccount, governmentType, externalRegionSelected,
+  } = deriveNationalContext({ regions, currentGame, selectedRegion, nationalAccounts: nation.nationalAccounts, relationshipNames: nation.relationshipNames });
   const snapshotKey = actionSnapshotKey(currentGame);
   const visualRuntimeKey = useSimulationStore(governmentVisualEpoch);
   const visualRuntimeMatches = useSimulationStore(({ state }) => governmentVisualRuntimeMatches(currentGame, state));
   const visualScopeKey = `${snapshotKey}|${currentWorld?.id ?? ''}|${visualRuntimeKey}`;
   const visualSnapshot = useMemo(() => buildGovernmentVisualSnapshot({
     scopeKey: visualScopeKey, canonicalSnapshotKey: snapshotKey, militarySnapshotKey: nation.militarySnapshotKey,
-    index: mapContextIndex, unavailable: !visualRuntimeMatches || loading || nation.militaryStateLoading || Boolean(nation.militaryStateError),
-  }), [visualScopeKey, visualRuntimeMatches, snapshotKey, mapContextIndex, loading, nation.militarySnapshotKey, nation.militaryStateLoading, nation.militaryStateError]);
+    index: mapContextIndex, unavailable: !visualRuntimeMatches || loading,
+    militaryUnavailable: nation.militaryStateLoading || Boolean(nation.militaryStateError), playerPolityId,
+    relationships: nation.relationshipsSnapshotKey === snapshotKey && !nation.relationshipsLoading && !nation.relationshipsError ? nation.relationships : null,
+  }), [visualScopeKey, visualRuntimeMatches, snapshotKey, mapContextIndex, loading, nation.militarySnapshotKey, nation.militaryStateLoading, nation.militaryStateError,
+    playerPolityId, nation.relationshipsSnapshotKey, nation.relationships, nation.relationshipsLoading, nation.relationshipsError]);
   const visualSnapshotRef = useRef(visualSnapshot);
   visualSnapshotRef.current = visualSnapshot;
 
@@ -219,25 +225,6 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   useEffect(() => {
     if (activeModule === 'orders') void loadCabinet();
   }, [activeModule, loadCabinet]);
-
-  const {
-    currentRegion,
-    playerPolityId,
-    nationalName,
-    nationalRegions,
-    nationalAccount,
-    governmentType,
-    externalRegionSelected,
-  } = deriveNationalContext({
-    regions,
-    currentGame,
-    selectedRegion,
-    nationalAccounts: nation.nationalAccounts,
-    // N01 — il nome della nazione viene dalla stessa risposta che porta la
-    // matrice diplomatica: una sola fonte di nomi, e nessuna deduzione dalla
-    // geografia.
-    relationshipNames: nation.relationshipNames,
-  });
 
   // MAP P5 — un solo modello tematico P3 per mappa e dossier: stesse soglie,
   // stessi bucket, stessi siti. Nessun fetch al click, nessuna duplicazione.

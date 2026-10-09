@@ -58,6 +58,15 @@ describe('WS-MINISTER-UX-03 — contratto di presentazione nel briefing', () => 
     expect(presentationSection).not.toMatch(/\d/);
   });
 
+  it.each(Object.keys(SEAT_LABEL) as CabinetAddress['seat'][])('%s può richiedere la scheda con lo stesso protocollo, senza dichiararla già visibile', seat => {
+    const context = briefingFor(address(seat), emptyAgenda).context;
+    expect(context).toContain('La stessa direttiva show/focus mappa');
+    expect(context).toContain('per qualsiasi sedia');
+    expect(context).toContain('Una direttiva è una richiesta, non prova che la mappa sia visibile');
+    expect(context).toContain('Non dire «La mappa conferma»');
+    expect(context).toContain('ID canonici');
+  });
+
   it('le regole dei dati restano intatte accanto alla presentazione', () => {
     const context = briefingFor(address('tesoro'), emptyAgenda).context;
     expect(context).toContain('un’opinione non è un dato');

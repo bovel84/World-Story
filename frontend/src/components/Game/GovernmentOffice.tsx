@@ -27,7 +27,7 @@ import { governmentSessionId } from './governmentSession';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { clientMandate, loadMemory, saveMemory, memoryScopeKey, seatRecords, withSeatRecords, recordMemory, queuedDecision, openQuestion, type MinisterMemoryStore } from './ministerMemory';
-import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilDiscussionIssue, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
+import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilText, councilDiscussionIssue, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
 import { seatSpeaker } from './councilMeeting';
 import { resolveCouncilExecution } from './councilExecution';
 import { resolveCurrentRegionRef } from './meetingLocalization';
@@ -249,7 +249,8 @@ export function GovernmentOffice({ open, onClose, gameId, session,
     const addOpening = (text: string): void => {
       const current = roomsRef.current[id];
       if (!owns() || !current || current.messages.length > 0) return;
-      updateRoom(appendCouncilMessage(current, { id: crypto.randomUUID(), role: 'assistant', seat: initial.seat, kind: 'speech', speaker: initial.label, content: text }));
+      // Opening is narrativeOnly/allowDirectives:false; preserve that API contract.
+      updateRoom(appendCouncilMessage(current, { id: crypto.randomUUID(), role: 'assistant', seat: initial.seat, kind: 'speech', speaker: initial.label, content: councilText(text) }));
     };
     // P3 — Se è un rapporto, l'apertura riceve un brief di follow-up (fatti di oggi,
     // nessuna decisione richiesta), così il ministro riferisce invece di riproporre.
@@ -293,7 +294,7 @@ export function GovernmentOffice({ open, onClose, gameId, session,
         return { id: crypto.randomUUID(), text: reply };
       }, operation.controller.signal, next => {
         if (owns()) { updateRoom(next); setStreamText(''); }
-      });
+      }, visualSnapshot?.scopeKey);
     } catch (failure) {
       if (owns()) {
         if (currentSpeaker && lastOutbound) {
@@ -460,7 +461,7 @@ export function GovernmentOffice({ open, onClose, gameId, session,
   return <AccessibleDialog open={open} onClose={onClose} closeOnEscape={!sheetOpen} closeOnBackdrop={!sheetOpen}
     className={`suggestions-content government-office council-office ${activeRoom ? 'government-room-active' : 'government-home'}`} overlayClassName="government-office-overlay" ariaLabelledBy="government-office-title">
     {activeRoom ? <CouncilRoomView key={activeRoom.id} room={activeRoom} evidenceIndex={evidenceIndex} onFocusEvidence={(seat, card) => setFocusedEvidence({ seat, card })} nationalName={nationalName}
-      currentDate={currentDate} isMobile={isMobile} busy={locked} speaking={speaking} streamText={streamText} input={inputs[activeRoom.id] ?? ''}
+      currentDate={currentDate} visualSnapshot={visualSnapshot} onFocusMap={onFocusMap} isMobile={isMobile} busy={locked} speaking={speaking} streamText={streamText} input={inputs[activeRoom.id] ?? ''}
       target={target} onInput={text => setInputs(previous => ({ ...previous, [activeRoom.id]: text }))} onTarget={setTarget} onSend={send}
       onInterrupt={() => { interrupt(); setNotice('Intervento interrotto. La Tavola conserva solo le risposte concluse.'); }} onConvene={convene}
       onOpenIssue={openIssue} onBack={() => { interrupt(); setActiveId(null); }} onClose={onClose} onConclude={() => {

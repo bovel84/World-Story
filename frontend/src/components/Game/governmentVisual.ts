@@ -5,6 +5,8 @@ import { regionIdsForFocus, type MapRegionFocusRequest } from '../Map/mapFocus';
 import { polityLabel } from '../Map/mapThematicContext';
 import { buildStaticMap, type StaticRegionPath } from '../Map/staticMapModel';
 import { svgPathBounds, unionBounds, viewBoxFor } from './regionFocus';
+import { MAX_MAP_REGION_IDS, type PresentationDirective } from './presentation';
+import type { GovernmentMapRequest } from './governmentVisualRequest';
 
 interface VisualBase {
   title: string;
@@ -15,6 +17,7 @@ interface VisualBase {
 export interface MapFocusVisual extends VisualBase {
   type: 'map-focus';
   regionIds: readonly string[];
+  source?: { type: 'front'; id: string } | { type: 'diplomacy'; playerPolityId: string; polityId: string };
 }
 /** Reserved contracts only: proposals must never look like executed actions.
  * No resolver or renderer for either of these types in this first increment. */
@@ -26,6 +29,9 @@ export interface GovernmentVisualSnapshot {
   scopeKey: string;
   /** The main map's index, resolved against the current world, not a copied world. */
   index: MapContextIndex;
+  militaryAvailable?: boolean;
+  playerPolityId?: string;
+  relationships?: Record<string, Record<string, string>> | null;
 }
 /** Store selector shared with the live click guard, including restore/rewind commands. */
 export function governmentVisualEpoch({ state, commandGeneration }: {
@@ -50,9 +56,13 @@ export function buildGovernmentVisualSnapshot(input: {
   militarySnapshotKey: string | null;
   index: MapContextIndex;
   unavailable: boolean;
+  militaryUnavailable?: boolean;
+  playerPolityId?: string;
+  relationships?: Record<string, Record<string, string>> | null;
 }): GovernmentVisualSnapshot | undefined {
-  return !input.unavailable && input.militarySnapshotKey === input.canonicalSnapshotKey
-    ? { scopeKey: input.scopeKey, index: input.index } : undefined;
+  return input.unavailable ? undefined : { scopeKey: input.scopeKey, index: input.index,
+    militaryAvailable: !input.militaryUnavailable && input.militarySnapshotKey === input.canonicalSnapshotKey,
+    playerPolityId: input.playerPolityId, relationships: input.relationships };
 }
 
 export interface GovernmentVisualMessage {
@@ -60,31 +70,77 @@ export interface GovernmentVisualMessage {
   content?: string;
   situations?: readonly { signalKeys?: readonly string[] }[];
   issues?: readonly { signalKeys?: readonly string[] }[];
+  evidence?: readonly PresentationDirective[];
+  visualRequest?: GovernmentMapRequest;
 }
 
-/** Only a verified structural join: RealitySignals emits conflict:<front.id>.
- * No name matching, generic domain inference, LLM calls or option inspection. */
+/** Geographic joins only: exact IDs, current fronts and verified diplomatic
+ * interlocutors. No text-name matching, coordinates, or inferred military acts. */
 export function resolveGovernmentVisuals(message: GovernmentVisualMessage, snapshot: GovernmentVisualSnapshot): MapFocusVisual[] {
-  if (message.role !== 'assistant') return [];
+  if (message.role !== 'assistant' || (message.visualRequest?.scopeKey && message.visualRequest.scopeKey !== snapshot.scopeKey)) return [];
   const keys = new Set([
     ...(message.situations ?? []).flatMap(situation => situation.signalKeys ?? []),
     ...(message.issues ?? []).flatMap(issue => issue.signalKeys ?? []),
+    ...(message.visualRequest?.signalKeys ?? []),
   ]);
+  const maps = (message.evidence ?? []).filter(directive => directive.evidence === 'mappa' && ['show', 'focus'].includes(directive.op));
+  if (maps.length && !message.visualRequest) return []; // Legacy unscoped directives are not re-badged.
+  if (maps.some(directive => directive.invalidRegionIds)) return [];
+  const explicitIds = [...maps].reverse().find(directive => directive.regionIds?.length)?.regionIds;
+  const checkedIds = explicitIds && regionIdsForFocus({ regionIds: explicitIds, requestId: 0 }, snapshot.index.regionsById);
+  if (explicitIds && !checkedIds?.length) return []; // Never substitute rejected IDs with another map.
   const cards: MapFocusVisual[] = [];
-  for (const key of keys) {
+  if (snapshot.militaryAvailable !== false) for (const key of keys) {
     if (!key.startsWith('conflict:')) continue;
     const front = snapshot.index.frontsById.get(key.slice('conflict:'.length));
     if (!front || !['active', 'stalemate', 'breakthrough'].includes(front.status)) continue;
     const regionIds = regionIdsForFocus({ regionIds: front.regionIds, requestId: 0 }, snapshot.index.regionsById);
-    if (!regionIds.length) continue;
-    cards.push({ type: 'map-focus', title: front.name, description: 'Territori del fronte nello stato attuale.', regionIds, scopeKey: snapshot.scopeKey });
+    if (regionIds.length) cards.push({ type: 'map-focus', title: front.name, description: 'Territori del fronte nello stato attuale.', regionIds, scopeKey: snapshot.scopeKey, source: { type: 'front', id: front.id } });
   }
-  return cards;
+  const identity = (ids: readonly string[]) => [...ids].sort().join('\u0000');
+  if (checkedIds?.length) {
+    const matchingFront = cards.find(card => identity(card.regionIds) === identity(checkedIds));
+    return [matchingFront ?? { type: 'map-focus', title: 'Contesto territoriale', description: 'Territori di riferimento; non indica operazioni o aree di conflitto.', regionIds: checkedIds, scopeKey: snapshot.scopeKey }];
+  }
+  if (cards.length) return cards.filter((card, i) => cards.findIndex(other => identity(other.regionIds) === identity(card.regionIds)) === i);
+  if (message.visualRequest?.regionIds?.length) {
+    const regionIds = regionIdsForFocus({ regionIds: message.visualRequest.regionIds, requestId: 0 }, snapshot.index.regionsById);
+    return regionIds.length ? [{ type: 'map-focus', title: 'Contesto territoriale', description: 'Territori di riferimento; non indica operazioni o aree di conflitto.', regionIds, scopeKey: snapshot.scopeKey }] : [];
+  }
+  const player = snapshot.playerPolityId;
+  // Diplomatic context is only drawn on an explicit map request: a routine
+  // mention of a hostile relation must not force a card on every reply.
+  if (!message.visualRequest) return [];
+  const relations = player && snapshot.relationships?.[player];
+  if (!player || !relations) return [];
+  const hostile = Object.keys(relations).filter(id => id !== player && relations[id] === 'hostile');
+  for (const key of keys) {
+    const polityId = key === 'hostile-relations' ? (hostile.length === 1 ? hostile[0] : undefined)
+      : key.startsWith('hostile-relations:') ? key.slice('hostile-relations:'.length) : undefined;
+    if (!polityId || !hostile.includes(polityId)) continue;
+    const territories = [...snapshot.index.regionsById.values()].filter(region => region.owner === player || region.owner === polityId);
+    if (!territories.some(region => region.owner === player) || !territories.some(region => region.owner === polityId)) continue;
+    cards.push({ type: 'map-focus', title: 'Contesto diplomatico', description: 'Relazione ostile verificata; non implica una guerra in corso.', regionIds: territories.map(region => region.id), scopeKey: snapshot.scopeKey, source: { type: 'diplomacy', playerPolityId: player, polityId } });
+  }
+  return cards.filter((card, i) => cards.findIndex(other => identity(other.regionIds) === identity(card.regionIds)) === i);
 }
 
 /** Also used at the final click boundary: a queued callback cannot cross epochs. */
 export function mapFocusFromVisual(card: MapFocusVisual, snapshot: GovernmentVisualSnapshot, requestId: number): MapRegionFocusRequest | null {
   if (card.scopeKey !== snapshot.scopeKey) return null;
+  if (card.source?.type === 'front') {
+    const front = snapshot.index.frontsById.get(card.source.id);
+    const selected = new Set(card.regionIds);
+    if (snapshot.militaryAvailable === false || !front || !['active', 'stalemate', 'breakthrough'].includes(front.status)
+      || new Set(front.regionIds).size !== selected.size || front.regionIds.some(id => !selected.has(id))) return null;
+  }
+  if (card.source?.type === 'diplomacy') {
+    const { playerPolityId, polityId } = card.source;
+    if (snapshot.playerPolityId !== playerPolityId || snapshot.relationships?.[playerPolityId]?.[polityId] !== 'hostile') return null;
+    const currentIds = [...snapshot.index.regionsById.values()].filter(region => region.owner === playerPolityId || region.owner === polityId).map(region => region.id);
+    const selected = new Set(card.regionIds);
+    if (currentIds.length !== selected.size || currentIds.some(id => !selected.has(id))) return null;
+  }
   const regionIds = regionIdsForFocus({ regionIds: card.regionIds, requestId }, snapshot.index.regionsById);
   return regionIds.length ? { regionIds, requestId, scopeKey: snapshot.scopeKey } : null;
 }
@@ -119,7 +175,9 @@ export function governmentVisualModel(card: MapFocusVisual, snapshot: Government
   for (const region of regions) {
     const color = region.color || '#3a3f4b'; // Same neutral fallback as buildStaticMap.
     const key = `${region.owner}:${color}`;
-    if (!legend.has(key)) legend.set(key, { label: polityLabel(region.owner, regions), color });
+    const role = card.source?.type === 'diplomacy' ? (region.owner === card.source.playerPolityId ? 'Nazione del giocatore' : 'Interlocutore diplomatico ostile') : '';
+    if (!legend.has(key)) legend.set(key, { label: [polityLabel(region.owner, regions), role].filter(Boolean).join(' · '), color });
   }
-  return { regions, legend: [...legend.values()], preview: previewFor(regions) };
+  const bounded = card.source?.type !== 'front' && regions.length > MAX_MAP_REGION_IDS;
+  return { regions, legend: [...legend.values()], preview: bounded ? null : previewFor(regions) };
 }

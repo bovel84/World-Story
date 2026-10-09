@@ -7,12 +7,15 @@ import { parsePresentation, type PresentationDirective } from './presentation';
 import { CABINET_SEATS, type CabinetSeat } from './seatDecisionBoards';
 import { seatSpeaker } from './councilMeeting';
 import { discussedProposal, openQuestion, type MinisterMemoryRef, type MinisterMemoryRecord } from './ministerMemory';
+import { captureGovernmentMapRequest, type GovernmentMapRequest } from './governmentVisualRequest';
 
 export interface CouncilMessage extends AdvisorHistoryItem {
   id: string;
   seat?: CabinetSeat;
   kind: 'speech' | 'event' | 'error';
   evidence?: readonly PresentationDirective[];
+  /** Read-only geographic intent attached once to this completed contribution. */
+  visualRequest?: GovernmentMapRequest;
   /** Canonical proposals from the backend; never admitted or opened automatically. */
   proposedIssues?: readonly CouncilIssue[];
 }
@@ -265,11 +268,18 @@ function ministerActions(actions: readonly DecisionAction[], board: DecisionWork
     }) } as DecisionAction];
   });
 }
-export function receiveCouncilReply(room: CouncilRoomState, seat: CabinetSeat, raw: string, messageId: string): CouncilRoomState {
+export function receiveCouncilReply(room: CouncilRoomState, seat: CabinetSeat, raw: string, messageId: string, visualScopeKey?: string): CouncilRoomState {
   if (!room.participants.includes(seat)) return room;
   // Remove issue blocks before parsing decision directives: an issue is not a measure.
   const parsed = parsePresentation(raw.replace(/```council_issue\b[\s\S]*?(?:```|$)/gi, ''));
   const proposedIssues = councilProposedIssues(raw);
+  const recent = room.messages.slice(-40).reverse();
+  const president = recent.find(message => message.role === 'user');
+  const previousMap = recent.find(message => message.visualRequest?.scopeKey === visualScopeKey
+    && message.evidence?.some(directive => directive.evidence === 'mappa' && !directive.invalidRegionIds && directive.regionIds?.length));
+  const visualRequest = captureGovernmentMapRequest({ directives: parsed.directives, presidentText: president?.content,
+    signalKeys: room.sourceIssue?.signalKeys, scopeKey: visualScopeKey,
+    contextRegionIds: previousMap?.evidence?.find(directive => directive.evidence === 'mappa' && !directive.invalidRegionIds && directive.regionIds?.length)?.regionIds });
   const sharedBoard = applyDecisionBatch(room.sharedBoard, ministerActions(parsed.decisions, room.sharedBoard), { messageId });
   const protocol = councilProtocol(raw);
   // P0 — Il modello PUO' suggerire strade, ma non confermarle. Ogni id viene
@@ -304,7 +314,7 @@ export function receiveCouncilReply(room: CouncilRoomState, seat: CabinetSeat, r
   const assessments = protocol ? { ...room.assessments, [seat]: { agreements: textList(protocol.agreements), disagreements: textList(protocol.disagreements) } } : room.assessments;
   return appendCouncilMessage({ ...room, sharedBoard, invitations, positions, assessments, proposedPressureOptions,
     topic: room.sourceIssue?.title ?? sharedBoard.objective ?? room.topic }, { id: messageId, role: 'assistant', kind: 'speech', seat, speaker: seatSpeaker(seat), content: councilText(raw),
-      ...(parsed.directives.length ? { evidence: parsed.directives } : {}), ...(proposedIssues.length ? { proposedIssues } : {}) });
+      ...(parsed.directives.length ? { evidence: parsed.directives } : {}), ...(visualRequest ? { visualRequest } : {}), ...(proposedIssues.length ? { proposedIssues } : {}) });
 }
 export function confirmCouncilProposal(room: CouncilRoomState, messageId: string): CouncilRoomState {
   const proposal = activeProposal(room.sharedBoard);
@@ -409,7 +419,7 @@ export function councilDraft(room: CouncilRoomState, turn?: number): ProposalAct
 export async function councilRound(
   room: CouncilRoomState, seats: readonly CabinetSeat[],
   respond: (seat: CabinetSeat, current: CouncilRoomState) => Promise<{ text: string; id: string }>,
-  signal?: AbortSignal, onUpdate?: (room: CouncilRoomState) => void,
+  signal?: AbortSignal, onUpdate?: (room: CouncilRoomState) => void, visualScopeKey?: string,
 ): Promise<CouncilRoomState> {
   let current = room;
   const speakers = [...new Set(seats)].filter(seat => room.participants.includes(seat)).slice(0, CABINET_SEATS.length);
@@ -417,7 +427,7 @@ export async function councilRound(
     signal?.throwIfAborted();
     const reply = await respond(seat, current);
     signal?.throwIfAborted();
-    current = receiveCouncilReply(current, seat, reply.text, reply.id);
+    current = receiveCouncilReply(current, seat, reply.text, reply.id, visualScopeKey);
     onUpdate?.(current);
   }
   return current;

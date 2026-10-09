@@ -48,6 +48,21 @@ const anchorIssue = (over: Partial<CouncilIssue> = {}): CouncilIssue => ({
 });
 
 describe('advisorMemory', () => {
+  it('mantiene direttive visuali, scope originale e rifiuti sul messaggio esatto', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const message = { role: 'assistant' as const, content: 'Contesto territoriale.',
+      evidence: [{ op: 'show' as const, evidence: 'mappa' as const, regionIds: ['r0'], invalidRegionIds: true }],
+      visualRequest: { requested: true as const, scopeKey: 'game:branch:revision', signalKeys: ['hostile-relations'] } };
+    saveAdvisorMessages('geo-key', [message]);
+    expect(loadAdvisorMessages('geo-key')).toEqual([message]);
+  });
+
+  it('scarta metadati visuali malformati senza perdere il testo', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    localStorage.setItem('geo-key', JSON.stringify([{ role: 'assistant', content: 'Risposta normale.', evidence: [{ op: 'invent', evidence: 'mappa' }], visualRequest: { requested: true, scopeKey: 123 } }]));
+    expect(loadAdvisorMessages('geo-key')).toEqual([{ role: 'assistant', content: 'Risposta normale.' }]);
+  });
+
   it('isola i bucket per turno e per ramo: nessun merge tra scope diversi', () => {
     (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
     const turn3 = advisorBucketKey('g1', 'main', 'g1|main|3');

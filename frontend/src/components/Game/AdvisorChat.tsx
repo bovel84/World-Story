@@ -12,7 +12,9 @@ import { advisorBucketKey, advisorOpeningKey, loadAdvisorArchive, loadAdvisorMes
 import { fetchAdvisorOpening } from './advisorOpening';
 import type { ChartDataInput } from './advisorCharts';
 import { GovernmentMessageVisuals } from './GovernmentMessageVisuals';
-import type { GovernmentVisualSnapshot, MapFocusVisual } from './governmentVisual';
+import type { GovernmentVisualSnapshot, MapFocusVisual, GovernmentVisualMessage } from './governmentVisual';
+import { captureGovernmentMapRequest, safeGovernmentVisualText } from './governmentVisualRequest';
+import { parsePresentation } from './presentation';
 
 interface AdvisorChatProps {
   gameId: string;
@@ -132,6 +134,10 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     // riferimenti (signalKeys + evidenceKeys), mai titolo o sintesi.
     const activeSituation = explicitIssue ? undefined : explicitSituation ?? situationFocus;
     const focusPayload = activeSituation ? buildSituationFocusPayload(activeSituation) : undefined;
+    const previous: GovernmentVisualMessage | undefined = [...activeMessages].reverse().find(message => message.role === 'assistant');
+    const geographicKeys = activeSituation?.signalKeys ?? (explicitIssue ?? focus)?.signalKeys
+      ?? [...(previous?.situations ?? []).flatMap(item => item.signalKeys ?? []), ...(previous?.issues ?? []).flatMap(item => item.signalKeys ?? [])];
+    const visualScopeKey = visualSnapshot?.scopeKey;
     addAdvisorMessage({ role: 'user', content: text, turn: currentTurn });
     if (raw === undefined) setInput('');
     setError(''); setAdvisorStreaming(true);
@@ -149,7 +155,12 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
         }
         setSituationFocus(undefined); setFocus(undefined);
       }
-      addAdvisorMessage({ role: 'assistant', content: result.reply, issues: result.issues, situations: result.situations ?? [], turn: currentTurn });
+      const parsed = parsePresentation(result.reply);
+      const visualRequest = captureGovernmentMapRequest({ presidentText: text, directives: parsed.directives, signalKeys: geographicKeys, scopeKey: visualScopeKey,
+        contextRegionIds: previous?.visualRequest?.scopeKey === visualScopeKey ? previous?.evidence?.find(item => item.evidence === 'mappa' && !item.invalidRegionIds)?.regionIds : undefined });
+      const reply = { role: 'assistant' as const, content: parsed.text, issues: result.issues, situations: result.situations ?? [], turn: currentTurn,
+        ...(parsed.directives.length ? { evidence: parsed.directives } : {}), ...(visualRequest ? { visualRequest } : {}) };
+      addAdvisorMessage(reply);
     } catch {
       if (owns()) setError('Il Consulente non è raggiungibile. La domanda è conservata; riprova esplicitamente.');
     } finally {
@@ -182,15 +193,15 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
       {loading && <p className="advisor-loading" role="status">{ADVISOR_LOADING_TEXT}</p>}
       {opening && <article className="advisor-entry assistant advisor-opening">
         <div className="entry-meta">Consulente · {opening.date}</div>
-        <div className="entry-text"><RichText text={opening.reply} chartData={chartData} /></div>
-        <GovernmentMessageVisuals message={{ role: 'assistant', situations: opening.situations, issues: opening.issues }} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap} />
+        <GovernmentMessageVisuals message={{ role: 'assistant', situations: opening.situations, issues: opening.issues }} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap}
+          renderText={hasVisual => <div className="entry-text"><RichText text={safeGovernmentVisualText(opening.reply, hasVisual)} chartData={chartData} /></div>} />
         <AdvisorQuestionCards situations={opening.situations ?? []} issues={opening.issues ?? []} allSituations={allSituations} allIssues={allIssues}
           onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming || loading} />
       </article>}
       {activeMessages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
         <div className="entry-meta">{message.role === 'user' ? 'Presidente' : message.proactive ? 'Bollettino' : 'Consulente'}</div>
-        <div className="entry-text">{message.role === 'assistant' ? <RichText text={message.content} chartData={chartData} /> : message.content}</div>
-        <GovernmentMessageVisuals message={message} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap} />
+        <GovernmentMessageVisuals message={message} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap}
+          renderText={hasVisual => <div className="entry-text">{message.role === 'assistant' ? <RichText text={safeGovernmentVisualText(message.content, hasVisual)} chartData={chartData} /> : message.content}</div>} />
         <AdvisorQuestionCards situations={message.situations ?? []} issues={message.issues ?? []} allSituations={allSituations} allIssues={allIssues}
           onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming} />
       </article>)}
