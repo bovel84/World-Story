@@ -63,6 +63,17 @@ export const MAX_NEW_EVIDENCES_PER_REPLY = 3;
 export const MAX_MAIN_EVIDENCES = 2;
 /** Bounded canonical references, including UUID and namespaced region IDs. */
 export const MAX_MAP_REGION_IDS = 20;
+/**
+ * M02 — Quanto può essere ampia una **scheda geografica** prima che la
+ * mini-mappa venga ridotta a riepilogo. È un tetto di **resa**, non di
+ * **ricezione**: una direttiva del modello resta limitata a `MAX_MAP_REGION_IDS`
+ * (il payload non fidato si difende fail-closed), mentre un insieme canonico —
+ * il territorio di una nazione, decine o centinaia di regioni — può essere
+ * disegnato. Misurato: 4475 regioni → 4475 path, ~2,7 MB, ~750 ms nel browser;
+ * il paese del giocatore (61) → ~45 ms. Oltre questo tetto si degrada al
+ * riepilogo, mai al vuoto.
+ */
+export const MAX_MAP_PREVIEW_REGIONS = 800;
 const safeRegionId = (id: unknown): id is string => typeof id === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(id);
 
 const KEY_LABEL: Record<EvidenceKey, string> = {

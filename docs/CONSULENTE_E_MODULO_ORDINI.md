@@ -1,16 +1,33 @@
 # World Story — il Consulente che mostra, e il modulo Ordini alleggerito
 
 **Versione:** 1.0, 25 settembre 2026.
-**Stato:** **C01, C02, C03 implementate e verificate.**
+**Stato:** **C01, C02, C03 implementate.** ⚠️ **C01 è stata rotta per ~5 giorni e ripristinata il 9 ottobre 2026** — vedi sotto.
 **Destinatari:** sviluppatori e LLM esecutori.
 **Rapporto con gli altri piani:** prosegue `PIANO_CHIAREZZA_DOSSIER_NAZIONE.md` (D01–D07),
 `COERENZA_DOSSIER_ANNO_NAZIONE.md` (N01–N08) e `DIREZIONE_CIVILE_DEL_GIOCCO.md` (M01–M03).
 Questo risponde a due richieste dirette: **dare più potenzialità al Consulente** con aspetti
 grafici, e **alleggerire il modulo Ordini**.
 
+> ⚠️ **Regressione e ripristino di C01 (9 ottobre 2026).** La PR #192 del 4 ottobre
+> (`c7cd4af`, *verified reality advisor workflow*) ha **riscritto il percorso del Consulente**
+> facendolo passare da `buildRealityAdvisorPrompt` (`core/government/RealityAdvisor.ts`).
+> Da allora l'istruzione C02 in `prompts/advisor.ts` — che il documento qui sotto dava per
+> «viva» — è **codice morto**: nessun chiamante di produzione. Effetto: C01 era **completamente
+> inerte** in partita. Il Consulente non riceveva la sintassi delle figure, quindi **non poteva
+> mai emettere `[[chart: …]]`**, e nessuna figura compariva. I test restavano verdi perché
+> testavano il prompt morto. **Ripristinata** spostando la sintassi nel prompt reale: nuova
+> costante `ADVISOR_FIGURE_PROTOCOL` (`core/government/CouncilIssue.ts`), montata in
+> `buildRealityAdvisorPrompt` per il solo Consulente. Difesa: test in
+> `backend-nest/tests/advisor-map-directive.test.ts` (legge il prompt **reale**).
+>
+> **Lezione (vale per ogni prompt).** Un prompt scritto in una funzione che la produzione non
+> chiama è un prompt che non esiste. Prima di scrivere o modificare un prompt, **grep dei
+> chiamanti** — non basta che il test passi.
+
 > Nota sul mandato. C01 e C03 sono **solo frontend**. C02 tocca **una sola riga di prompt nel
-> backend** (`prompts/advisor.ts`): è l'unico modo di insegnare al modello la sintassi delle
-> figure, perché il prompt vive lì. Il resto del backend è intatto e la sua logica non cambia.
+> backend**: la sintassi delle figure va insegnata dove il prompt **reale** vive — oggi
+> `core/government/CouncilIssue.ts` (`ADVISOR_FIGURE_PROTOCOL`), non più `prompts/advisor.ts`
+> (codice morto dal 4 ottobre). Il resto del backend è intatto e la sua logica non cambia.
 
 ---
 
