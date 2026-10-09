@@ -7,6 +7,7 @@ import { OrderRegister } from './OrderRegister';
 import { CouncilRoomView } from './CouncilRoomView';
 import { AdvisorChat } from './AdvisorChat';
 import type { ChartDataInput } from './advisorCharts';
+import type { GovernmentVisualSnapshot, MapFocusVisual } from './governmentVisual';
 import { CouncilRoomBoard } from './CouncilRoomBoard';
 import { ActDraftPanel } from './ActDraftPanel';
 import { SeatCanvas } from './SeatCanvas';
@@ -54,6 +55,8 @@ export interface GovernmentOfficeProps {
   onWithdrawOrder: (id: string) => void;
   pictureSources: NationOperatingPictureSources;
   worldMapAssets?: import('../../services/api').WorldMapAssetsPayload | null;
+  visualSnapshot?: GovernmentVisualSnapshot;
+  onFocusMap?: (card: MapFocusVisual) => void;
 }
 interface RoomDraft extends ProposalActDraft {
   signatureKey: string;
@@ -63,7 +66,7 @@ interface RoomDraft extends ProposalActDraft {
 }
 
 export function GovernmentOffice({ open, onClose, gameId, session,
-  onQueueOrder, pendingActions, nationalName, currentDate = null, currentTurn = null, onWithdrawOrder, pictureSources, worldMapAssets }: GovernmentOfficeProps) {
+  onQueueOrder, pendingActions, nationalName, currentDate = null, currentTurn = null, onWithdrawOrder, pictureSources, worldMapAssets, visualSnapshot, onFocusMap }: GovernmentOfficeProps) {
   const branchId = useSimulationStore(state => state.state?.branchId ?? null);
   const history = useGameStore(state => state.history);
   const isMobile = useGovernmentCompactLayout();
@@ -479,7 +482,7 @@ export function GovernmentOffice({ open, onClose, gameId, session,
       </div>
       <section className="government-advisor" aria-label="Il Primo Consulente">
         <h3 className="government-advisor-heading">IL PRIMO CONSULENTE</h3>
-        <AdvisorChat gameId={gameId} chartData={advisorChartData} scopeKey={scopeKey} onOpenIssue={openIssue} currentTurn={currentTurn ?? 0} />
+        <AdvisorChat gameId={gameId} chartData={advisorChartData} scopeKey={scopeKey} onOpenIssue={openIssue} currentTurn={currentTurn ?? 0} visualSnapshot={visualSnapshot} onFocusMap={onFocusMap} />
       </section>
       <OrderRegister orders={pendingActions} nationalName={nationalName} date={currentDate} onWithdraw={onWithdrawOrder} />
       {Object.values(rooms).filter(candidate => candidate.scopeKey === scopeKey).map(candidate => <button type="button" key={candidate.id} className="council-room-resume" onClick={() => { setTarget('council'); setActiveId(candidate.id); }}>

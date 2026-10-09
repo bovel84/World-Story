@@ -10,10 +10,13 @@
  * Zustand tutto ciò che è già stato globale (gioco, UI, chat, bozza d'ordine).
  * Nessuna logica di gioco nuova: solo presentazione e selezione.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Region } from '../../types';
 import { selectTotalUnread, useActionsStore, useChatStore, useGameStore, useUIStore } from '../../stores';
 import { useOrderDraftStore } from '../../stores/orderDraftStore';
+import { useSimulationStore } from '../../stores/simulationRuntime';
+import type { MapRegionFocusRequest } from '../Map/mapFocus';
+import { buildGovernmentVisualSnapshot, governmentVisualEpoch, governmentVisualRuntimeMatches, mapFocusFromVisual, type MapFocusVisual } from './governmentVisual';
 import { useToast } from '../ui/ToastProvider';
 import { deriveNationalContext } from './nationalContext';
 import { councilPresence } from './governmentDossier';
@@ -94,7 +97,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   });
   // MAP P4 — un solo contesto della mappa, composto esclusivamente da ID.
   const [mapContextSelection, setMapContextSelection] = useState<MapContextSelection>(null);
-  const [mapFocusRequest, setMapFocusRequest] = useState<{ regionId: string; requestId: number } | null>(null);
+  const [mapFocusRequest, setMapFocusRequest] = useState<MapRegionFocusRequest | null>(null);
 
   // Keep map props stable when chat/HUD state changes without a world update.
   const regions: Region[] = useMemo(() => Object.values(currentWorld?.regions || {}), [currentWorld?.regions]);
@@ -117,6 +120,15 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   // `UnitActionPanel`: context inspector della mappa e sala di governo del
   // dossier nazionale (DeskContent → NationDock → ObjectsBoard).
   const snapshotKey = actionSnapshotKey(currentGame);
+  const visualRuntimeKey = useSimulationStore(governmentVisualEpoch);
+  const visualRuntimeMatches = useSimulationStore(({ state }) => governmentVisualRuntimeMatches(currentGame, state));
+  const visualScopeKey = `${snapshotKey}|${currentWorld?.id ?? ''}|${visualRuntimeKey}`;
+  const visualSnapshot = useMemo(() => buildGovernmentVisualSnapshot({
+    scopeKey: visualScopeKey, canonicalSnapshotKey: snapshotKey, militarySnapshotKey: nation.militarySnapshotKey,
+    index: mapContextIndex, unavailable: !visualRuntimeMatches || loading || nation.militaryStateLoading || Boolean(nation.militaryStateError),
+  }), [visualScopeKey, visualRuntimeMatches, snapshotKey, mapContextIndex, loading, nation.militarySnapshotKey, nation.militaryStateLoading, nation.militaryStateError]);
+  const visualSnapshotRef = useRef(visualSnapshot);
+  visualSnapshotRef.current = visualSnapshot;
 
   useEffect(() => {
     if (!currentWorld) return;
@@ -166,8 +178,22 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
 
   const focusMapRegion = useCallback((regionId: string) => {
     if (!mapContextIndex.regionsById.has(regionId)) return;
-    setMapFocusRequest(previous => ({ regionId, requestId: (previous?.requestId || 0) + 1 }));
-  }, [mapContextIndex]);
+    setMapFocusRequest(previous => ({ regionId, requestId: (previous?.requestId || 0) + 1, scopeKey: visualScopeKey }));
+  }, [mapContextIndex, visualScopeKey]);
+
+  const focusGovernmentMap = useCallback((card: MapFocusVisual) => {
+    const snapshot = visualSnapshotRef.current;
+    const live = useGameStore.getState();
+    const liveScope = `${actionSnapshotKey(live.currentGame)}|${live.currentWorld?.id ?? ''}|${governmentVisualEpoch(useSimulationStore.getState())}`;
+    if (!snapshot || snapshot.scopeKey !== liveScope || useUIStore.getState().loading
+      || card.regionIds.some(id => !live.currentWorld?.regions[id]) || !mapFocusFromVisual(card, snapshot, 0)) return;
+    setMapFocusRequest(previous => mapFocusFromVisual(card, snapshot, (previous?.requestId || 0) + 1));
+    setMapLegendLayer('political'); // Same ownership palette as the preview.
+    setMapContextSelection(null);
+    setSelectedRegion(null);
+    setShowOpening(false);
+    closeModule(); // Reveals the existing main map on mobile as well as desktop.
+  }, [closeModule, setSelectedRegion, setShowOpening]);
 
   const closeMapContext = useCallback(() => {
     const closing = mapContextSelection;
@@ -369,7 +395,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       onRegionClick={selectRegionContext}
       onUnitClick={selectUnitContext}
       onFrontClick={selectFrontContext}
-      focusRegionRequest={mapFocusRequest}
+      focusRegionRequest={mapFocusRequest?.scopeKey === visualScopeKey ? mapFocusRequest : null}
       changedRegionIds={changedRegions}
       temporalScars={playback.temporalScars}
       events={feed.feedItems}
@@ -401,6 +427,8 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
         gameId={currentGame?.id ?? ''}
         session={cabinet}
         worldMapAssets={nation.worldMapAssets}
+        visualSnapshot={visualSnapshot}
+        onFocusMap={focusGovernmentMap}
         sessionLoading={cabinetLoading}
         sessionError={cabinetError}
         onQueueOrder={queuePlayerAction}

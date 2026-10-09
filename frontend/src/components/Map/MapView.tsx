@@ -4,9 +4,11 @@
 * Mappa interattiva con regioni SVG, zoom e pan.
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { Region, MapObject } from '../../types';
 import type { MapLayer } from './mapModel';
+import { regionIdsForFocus, type MapRegionFocusRequest } from './mapFocus';
+import { focusViewBox } from '../Game/regionFocus';
 
 interface MapViewProps {
   regions: Region[];
@@ -17,6 +19,7 @@ interface MapViewProps {
   height?: number;
   /** MAP P3 — il fallback SVG supporta solo le viste di base. */
   activeLayer?: MapLayer;
+  focusRegionRequest?: MapRegionFocusRequest | null;
 }
 
 /** Viste che richiedono geometria GeoJSON/MapLibre per la resa tematica piena. */
@@ -45,6 +48,7 @@ export const MapView: React.FC<MapViewProps> = ({
   width = 2000,
   height = 1500,
   activeLayer = 'political',
+  focusRegionRequest,
 }) => {
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -54,6 +58,12 @@ export const MapView: React.FC<MapViewProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const [dismissedFocus, setDismissedFocus] = useState<MapRegionFocusRequest | null | undefined>(null);
+  const focusIds = useMemo(() => regionIdsForFocus(focusRegionRequest, new Map(regions.filter(region => region.svgPath).map(region => [region.id, region]))), [regions, focusRegionRequest]);
+  const focused = useMemo(() => new Set(focusIds), [focusIds]);
+  const viewBox = useMemo(() => focusIds.length && focusRegionRequest !== dismissedFocus
+    ? focusViewBox(regions, focusIds, 40) : `0 0 ${width} ${height}`, [regions, focusIds, focusRegionRequest, dismissedFocus, width, height]);
+  useEffect(() => { if (focusRegionRequest) { setZoom(1); setPan({ x: 0, y: 0 }); } }, [focusRegionRequest]);
 
   // Gestore zoom con la rotella del mouse
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -94,6 +104,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
   // Reset zoom
   const resetView = () => {
+    setDismissedFocus(focusRegionRequest);
     setZoom(1);
     setPan({ x: 0, y: 0 });
   };
@@ -241,7 +252,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${width} ${height}`}
+        viewBox={viewBox}
         style={{
           width: '100%',
           height: '100%',
@@ -261,7 +272,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
         {/* Regions */}
         {regions.map((region) => {
-          const isSelected = region.id === selectedRegionId;
+          const isSelected = region.id === selectedRegionId || focused.has(region.id);
           const isHovered = region.id === hoveredRegion;
           const isChanged = changedRegionIds.includes(region.id);
           // Nei mondi con poche regioni il nome è sempre utile; con molte

@@ -39,6 +39,7 @@ import {
   type WorldMapAssetsStatus,
 } from '../services/api';
 import { normalizeResources } from '../components/Game/nationDossier';
+import { actionSnapshotKey } from '../components/Game/actionSnapshot';
 
 export type NationalResources = Awaited<ReturnType<typeof normalizeResources>>;
 
@@ -143,6 +144,8 @@ export interface NationSnapshot {
   militaryFronts: WarFrontPayload[];
   militaryStateLoading: boolean;
   militaryStateError: string | null;
+  /** Provenance of the published military read model; never a simulation revision. */
+  militarySnapshotKey: string | null;
   refreshMilitaryState: () => Promise<void>;
   /** MAP P3 — relazioni canoniche per il layer Diplomazia (fail-closed). */
   relationships: RelationshipMap | null;
@@ -226,6 +229,8 @@ export function useNationSnapshot({
   const [militaryStateLoading, setMilitaryStateLoading] = useState(false);
   const [militaryStateError, setMilitaryStateError] = useState<string | null>(null);
   const militaryRequest = useRef(0);
+  const militarySourceKey = actionSnapshotKey({ id: gameId, currentTurn, currentDate, worldRevision, headBranchId });
+  const [militarySnapshotKey, setMilitarySnapshotKey] = useState<string | null>(null);
   /**
    * MAP P6 — asset economici canonici **dello snapshot corrente**: legati a
    * turno/data/revisione/ramo, invalidati all'avvio di ogni refresh. Una
@@ -269,6 +274,7 @@ export function useNationSnapshot({
     setMilitaryFronts([]);
     setMilitaryStateLoading(false);
     setMilitaryStateError(null);
+    setMilitarySnapshotKey(null);
     militaryRequest.current += 1;
     setRelationships(null);
     setRelationshipNames(null);
@@ -291,6 +297,7 @@ export function useNationSnapshot({
     const request = ++militaryRequest.current;
     setMilitaryStateLoading(true);
     setMilitaryStateError(null);
+    setMilitarySnapshotKey(null);
     try {
       const [unitResponse, frontResponse] = await Promise.all([
         gameApi.militaryUnits(gameId),
@@ -299,6 +306,7 @@ export function useNationSnapshot({
       if (request !== militaryRequest.current) return;
       setMilitaryUnits(unitResponse.units || []);
       setMilitaryFronts(frontResponse.fronts || []);
+      setMilitarySnapshotKey(militarySourceKey);
     } catch (error) {
       if (request !== militaryRequest.current) return;
       console.warn('[App] Situazione militare non disponibile:', error);
@@ -311,7 +319,7 @@ export function useNationSnapshot({
     } finally {
       if (request === militaryRequest.current) setMilitaryStateLoading(false);
     }
-  }, [gameId]);
+  }, [gameId, militarySourceKey]);
 
   // Non mostrare mai per un istante i reparti della partita precedente.
   useEffect(() => {
@@ -766,6 +774,7 @@ export function useNationSnapshot({
     militaryFronts,
     militaryStateLoading,
     militaryStateError,
+    militarySnapshotKey,
     refreshMilitaryState,
     relationships,
     relationshipNames,

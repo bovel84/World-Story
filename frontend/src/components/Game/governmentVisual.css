@@ -1,0 +1,28 @@
+.government-visual-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 520px;
+  min-width: 0;
+  margin: 14px 0 18px;
+  padding: 14px;
+  color: #dceaf3;
+  background: #101d28;
+  border: 1px solid #314b60;
+  border-radius: 8px;
+  font-family: system-ui, sans-serif;
+}
+.government-visual-kind { font-size: 10px; letter-spacing: .14em; color: #a2bbce; }
+.government-visual-card h4 { margin: 6px 0 12px; font: 500 20px/1.25 Georgia, serif; overflow-wrap: anywhere; }
+.government-visual-preview { display: block; width: 100%; aspect-ratio: 2.4 / 1; background: #0a141e; border-radius: 4px; }
+.government-visual-preview text { font-family: system-ui, sans-serif; font-weight: 600; paint-order: stroke; stroke: #0a141e; stroke-width: .5px; stroke-linejoin: round; }
+.government-visual-regions { margin: 10px 0 6px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.government-visual-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; list-style: none; font-size: 11px; color: #becedd; }
+.government-visual-legend li { display: flex; align-items: center; gap: 6px; }
+.government-visual-swatch { flex: 0 0 9px; width: 9px; height: 9px; border: 1px solid #dceaf370; border-radius: 2px; }
+.government-visual-description, .government-visual-fallback { color: #a2bbce; font-size: 12px; line-height: 1.5; }
+.government-visual-fallback { padding: 18px 12px; background: #0a141e; }
+.government-visual-open { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; margin-top: 12px; padding: 10px 12px; border: 1px solid #5b7c95; border-radius: 4px; background: #172e40; color: #e7f1f9; font: 500 12px/1.4 system-ui, sans-serif; text-align: left; cursor: pointer; }
+.government-visual-open:hover:not(:disabled) { background: #24465e; }
+.government-visual-open:focus-visible { outline: 2px solid #dceaf3; outline-offset: 3px; }
+.government-visual-open:disabled { opacity: .5; cursor: default; }
+@media (max-width: 480px) { .government-visual-card { padding: 10px; } .government-visual-card h4 { font-size: 18px; } }

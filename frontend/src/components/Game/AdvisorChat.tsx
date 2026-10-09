@@ -11,12 +11,16 @@ import { archivedTurns, currentTurnMessages } from './advisorTurns';
 import { advisorBucketKey, advisorOpeningKey, loadAdvisorArchive, loadAdvisorMessages, loadAdvisorOpening, saveAdvisorMessages, saveAdvisorOpening, type AdvisorOpening } from './advisorMemory';
 import { fetchAdvisorOpening } from './advisorOpening';
 import type { ChartDataInput } from './advisorCharts';
+import { GovernmentMessageVisuals } from './GovernmentMessageVisuals';
+import type { GovernmentVisualSnapshot, MapFocusVisual } from './governmentVisual';
 
 interface AdvisorChatProps {
   gameId: string;
   chartData?: ChartDataInput | null;
   scopeKey?: string;
   onOpenIssue?: (issue: CouncilIssue) => void;
+  visualSnapshot?: GovernmentVisualSnapshot;
+  onFocusMap?: (card: MapFocusVisual) => void;
   /** WS-GOV-TURN-AWARENESS — Il turno corrente: la chat attiva è solo questo. */
   currentTurn?: number;
 }
@@ -49,11 +53,13 @@ export function AdvisorQuestionCards({ situations, issues, allSituations = situa
   </>;
 }
 
-export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue, currentTurn = 0 }: AdvisorChatProps) {
+export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue, currentTurn = 0, visualSnapshot, onFocusMap }: AdvisorChatProps) {
   const { advisorMessages, advisorStreaming, addAdvisorMessage, setAdvisorStreaming, tagAdvisorTurns, setAdvisorMessages } = useChatStore();
   const branchId = useSimulationStore(state => state.state?.branchId ?? null);
   const [input, setInput] = useState('');
   const [opening, setOpening] = useState<AdvisorOpening | null>(null);
+  // Hide attachments until messages belong to this game/branch/turn bucket.
+  const [visualBucket, setVisualBucket] = useState<string | null>(null);
   const [focus, setFocus] = useState<CouncilIssue | undefined>();
   const [situationFocus, setSituationFocus] = useState<AdvisorSituation | undefined>();
   const [error, setError] = useState('');
@@ -76,6 +82,7 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     // attiva è sostituita, mai mergiata con lo scope precedente.
     const archived = loadAdvisorArchive(gameId, branchId, currentTurn);
     setAdvisorMessages([...archived, ...loadAdvisorMessages(bucket)]);
+    setVisualBucket(bucket);
   }, [bucket, branchId, gameId, currentTurn, isLocal, setAdvisorMessages]);
   useEffect(() => {
     if (isLocal) return;
@@ -176,12 +183,14 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
       {opening && <article className="advisor-entry assistant advisor-opening">
         <div className="entry-meta">Consulente · {opening.date}</div>
         <div className="entry-text"><RichText text={opening.reply} chartData={chartData} /></div>
+        <GovernmentMessageVisuals message={{ role: 'assistant', situations: opening.situations, issues: opening.issues }} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap} />
         <AdvisorQuestionCards situations={opening.situations ?? []} issues={opening.issues ?? []} allSituations={allSituations} allIssues={allIssues}
           onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming || loading} />
       </article>}
       {activeMessages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
         <div className="entry-meta">{message.role === 'user' ? 'Presidente' : message.proactive ? 'Bollettino' : 'Consulente'}</div>
         <div className="entry-text">{message.role === 'assistant' ? <RichText text={message.content} chartData={chartData} /> : message.content}</div>
+        <GovernmentMessageVisuals message={message} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap} />
         <AdvisorQuestionCards situations={message.situations ?? []} issues={message.issues ?? []} allSituations={allSituations} allIssues={allIssues}
           onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming} />
       </article>)}
