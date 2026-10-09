@@ -16,8 +16,7 @@ interface AdvisorChatProps {
   gameId: string;
   chartData?: ChartDataInput | null;
   scopeKey?: string;
-  // P02 — La mossa scelta dal Presidente (se presente) accompagna la proposta.
-  onOpenIssue?: (issue: CouncilIssue, chosenOption?: { title: string; content: string }) => void;
+  onOpenIssue?: (issue: CouncilIssue) => void;
   /** WS-GOV-TURN-AWARENESS — Il turno corrente: la chat attiva è solo questo. */
   currentTurn?: number;
 }
@@ -25,6 +24,30 @@ interface AdvisorChatProps {
 /** WS-GOV-ADVISOR-STATUS — Lo stato del Consulente è anche testo visibile, non solo aria-label. */
 export const ADVISOR_LOADING_TEXT = 'Il Consulente sta preparando la prima valutazione…';
 export const ADVISOR_THINKING_TEXT = 'Il Consulente sta pensando…';
+
+/** Una sola card per questione: la situazione prevale sulla issue collegata.
+ * Le issue integre restano disponibili per l'apertura, anche tra messaggi. */
+export function AdvisorQuestionCards({ situations, issues, allSituations = situations, allIssues = issues, onDeepen, onDeepenIssue, onOpenIssue, activeId, disabled = false }: {
+  situations: AdvisorSituation[];
+  issues: CouncilIssue[];
+  allSituations?: AdvisorSituation[];
+  allIssues?: CouncilIssue[];
+  onDeepen: (situation: AdvisorSituation) => void;
+  onDeepenIssue?: (issue: CouncilIssue) => void;
+  onOpenIssue?: (issue: CouncilIssue) => void;
+  activeId?: string;
+  disabled?: boolean;
+}) {
+  const shownIds = new Set(allSituations.map(situation => situation.id));
+  const standalone = issues.filter(issue => !issue.situationId || !shownIds.has(issue.situationId));
+  return <>
+    <AdvisorSituationsPanel situations={situations} issues={allIssues} onDeepen={onDeepen} onOpenIssue={onOpenIssue} activeId={activeId} disabled={disabled} />
+    {standalone.length > 0 && <div className="advisor-proposals">
+      <p className="advisor-proposals-label">Questioni da discutere</p>
+      {standalone.map(issue => <CouncilIssueInline key={issue.id} issue={issue} compact onDeepen={onDeepenIssue} onOpenIssue={onOpenIssue} disabled={disabled} />)}
+    </div>}
+  </>;
+}
 
 export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue, currentTurn = 0 }: AdvisorChatProps) {
   const { advisorMessages, advisorStreaming, addAdvisorMessage, setAdvisorStreaming, tagAdvisorTurns, setAdvisorMessages } = useChatStore();
@@ -86,7 +109,7 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     };
   }, [gameId, branchId, scopeKey, isLocal]);
 
-  const sendText = async (raw?: string, explicitSituation?: AdvisorSituation) => {
+  const sendText = async (raw?: string, explicitSituation?: AdvisorSituation, explicitIssue?: CouncilIssue) => {
     const text = (raw ?? input).trim();
     if (!text || advisorStreaming || isLocal || requestRef.current) return;
     const controller = new AbortController();
@@ -100,13 +123,13 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
       .map(message => ({ role: message.role, content: message.content }));
     // WS-CONSULENTE-SITUAZIONI — Focus canonico: al server vanno TUTTI i
     // riferimenti (signalKeys + evidenceKeys), mai titolo o sintesi.
-    const activeSituation = explicitSituation ?? situationFocus;
+    const activeSituation = explicitIssue ? undefined : explicitSituation ?? situationFocus;
     const focusPayload = activeSituation ? buildSituationFocusPayload(activeSituation) : undefined;
     addAdvisorMessage({ role: 'user', content: text, turn: currentTurn });
     if (raw === undefined) setInput('');
     setError(''); setAdvisorStreaming(true);
     try {
-      const result = await advisorApi.reality(gameId, text, history, focus, controller.signal, focusPayload);
+      const result = await advisorApi.reality(gameId, text, history, explicitSituation ? undefined : explicitIssue ?? focus, controller.signal, focusPayload);
       if (!owns()) return;
       if (result.advisorContext.mode === 'briefing') {
         // Replace the current agenda, not the conversation or previous turns.
@@ -128,17 +151,16 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
   };
   /** WS-CONSULENTE-SITUAZIONI — «Approfondisci» porta la situazione al Consulente, mai al Consiglio. */
   const deepen = (situation: AdvisorSituation) => {
-    setSituationFocus(situation);
+    setFocus(undefined); setSituationFocus(situation);
     void sendText(buildSituationFocusMessage(situation), situation);
   };
+  const deepenIssue = (issue: CouncilIssue) => {
+    setSituationFocus(undefined); setFocus(issue);
+    void sendText(`Approfondiamo la questione «${issue.title}».`, undefined, issue);
+  };
   const closeFocus = () => { setSituationFocus(undefined); setFocus(undefined); };
-  // Gerarchia: situazioni (Approfondisci) → proposte di atto (Porta al Consiglio).
-  const proposals = (issues: CouncilIssue[] | undefined, disabled: boolean) => issues?.length
-    ? <div className="advisor-proposals">
-      <p className="advisor-proposals-label">Proposte di atto</p>
-      {issues.map(issue => <CouncilIssueInline key={issue.id} issue={issue} onOpenIssue={onOpenIssue} disabled={disabled} />)}
-    </div>
-    : null;
+  const allSituations = [...(opening?.situations ?? []), ...activeMessages.flatMap(message => message.situations ?? [])];
+  const allIssues = [...(opening?.issues ?? []), ...activeMessages.flatMap(message => message.issues ?? [])];
   const activeFocus = situationFocus?.title ?? focus?.title;
   const activeFocusKind = situationFocus ? 'Situazione in esame' : 'Tema in esame';
 
@@ -154,14 +176,14 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
       {opening && <article className="advisor-entry assistant advisor-opening">
         <div className="entry-meta">Consulente · {opening.date}</div>
         <div className="entry-text"><RichText text={opening.reply} chartData={chartData} /></div>
-        {opening.situations?.length ? <AdvisorSituationsPanel situations={opening.situations} onDeepen={deepen} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming || loading} /> : null}
-        {proposals(opening.issues, advisorStreaming || loading)}
+        <AdvisorQuestionCards situations={opening.situations ?? []} issues={opening.issues ?? []} allSituations={allSituations} allIssues={allIssues}
+          onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming || loading} />
       </article>}
       {activeMessages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
         <div className="entry-meta">{message.role === 'user' ? 'Presidente' : message.proactive ? 'Bollettino' : 'Consulente'}</div>
         <div className="entry-text">{message.role === 'assistant' ? <RichText text={message.content} chartData={chartData} /> : message.content}</div>
-        {message.situations?.length ? <AdvisorSituationsPanel situations={message.situations} onDeepen={deepen} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming} /> : null}
-        {proposals(message.issues, advisorStreaming)}
+        <AdvisorQuestionCards situations={message.situations ?? []} issues={message.issues ?? []} allSituations={allSituations} allIssues={allIssues}
+          onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming} />
       </article>)}
       {advisorStreaming && <p className="advisor-typing" role="status" aria-label={ADVISOR_THINKING_TEXT}>
         <span className="advisor-thinking-text">{ADVISOR_THINKING_TEXT}</span><i /><i /><i />
