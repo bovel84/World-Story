@@ -28,6 +28,7 @@ import { MapView } from '../Map/MapView';
 import { StaticGeoMap } from '../Map/StaticGeoMap';
 import { MapErrorBoundary } from './MapErrorBoundary';
 import { detectWebGL } from '../Map/webglSupport';
+import type { MapRegionFocusRequest } from '../Map/mapFocus';
 
 const MapboxMapView = lazy(async () => ({ default: (await import('../Map/MapboxMapView')).MapboxMapView }));
 
@@ -44,7 +45,7 @@ export interface GameMapProps {
   onUnitClick: (unitId: string) => void;
   onFrontClick: (frontId: string) => void;
   /** Solo un comando esplicito muove la camera; cambiare contesto non la resetta. */
-  focusRegionRequest?: { regionId: string; requestId: number } | null;
+  focusRegionRequest?: MapRegionFocusRequest | null;
   changedRegionIds: string[];
   temporalScars: TemporalScar[];
   events: FeedItem[];
@@ -110,6 +111,7 @@ export function GameMap({
           onRegionClick={onRegionClick}
           changedRegionIds={changedRegionIds}
           reason={webgl.reason}
+          focusRegionRequest={focusRegionRequest}
         />
       );
     }
@@ -123,6 +125,7 @@ export function GameMap({
           onRegionClick={onRegionClick}
           changedRegionIds={changedRegionIds}
           reason="context_failed"
+          focusRegionRequest={focusRegionRequest}
         />
       }>
         <Suspense fallback={<div className="map-loading-fallback" role="status">Caricamento mappa…</div>}>
@@ -166,6 +169,7 @@ export function GameMap({
         onRegionClick={onRegionClick}
         changedRegionIds={changedRegionIds}
         activeLayer={activeLayer}
+        focusRegionRequest={focusRegionRequest}
       />
     );
   }

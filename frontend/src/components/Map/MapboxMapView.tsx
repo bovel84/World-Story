@@ -25,6 +25,7 @@ import type { Region } from '../../types';
 import type { MapObject } from '../../types';
 import type { MilitaryUnitPayload, WarFrontPayload } from '../../services/api';
 import { MapTools } from './MapTools';
+import { regionIdsForFocus, type MapRegionFocusRequest } from './mapFocus';
 import { MapLegend } from '../Shell/MapLegend';
 import { MilitaryStateOverlay } from './MilitaryStateOverlay';
 import { buildMilitaryMapModel } from './militaryMapModel';
@@ -153,7 +154,7 @@ interface MapboxMapViewProps {
   /** MAP P4 — l'overlay emette ID canonici, il contesto vive in GameScreen. */
   onUnitClick?: (unitId: string) => void;
   onFrontClick?: (frontId: string) => void;
-  focusRegionRequest?: { regionId: string; requestId: number } | null;
+  focusRegionRequest?: MapRegionFocusRequest | null;
   onRegionHover?: (regionId: string | null) => void;
   changedRegionIds?: string[];
   /** G4-C: cicatrici temporali — confini precedenti appena mutati. */
@@ -441,6 +442,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
   // mostrano il nome solo da zoom 3.2, le grandi sempre
   const regionAreas = useRef<Record<string, number>>({});
   const fittedInitialView = useRef(false);
+  const appliedFocusRequest = useRef<MapRegionFocusRequest | null>(null);
   const featureIndex = useRef(new RegionFeatureIndex());
   const sentFeatures = useRef(new Map<string, GeoJSON.Feature>());
   const features = useMemo(() => featureIndex.current.build(regions, playerCountryCode), [regions, playerCountryCode]);
@@ -606,13 +608,6 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     else focusRegions([entry.regionId]);
   }, [focusRegions]);
 
-  // MAP P4 — l'apertura dell'inspector non muove la camera. Solo un comando
-  // esplicito «Centra…» produce una nuova request numerata.
-  useEffect(() => {
-    if (!mapLoaded || !focusRegionRequest) return;
-    focusRegions([focusRegionRequest.regionId]);
-  }, [focusRegionRequest, mapLoaded, focusRegions]);
-
   // Navigazione da tastiera: + / - / 0 / frecce
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -715,6 +710,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
           'fill-opacity': [
             'case',
             ['boolean', ['feature-state', 'selected'], false], 0.7,
+            ['boolean', ['feature-state', 'focused'], false], 0.7,
             ['boolean', ['feature-state', 'hovered'], false], 0.65,
             // Riempimento semitrasparente: il terreno satellitare resta visibile
             // sotto il colore politico (look realistico del riferimento).
@@ -732,6 +728,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
           'line-color': [
             'case',
             ['boolean', ['feature-state', 'selected'], false], '#ffffff',
+            ['boolean', ['feature-state', 'focused'], false], '#ffffff',
             // Evidenziazione delle regioni modificate nel turno
             ['boolean', ['feature-state', 'changed'], false], '#edc36c',
             ['boolean', ['feature-state', 'hovered'], false], '#d3e4ee',
@@ -742,6 +739,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
           'line-width': [
             'case',
             ['boolean', ['feature-state', 'selected'], false], 3,
+            ['boolean', ['feature-state', 'focused'], false], 3,
             ['boolean', ['feature-state', 'changed'], false], 3,
             1.6
           ],
@@ -798,6 +796,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
         map.current.remove();
         map.current = null;
         fittedInitialView.current = false;
+        appliedFocusRequest.current = null;
         sentFeatures.current = new Map();
         previousHighlights.current.clear();
         setMapLoaded(false);
@@ -827,6 +826,27 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
       else m.fitBounds(getBounds(), { padding: 50, duration: 0 });
     }
   }, [features, mapLoaded, getBounds, focusRegions, playerCountryCode]);
+
+  // Run AFTER initial-world fitting, including when the main map remounts on
+  // mobile. Selection remains independent; focus never writes political color.
+  useEffect(() => {
+    if (!mapLoaded || !focusRegionRequest || appliedFocusRequest.current === focusRegionRequest) return;
+    const ids = regionIdsForFocus(focusRegionRequest, featuresRef.current);
+    if (!ids.length) return; // Retry once canonical geometries reach the source.
+    focusRegions(ids);
+    appliedFocusRequest.current = focusRegionRequest;
+  }, [focusRegionRequest, mapLoaded, focusRegions, sourceRevision]);
+
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+    const m = map.current;
+    const ids = regionIdsForFocus(focusRegionRequest, featuresRef.current);
+    ids.forEach(id => m.setFeatureState({ source: REGIONS_SOURCE_ID, id }, { focused: true }));
+    return () => {
+      if (map.current !== m) return;
+      ids.filter(id => featuresRef.current.has(id)).forEach(id => m.setFeatureState({ source: REGIONS_SOURCE_ID, id }, { focused: false }));
+    };
+  }, [focusRegionRequest, mapLoaded, sourceRevision]);
 
   useEffect(() => {
     if (!map.current || !mapLoaded) return;
@@ -868,6 +888,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     map.current.setPaintProperty(FILL_LAYER_ID, 'fill-opacity', [
       'case',
       ['boolean', ['feature-state', 'selected'], false], 0.7,
+      ['boolean', ['feature-state', 'focused'], false], 0.7,
       ['boolean', ['feature-state', 'hovered'], false], 0.6,
       ...(activeLayer === 'changes' ? [['boolean', ['feature-state', 'changed'], false], 0.72] : []),
       mapLayerPresentation(activeLayer).politicalFillOpacity,

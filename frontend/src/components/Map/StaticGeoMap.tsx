@@ -14,12 +14,15 @@ import React, { useMemo, useState } from 'react';
 import type { Region } from '../../types';
 import { buildStaticMap } from './staticMapModel';
 import { webglUnavailableNotice, type WebGLSupport } from './webglSupport';
+import { regionIdsForFocus, type MapRegionFocusRequest } from './mapFocus';
+import { focusViewBox } from '../Game/regionFocus';
 
 export interface StaticGeoMapProps {
   regions: readonly Region[];
   selectedRegionId?: string;
   onRegionClick?: (regionId: string) => void;
   changedRegionIds?: readonly string[];
+  focusRegionRequest?: MapRegionFocusRequest | null;
   /** Ragione della indisponibilità: decide il messaggio, non il disegno. */
   reason?: WebGLSupport['reason'];
 }
@@ -29,11 +32,15 @@ export const StaticGeoMap: React.FC<StaticGeoMapProps> = ({
   selectedRegionId,
   onRegionClick,
   changedRegionIds,
+  focusRegionRequest,
   reason = 'context_failed',
 }) => {
   const [hovered, setHovered] = useState<string | null>(null);
   const model = useMemo(() => buildStaticMap(regions), [regions]);
   const changed = useMemo(() => new Set(changedRegionIds ?? []), [changedRegionIds]);
+  const focus = useMemo(() => regionIdsForFocus(focusRegionRequest, new Map(model.paths.map(path => [path.id, path]))), [focusRegionRequest, model]);
+  const focused = useMemo(() => new Set(focus), [focus]);
+  const viewBox = useMemo(() => focus.length ? focusViewBox(model.paths.map(path => ({ id: path.id, svgPath: path.path })), focus, 20) : `0 0 ${model.width} ${model.height}`, [focus, model]);
 
   if (model.paths.length === 0) {
     return (
@@ -50,13 +57,13 @@ export const StaticGeoMap: React.FC<StaticGeoMapProps> = ({
       <p className="static-geo-map-notice" role="status">{webglUnavailableNotice(reason)}</p>
       <svg
         className="static-geo-map-canvas"
-        viewBox={`0 0 ${model.width} ${model.height}`}
+        viewBox={viewBox}
         preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label={`Mappa politica di ${model.paths.length} province`}
       >
         {model.paths.map(entry => {
-          const isSelected = entry.id === selectedRegionId;
+          const isSelected = entry.id === selectedRegionId || focused.has(entry.id);
           const isChanged = changed.has(entry.id);
           return (
             <path
