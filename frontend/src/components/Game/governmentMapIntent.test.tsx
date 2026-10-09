@@ -158,6 +158,37 @@ describe('C — mappa generica: riferimenti verificati, altrimenti quadro politi
   });
 });
 
+describe('D — progetto/idea: la mappa spiega, anche senza richiesta del Presidente', () => {
+  const seat = CABINET_SEATS[0];
+  const projectRoom = (signalKeys: string[], presidentText: string) => appendCouncilMessage(
+    createCouncilRoom({ id: 'room', scopeKey: 'session', initiatorMinister: seat, sourceIssue: issue(signalKeys) }),
+    { id: 'president', role: 'user', kind: 'speech', content: presidentText });
+  const directive = (ids?: string[]) => `\n\`\`\`tavola\n${JSON.stringify(ids
+    ? { op: 'focus', evidence: 'mappa', regionIds: ids }
+    : { op: 'focus', evidence: 'mappa' })}\n\`\`\``;
+
+  it('(A) id canonici indicati dal ministro: la mappa mostra le zone del progetto', () => {
+    const snap = snapshot(country());
+    const room = receiveCouncilReply(projectRoom(['conflict:assente'], 'Spiegami il tuo progetto per la rete ferroviaria.'),
+      seat, 'Il progetto tocca queste province.' + directive(['prov0', 'prov7']), 'reply', SCOPE);
+    const cards = resolveGovernmentVisuals(room.messages.at(-1)!, snap);
+    expect(cards).toHaveLength(1);
+    expect([...cards[0].regionIds].sort()).toEqual(['prov0', 'prov7']);
+    expect(cards[0].description).toContain('non indica operazioni');
+    expect(renderRoom(room, snap)).toContain('government-visual-card');
+  });
+
+  it('(A) senza id il governo risolve da sé il contesto verificato della questione', () => {
+    const regions = [...country(), ...country('PRK', 'prk')];
+    const snap = snapshot(regions, { [PLAYER]: { PRK: 'hostile' } });
+    const room = receiveCouncilReply(projectRoom(['hostile-relations'], 'Spiegami il tuo progetto per il porto.'),
+      seat, 'Il progetto guarda al confine.' + directive(), 'reply', SCOPE);
+    const cards = resolveGovernmentVisuals(room.messages.at(-1)!, snap);
+    expect(cards[0].title).toBe('Contesto diplomatico');
+    expect(cards[0].description).toContain('Relazione ostile verificata');
+  });
+});
+
 describe('M-DIAG — il motivo di una mappa mancante è identificabile (solo in sviluppo)', () => {
   const base = { role: 'assistant' as const, content: 'Risposta.' };
   it('distingue le cause', () => {

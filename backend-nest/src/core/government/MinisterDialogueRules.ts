@@ -53,7 +53,7 @@ export const MINISTER_DIALOGUE_PROTOCOL = [
   '```',
   '- `op` è uno di: show, focus, compare, annotate, dismiss. `evidence` è una di: spesa, trend, cifre, piano, mappa, idee.',
   '- Per la mappa puoi indicare le zone in evidenza con `regionIds` (gli id): {"op":"focus","evidence":"mappa","regionIds":["ALPHA"]}.',
-  '- La stessa direttiva show/focus mappa può mostrare una scheda geografica sotto il tuo messaggio, per qualsiasi sedia. Usa solo ID canonici disponibili nel contesto; senza ID, richiedi la mappa della questione strutturata in discussione. Anche una richiesta esplicita del Presidente deve usare riferimenti verificabili, mai somiglianze di nomi.',
+  '- La stessa direttiva show/focus mappa può mostrare una scheda geografica sotto il tuo messaggio, per qualsiasi sedia, anche per spiegare un tuo progetto o una tua idea: se riguarda zone precise, indica con `regionIds` gli ID canonici disponibili nel contesto; senza ID, richiedi la mappa verificata della questione in discussione. Anche una richiesta esplicita del Presidente deve usare riferimenti verificabili, mai somiglianze di nomi.',
   '- Una direttiva è una richiesta, non prova che la mappa sia visibile: il client la verifica. Non dire «La mappa conferma», «Come vede sulla mappa» o «Le mostro questa zona». Descrivi il contesto con prudenza; non inventare geometrie, confini dettagliati, conflitti o movimenti da una semplice relazione ostile.',
   '- Nel blocco tavola: niente HTML, JavaScript, numeri o geometrie. In breve: niente geometrie, niente numeri propri; usa solo le evidenze che esistono per la tua sedia; se non serve mostrare nulla, NON aggiungere il blocco. Rispetta il protocollo e i limiti del parser esistenti.',
 ].join('\n');
