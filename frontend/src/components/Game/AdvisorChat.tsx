@@ -9,7 +9,7 @@ import { CouncilIssueInline } from './CouncilIssueInline';
 import { AdvisorSituationsPanel, buildSituationFocusMessage, buildSituationFocusPayload } from './AdvisorSituationsPanel';
 import { archivedTurns, currentTurnMessages } from './advisorTurns';
 import { advisorBucketKey, advisorOpeningKey, loadAdvisorArchive, loadAdvisorMessages, loadAdvisorOpening, saveAdvisorMessages, saveAdvisorOpening, type AdvisorOpening } from './advisorMemory';
-import { fetchAdvisorOpening } from './advisorOpening';
+import { fetchAdvisorOpening, advisorOpeningMessage } from './advisorOpening';
 import type { ChartDataInput } from './advisorCharts';
 import { GovernmentMessageVisuals } from './GovernmentMessageVisuals';
 import type { GovernmentVisualSnapshot, MapFocusVisual, GovernmentVisualMessage } from './governmentVisual';
@@ -69,6 +69,11 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
   const requestRef = useRef<AbortController | null>(null);
   const scopeRef = useRef(scopeKey);
   scopeRef.current = scopeKey;
+  // M-APERTURA — Lo scope dello snapshot al momento della generazione: la
+  // richiesta geografica dell'apertura nasce legata a questo mondo, non a uno
+  // successivo.
+  const visualScopeRef = useRef<string | undefined>(undefined);
+  visualScopeRef.current = visualSnapshot?.scopeKey;
   const isLocal = gameId.startsWith('local_');
   // La chat attiva e la history sono SOLO del turno corrente; i messaggi legacy
   // senza turno vengono marcati una volta e poi restano archiviati.
@@ -102,7 +107,7 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     const controller = new AbortController();
     setLoading(true);
     // Primary LLM opening, deterministic verified context as non-blocking fallback.
-    fetchAdvisorOpening(gameId, controller.signal).then(next => {
+    fetchAdvisorOpening(gameId, controller.signal, visualScopeRef.current).then(next => {
       if (controller.signal.aborted) return;
       setOpening(next);
       saveAdvisorOpening(advisorOpeningKey(gameId, branchId, scopeKey), next);
@@ -179,6 +184,12 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
   const closeFocus = () => { setSituationFocus(undefined); setFocus(undefined); };
   const allSituations = [...(opening?.situations ?? []), ...activeMessages.flatMap(message => message.situations ?? [])];
   const allIssues = [...(opening?.issues ?? []), ...activeMessages.flatMap(message => message.issues ?? [])];
+  // M-APERTURA — La risposta iniziale passa per lo stesso contratto dei turni:
+  // il blocco `tavola` non è mai testo visibile e la richiesta geografica
+  // diventa un messaggio con `evidence`/`visualRequest`. Per una cache vecchia
+  // (senza metadati persistiti) il testo si pulisce comunque e non si inventa
+  // uno scope nuovo: nessuna mappa ri-attribuita.
+  const openingMessage = useMemo(() => opening ? advisorOpeningMessage(opening, visualSnapshot?.scopeKey) : null, [opening, visualSnapshot?.scopeKey]);
   const activeFocus = situationFocus?.title ?? focus?.title;
   const activeFocusKind = situationFocus ? 'Situazione in esame' : 'Tema in esame';
 
@@ -191,10 +202,10 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     </div>}
     <div className="advisor-messages">
       {loading && <p className="advisor-loading" role="status">{ADVISOR_LOADING_TEXT}</p>}
-      {opening && <article className="advisor-entry assistant advisor-opening">
+      {opening && openingMessage && <article className="advisor-entry assistant advisor-opening">
         <div className="entry-meta">Consulente · {opening.date}</div>
-        <GovernmentMessageVisuals message={{ role: 'assistant', situations: opening.situations, issues: opening.issues }} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap}
-          renderText={hasVisual => <div className="entry-text"><RichText text={safeGovernmentVisualText(opening.reply, hasVisual)} chartData={chartData} /></div>} />
+        <GovernmentMessageVisuals message={openingMessage} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap}
+          renderText={hasVisual => <div className="entry-text"><RichText text={safeGovernmentVisualText(openingMessage.content ?? '', hasVisual)} chartData={chartData} /></div>} />
         <AdvisorQuestionCards situations={opening.situations ?? []} issues={opening.issues ?? []} allSituations={allSituations} allIssues={allIssues}
           onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming || loading} />
       </article>}
