@@ -27,7 +27,7 @@ describe('P07 — il percorso della mossa, dal Consulente all’atto', () => {
 
   it('la stanza del Governo collega il clic alla bozza', () => {
     expect(office).toContain('const openIssue = (issue: CouncilIssue): void =>');
-    expect(office).toContain('const room = startRoom(rapporteur, issue)');
+    expect(office).toContain('const room = startRoom(rapporteur, discussionIssue)');
     expect(office).toContain('councilDraft(room, currentTurn ?? 0)');
     expect(office).not.toContain('seedChosenRoad');
   });

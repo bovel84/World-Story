@@ -136,7 +136,7 @@ describe('Consiglio: apertura sulla questione', () => {
     const body = source.slice(start, source.indexOf('\n  };', start));
     expect(body).not.toContain('seedChosenRoad');
     expect(body).not.toContain('chosenOption');
-    expect(body).toContain('issue.suggestedMinisters.find');
+    expect(body).toContain('discussionIssue.suggestedMinisters.find');
     expect(body).toContain('councilDraft(room, currentTurn ?? 0)');
     expect(body).not.toContain('onQueueOrder');
   });

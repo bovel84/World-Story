@@ -95,6 +95,13 @@ export function excludePressureOption(room: CouncilRoomState, optionId: string):
   return { ...room, selectedPressureOptions: room.selectedPressureOptions.filter(id => id !== optionId) };
 }
 
+/** Confine Consulente → Consiglio: conserva la questione, non le soluzioni.
+ * La issue Advisor originale resta compatibile e non viene mutata. */
+export function councilDiscussionIssue(issue: CouncilIssue): CouncilIssue {
+  const { options: _options, ...discussionIssue } = issue;
+  return discussionIssue;
+}
+
 export function createCouncilRoom(input: { id: string; scopeKey: string; initiatorMinister: CabinetSeat; sourceIssue?: CouncilIssue; sourceSituation?: GovernmentSituationView; sourceFollowUp?: CouncilSourceFollowUp }): CouncilRoomState {
   const sourceIssue = input.sourceIssue;
   const sourceSituation = input.sourceSituation;

@@ -16,14 +16,14 @@ describe('Advisor → Council: questione, non opzione', () => {
   });
 
   it('la stanza viene aperta sulla issue e prepara la bozza dalla questione', () => {
-    expect(opening).toContain('const room = startRoom(rapporteur, issue)');
+    expect(opening).toContain('const room = startRoom(rapporteur, discussionIssue)');
     expect(opening).toContain('councilDraft(room, currentTurn ?? 0)');
     expect(opening).not.toContain('chosenOption');
     expect(opening).not.toContain('seedChosenRoad');
   });
 
   it('il relatore usa i ministri server-side, non un elenco inventato nel browser', () => {
-    expect(opening).toContain('issue.suggestedMinisters.find(seat => CABINET_SEATS.includes(seat))');
+    expect(opening).toContain('discussionIssue.suggestedMinisters.find(seat => CABINET_SEATS.includes(seat))');
     expect(read('AdvisorSituationsPanel.tsx')).not.toContain('suggestedMinisters: []');
   });
 

@@ -26,7 +26,7 @@ import { governmentSessionId } from './governmentSession';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { clientMandate, loadMemory, saveMemory, memoryScopeKey, seatRecords, withSeatRecords, recordMemory, queuedDecision, openQuestion, type MinisterMemoryStore } from './ministerMemory';
-import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
+import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilDiscussionIssue, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
 import { seatSpeaker } from './councilMeeting';
 import { resolveCouncilExecution } from './councilExecution';
 import { resolveCurrentRegionRef } from './meetingLocalization';
@@ -212,8 +212,9 @@ export function GovernmentOffice({ open, onClose, gameId, session,
    * Tavola vuota: le misure emergono nella discussione; decide il Presidente. */
   const openIssue = (issue: CouncilIssue): void => {
     // Suggested seats are not admitted automatically: only the rapporteur starts.
-    const rapporteur = issue.suggestedMinisters.find(seat => CABINET_SEATS.includes(seat)) ?? 'interno';
-    const room = startRoom(rapporteur, issue);
+    const discussionIssue = councilDiscussionIssue(issue);
+    const rapporteur = discussionIssue.suggestedMinisters.find(seat => CABINET_SEATS.includes(seat)) ?? 'interno';
+    const room = startRoom(rapporteur, discussionIssue);
     if (!room) return;
     const prepared: RoomDraft = {
       ...councilDraft(room, currentTurn ?? 0),
