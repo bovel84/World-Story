@@ -5,7 +5,7 @@ import { regionIdsForFocus, type MapRegionFocusRequest } from '../Map/mapFocus';
 import { polityLabel } from '../Map/mapThematicContext';
 import { buildStaticMap, type StaticRegionPath } from '../Map/staticMapModel';
 import { svgPathBounds, unionBounds, viewBoxFor } from './regionFocus';
-import { MAX_MAP_REGION_IDS, type PresentationDirective } from './presentation';
+import { MAX_MAP_PREVIEW_REGIONS, type PresentationDirective } from './presentation';
 import type { GovernmentMapRequest } from './governmentVisualRequest';
 
 interface VisualBase {
@@ -65,6 +65,19 @@ export function buildGovernmentVisualSnapshot(input: {
     playerPolityId: input.playerPolityId, relationships: input.relationships };
 }
 
+/**
+ * M01 — Le regioni possedute dal giocatore, dalle sole fonti canoniche
+ * (`regionsById` + `playerPolityId`). È la rappresentazione minima quando il
+ * Presidente chiede esplicitamente la mappa e non esiste un riferimento più
+ * preciso: **nessun fronte richiesto**, mai un id inventato dal modello.
+ * L'ordine è stabile (ordine dell'indice) perché la scheda resti comparabile.
+ */
+export function playerOwnedRegionIds(snapshot: GovernmentVisualSnapshot): string[] {
+  const player = snapshot.playerPolityId;
+  if (!player) return [];
+  return [...snapshot.index.regionsById.values()].filter(region => region.owner === player).map(region => region.id);
+}
+
 export interface GovernmentVisualMessage {
   role: 'user' | 'assistant';
   content?: string;
@@ -112,17 +125,31 @@ export function resolveGovernmentVisuals(message: GovernmentVisualMessage, snaps
   // mention of a hostile relation must not force a card on every reply.
   if (!message.visualRequest) return [];
   const relations = player && snapshot.relationships?.[player];
-  if (!player || !relations) return [];
-  const hostile = Object.keys(relations).filter(id => id !== player && relations[id] === 'hostile');
-  for (const key of keys) {
-    const polityId = key === 'hostile-relations' ? (hostile.length === 1 ? hostile[0] : undefined)
-      : key.startsWith('hostile-relations:') ? key.slice('hostile-relations:'.length) : undefined;
-    if (!polityId || !hostile.includes(polityId)) continue;
-    const territories = [...snapshot.index.regionsById.values()].filter(region => region.owner === player || region.owner === polityId);
-    if (!territories.some(region => region.owner === player) || !territories.some(region => region.owner === polityId)) continue;
-    cards.push({ type: 'map-focus', title: 'Contesto diplomatico', description: 'Relazione ostile verificata; non implica una guerra in corso.', regionIds: territories.map(region => region.id), scopeKey: snapshot.scopeKey, source: { type: 'diplomacy', playerPolityId: player, polityId } });
+  if (player && relations) {
+    const hostile = Object.keys(relations).filter(id => id !== player && relations[id] === 'hostile');
+    for (const key of keys) {
+      const polityId = key === 'hostile-relations' ? (hostile.length === 1 ? hostile[0] : undefined)
+        : key.startsWith('hostile-relations:') ? key.slice('hostile-relations:'.length) : undefined;
+      if (!polityId || !hostile.includes(polityId)) continue;
+      const territories = [...snapshot.index.regionsById.values()].filter(region => region.owner === player || region.owner === polityId);
+      if (!territories.some(region => region.owner === player) || !territories.some(region => region.owner === polityId)) continue;
+      cards.push({ type: 'map-focus', title: 'Contesto diplomatico', description: 'Relazione ostile verificata; non implica una guerra in corso.', regionIds: territories.map(region => region.id), scopeKey: snapshot.scopeKey, source: { type: 'diplomacy', playerPolityId: player, polityId } });
+    }
   }
-  return cards.filter((card, i) => cards.findIndex(other => identity(other.regionIds) === identity(card.regionIds)) === i);
+  if (cards.length) return cards.filter((card, i) => cards.findIndex(other => identity(other.regionIds) === identity(card.regionIds)) === i);
+  // M01 — Ultima risorsa: una richiesta **esplicita** senza alcun riferimento
+  // geografico più preciso mostra il territorio posseduto, dal read model.
+  // Bloccata solo da una chiave **situazionale** (guerra, relazione): quelle
+  // hanno già avuto la loro strada sopra (fronti/diplomazia) e non vanno
+  // soprapposte con una mappa politica. Una chiave non geografica (economia,
+  // società, prontezza) NON blocca: il Presidente ha chiesto la mappa.
+  const situationalGeography = [...keys].some(key =>
+    key.startsWith('conflict:') || key === 'hostile-relations' || key.startsWith('hostile-relations:'));
+  const ownedRegions = [...snapshot.index.regionsById.values()].filter(region => player && region.owner === player);
+  if (!situationalGeography && ownedRegions.length) {
+    return [{ type: 'map-focus', title: 'Contesto territoriale', description: 'Territori di riferimento; non indica operazioni o aree di conflitto.', regionIds: ownedRegions.map(region => region.id), scopeKey: snapshot.scopeKey }];
+  }
+  return [];
 }
 
 /** Also used at the final click boundary: a queued callback cannot cross epochs. */
@@ -178,6 +205,6 @@ export function governmentVisualModel(card: MapFocusVisual, snapshot: Government
     const role = card.source?.type === 'diplomacy' ? (region.owner === card.source.playerPolityId ? 'Nazione del giocatore' : 'Interlocutore diplomatico ostile') : '';
     if (!legend.has(key)) legend.set(key, { label: [polityLabel(region.owner, regions), role].filter(Boolean).join(' · '), color });
   }
-  const bounded = card.source?.type !== 'front' && regions.length > MAX_MAP_REGION_IDS;
+  const bounded = card.source?.type !== 'front' && regions.length > MAX_MAP_PREVIEW_REGIONS;
   return { regions, legend: [...legend.values()], preview: bounded ? null : previewFor(regions) };
 }

@@ -254,6 +254,38 @@ export const ADVISOR_CONVERSATION_PROTOCOL = [
   'Se il Presidente sta approfondendo una situazione (FOCUS SITUATION), rispondi SOLO su quella: non presentare nuovamente il quadro nazionale e non elencare le altre situazioni. Restano ammesse le schede council_issue quando esiste una decisione politica concreta ancora aperta, senza anticiparne la soluzione.',
 ].join('\n');
 
+/**
+ * WS-CONSULENTE-MAPPA (M05) — Il Consulente può chiedere al governo di mostrare
+ * una **mappa del contesto**. Solo per il Consulente: il ministro non ha questo
+ * blocco. Il modello dichiara l'**INTENTO**, mai i territori: gli `id` delle
+ * regioni li risolve il server dal read model canonico (invariante M-I1). Il
+ * blocco è `tavola` (lo stesso che il client riconosce) con `op:focus`,
+ * `evidence:mappa` e **nessun** `regionIds`.
+ */
+export const ADVISOR_MAP_PROTOCOL = [
+  'MAPPA — quando conta il territorio. Se la tua raccomandazione riguarda DOVE stanno le cose — il territorio del paese, un confine, uno schieramento, un vicino, una zona contesa — puoi chiedere al governo di mostrare una mappa: scrivi su una riga sola, da sola, esattamente questo blocco.' +
+  '\n```tavola\n{"op":"focus","evidence":"mappa"}\n```',
+  'NON scrivere MAI gli id delle regioni dentro il comando: il territorio lo risolve il governo con i dati della mappa, tu dichiari solo *che* vuoi mostrare la geografia. Un `regionIds` scritto a mano non è riconosciuto e non serve. Usa la mappa solo quando conta il dove, al massimo una per risposta, e accanto spiega in una frase cosa guardare.',
+  'La mappa è una RICHIESTA, non una prova: non sai se il governo potrà disegnarla. Non dire «la mappa conferma», «come vede sulla mappa» o «le mostro questa zona»; descrivi il contesto con prudenza e non inventare confini, guerre o movimenti.',
+].join('\n\n');
+
+/**
+ * C01 (ripristinata) — Le FIGURE del Consulente. Solo per il Consulente. Il
+ * modello sceglie *cosa* mostrare, mai le cifre: la figura la disegna il client
+ * con i numeri del motore. La sintassi vive qui e **deve** stare nel prompt
+ * reale (`buildRealityAdvisorPrompt`): la PR #192 (2026-10-04) ha sostituito il
+ * vecchio prompt, e da allora la vecchia istruzione in `prompts/advisor.ts` è
+ * codice morto. Vedi `docs/CONSULENTE_E_MODULO_ORDINI.md`.
+ */
+export const ADVISOR_FIGURE_PROTOCOL = [
+  'FIGURE — quando una frase non basta. Quando una decisione si capisce meglio vedendo *dove* vanno le cose o *come* stanno, puoi chiedere al governo di disegnare una figura: scrivi su una riga sola, da sola, uno di questi comandi.' +
+  '\n  [[chart: territorio]]  dove sono ricche le province del paese' +
+  '\n  [[chart: bilancio]]    dove va il denaro: le uscite per voce' +
+  '\n  [[chart: risorse]]     giacimenti noti e siti produttivi' +
+  '\n  [[chart: trend]]       come sta evolvendo il paese (cassa, saldo, stabilità, tensione)',
+  'NON scrivere MAI cifre dentro il comando: la figura la disegna il governo con i numeri del motore, tu scegli solo *cosa* mostrare. «[[chart: bilancio]]» è giusto; «[[chart: bilancio 12 mld]]» non è riconosciuto e resta testo. Usa una figura solo quando serve a decidere, al massimo una o due per risposta, e accanto spiega in una frase cosa guardare: la figura mostra, l\'interpretazione è tua.',
+].join('\n\n');
+
 /** Narrow advisor-only guard, not a semantic classifier. Ministers/council are unchanged. */
 export function isPreparatoryCouncilIssue(issue: Pick<CouncilIssue, 'question'>): boolean {
   return /^(?:(?:si propone di|proporre di|possiamo|vogliamo)\s+)?(?:valutare|verificare|approfondire|monitorare|studiare|sondare)\b/i.test(issue.question.trim())

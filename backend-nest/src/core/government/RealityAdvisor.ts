@@ -1,6 +1,6 @@
 /** Verified reality → situation → concrete proposals (or explicit incomplete briefing). No writes. */
 import type { AdvisorMessage } from '../../prompts/types';
-import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, ADVISOR_CONVERSATION_PROTOCOL, ADVISOR_COUNCIL_ISSUE_PROTOCOL, COUNCIL_ANCHOR_PROTOCOL, COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, SITUATION_BASE_PROTOCOL, resolveCouncilIssue, type CouncilIssue } from './CouncilIssue';
+import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, ADVISOR_CONVERSATION_PROTOCOL, ADVISOR_COUNCIL_ISSUE_PROTOCOL, ADVISOR_FIGURE_PROTOCOL, ADVISOR_MAP_PROTOCOL, COUNCIL_ANCHOR_PROTOCOL, COUNCIL_ISSUE_PROTOCOL, MAX_COUNCIL_ISSUES, SITUATION_BASE_PROTOCOL, resolveCouncilIssue, type CouncilIssue } from './CouncilIssue';
 import { buildAdvisorSituations, MAX_ADVISOR_SITUATIONS, resolveFocusSituation, withAdvisorBriefingCoverage, type AdvisorResponse, type AdvisorSituation } from './AdvisorSituations';
 import { advisorBriefingSentences, buildRealitySignals, stripTechnicalLines } from './RealitySignals';
 import { renderCouncilProposalAnchors } from './CouncilProposalAnchors';
@@ -451,6 +451,8 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
     audience === 'advisor' ? SITUATION_BASE_PROTOCOL : '',
     audience === 'advisor' && context.mode === 'briefing' ? ADVISOR_BRIEFING_SITUATION_PROTOCOL : '',
     audience === 'advisor' && context.mode !== 'briefing' ? ADVISOR_CONVERSATION_PROTOCOL : '',
+    audience === 'advisor' ? ADVISOR_MAP_PROTOCOL : '',
+    audience === 'advisor' ? ADVISOR_FIGURE_PROTOCOL : '',
     VERIFIED_FACT_POLICY,
   ].filter(Boolean).join('\n\n');
 }

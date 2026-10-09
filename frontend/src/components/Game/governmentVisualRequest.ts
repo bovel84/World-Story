@@ -1,4 +1,4 @@
-import { validateDirective, MAX_NEW_EVIDENCES_PER_REPLY, MAX_MAP_REGION_IDS, type PresentationDirective } from './presentation';
+import { validateDirective, MAX_NEW_EVIDENCES_PER_REPLY, MAX_MAP_PREVIEW_REGIONS, type PresentationDirective } from './presentation';
 
 export const NO_VERIFIED_GEOGRAPHY = 'Non dispongo di un riferimento geografico verificato per questa area.';
 export interface GovernmentMapRequest {
@@ -38,9 +38,14 @@ export function readGovernmentVisualMetadata(input: { evidence?: unknown; visual
   const request = input.visualRequest as Partial<GovernmentMapRequest> | null | undefined;
   const strings = (value: unknown, limit: number): value is string[] => Array.isArray(value) && value.length <= limit && value.every(id => typeof id === 'string' && id.length <= 256);
   const valid = request?.requested === true && (request.scopeKey === undefined || typeof request.scopeKey === 'string' && request.scopeKey.length <= 2048)
-    && strings(request.signalKeys, 64) && (request.regionIds === undefined || strings(request.regionIds, MAX_MAP_REGION_IDS));
+    && strings(request.signalKeys, 64);
+  // M02 — Un insieme canonico ampio (il territorio di una nazione) non deve far
+  // **sparire** la richiesta al ricaricamento. Il tetto qui difende l'input non
+  // fidato, non cancella una mappa: se gli id superano il tetto di resa, si
+  // mantiene la richiesta e si scartano solo gli id.
+  const regionIds = request?.regionIds === undefined ? undefined : strings(request.regionIds, MAX_MAP_PREVIEW_REGIONS) ? [...request.regionIds] : undefined;
   return { ...(evidence.length ? { evidence } : {}), ...(valid ? { visualRequest: { requested: true as const, scopeKey: request.scopeKey, signalKeys: [...request.signalKeys!],
-    ...(request.regionIds ? { regionIds: [...request.regionIds] } : {}) } } : {}) };
+    ...(regionIds ? { regionIds } : {}) } } : {}) };
 }
 
 /** A model's visibility claim is not evidence that a card was rendered.

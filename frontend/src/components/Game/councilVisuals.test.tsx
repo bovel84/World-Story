@@ -87,10 +87,22 @@ describe('Council inline verified maps, all seats', () => {
     }
   });
 
-  it('missing geography and mere historical prose produce a short fallback, not a fabricated map', () => {
+  // M01 — Cambio di comportamento voluto (2026-10-09). Prima, una richiesta
+  // esplicita senza geografia verificata non produceva nulla. Ora mostra il
+  // **territorio posseduto** — l'esito che l'autore ha chiesto. La mappa non è
+  // «fabbricata»: sono le regioni realmente possedute (`playerPolityId`), e il
+  // testo lo dichiara. Vedi `governmentVisualOwnership.test.tsx`.
+  it('explicit request with no verified geography shows the owned territory, declared', () => {
     const current = receiveCouncilReply(room(CABINET_SEATS[0], false), CABINET_SEATS[0], 'Una vecchia guerra nel Territorio A.', 'reply', snapshot.scopeKey);
+    expect(renderRoom(current)).toContain('government-visual-card');
+    expect(renderRoom(current)).toContain('Territori di riferimento; non indica operazioni o aree di conflitto.');
+  });
+
+  it('mere historical prose without an explicit request produces no card', () => {
+    const noRequest = appendCouncilMessage(createCouncilRoom({ id: 'room2', scopeKey: 'session', initiatorMinister: CABINET_SEATS[0] }),
+      { id: 'u', role: 'user', kind: 'speech', content: 'La vecchia guerra è finita da tempo.' });
+    const current = receiveCouncilReply(noRequest, CABINET_SEATS[0], 'Una vecchia guerra nel Territorio A.', 'reply', snapshot.scopeKey);
     expect(renderRoom(current)).not.toContain('government-visual-card');
-    expect(renderRoom(current)).toContain('Non dispongo di un riferimento geografico verificato');
   });
 
   it('deduplicates equivalent directives and keeps #247 fronts military-snapshot guarded', () => {
