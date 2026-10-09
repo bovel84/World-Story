@@ -12,8 +12,8 @@
  */
 import { z } from 'zod';
 import { shortId } from '../../utils/short-id';
-import { buildRealitySignals, signalDomainToSeat, type RealitySignal } from './RealitySignals';
-import { MAX_BRIEFING_COUNCIL_ISSUES, isPreparatoryCouncilIssue, parseCouncilIssues, resolveCouncilIssue, type CouncilIssue, type CouncilIssueOrigin, type CouncilIssueParseOptions, type CouncilOption } from './CouncilIssue';
+import { buildRealitySignals, type RealitySignal } from './RealitySignals';
+import { MAX_BRIEFING_COUNCIL_ISSUES, isPreparatoryCouncilIssue, parseCouncilIssues, type CouncilIssue, type CouncilIssueOrigin, type CouncilIssueParseOptions, type CouncilOption } from './CouncilIssue';
 import { buildCouncilProposalAnchors } from './CouncilProposalAnchors';
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 import { resolveStrategicThreadEvidence, type StrategicThread, type StrategicThreadContext } from './StrategicThreads';
@@ -23,14 +23,8 @@ export interface AdvisorSituation extends StrategicThread {
   title: string;
   summary: string;
   /**
-   * T02 — Le MOSSE della situazione: la stessa forma di `CouncilIssue.options`
-   * (`{title, content}`), lo stesso schema (2-5, titolo 2-80, contenuto 10-400).
-   * Assente sulle schede vecchie e sulle situazioni che il modello interpreta
-   * senza una decisione da proporre: una situazione senza mosse resta valida
-   * (`T-I5`) e resta approfondibile.
-   *
-   * Sono PROSA, non fatti: nessuna chiave, nessuna cifra. Il server non le
-   * inventa mai — le conserva se il modello le ha scritte e lo schema le accetta.
+   * Legacy: soluzioni dei briefing precedenti, conservate per compatibilità.
+   * Non prodotte dal normale flusso Advisor e mai usate per derivare questioni.
    */
   options?: CouncilOption[];
   /** Chiavi dei segnali canonici: il server le ricalcola, mai il client. */
@@ -387,57 +381,6 @@ export function uncoveredAdvisorSituations(
 }
 
 /**
- * T04 — Una situazione scoperta diventa una proposta, **spostando** le sue mosse.
- *
- * La misura di T01 (§7) dice due cose: senza proposte ogni situazione resta
- * scoperta, e il numero di situazioni dipende dallo stato (da 1 a 8). La rete
- * qui sotto non inventa nulla per coprirle: prende la situazione e ne fa una
- * `council_issue` con il suo titolo, una domanda che è la SCELTA fra le sue
- * mosse, e **le mosse stesse**. Il server le sposta di posto, non le fabbrica
- * (`T-I2`).
- *
- * Restituisce `undefined` quando la situazione **non ha mosse**: senza una
- * decisione da proporre non c'è una proposta da portare al tavolo. È il confine
- * che T01 ha reso evidente — `buildAdvisorSituations` non distingue un problema
- * da un'opportunità e non sa quale decisione sia concretamente disponibile;
- * solo il modello, scrivendo le mosse, dice che una decisione esiste. Dove non
- * l'ha detta, il sistema non la inventa: la copertura lo **dichiara** scoperta.
- */
-export function situationAsCouncilIssue(
-  snapshot: VerifiedWorldSnapshot,
-  situation: AdvisorSituation,
-): CouncilIssue | undefined {
-  if (!situation.options?.length) return undefined;
-  // I ministri competenti si derivano dai SEGNALI RISOLTI della situazione
-  // (`signal.domain`), non da un elenco che la situazione non ha. La traduzione
-  // dominio→sedia vive in un punto solo (`RealitySignals.signalDomainToSeat`),
-  // accanto alla sua inversa.
-  const keys = new Set(situation.signalKeys);
-  const seats = [...new Set(buildRealitySignals(snapshot)
-    .filter(signal => keys.has(signal.key))
-    .map(signal => signalDomainToSeat(signal.domain)))];
-  return {
-    id: `issue-${situation.id}`,
-    title: situation.title.slice(0, 240),
-    question: `Quale strada scegliamo su «${situation.title}»?`.slice(0, 600),
-    options: situation.options.map(option => ({ title: option.title, content: option.content })),
-    // I riferimenti canonici viaggiano con la proposta: il server li risolve e
-    // li rivalida. Le mosse restano prosa.
-    ...(situation.signalKeys.length ? { signalKeys: [...situation.signalKeys] } : {}),
-    // Nessun fatto: la situazione non ne porta, e il client non ne inventa.
-    verifiedFacts: [],
-    // Il titolare della competenza, mai una lista vuota: `interno` risponde del
-    // quadro generale quando nessun segnale specifico è in gioco.
-    suggestedMinisters: seats.length ? seats.slice(0, 7) : ['interno'],
-    origin: 'advisor',
-    sourceRefs: [],
-    createdDate: '',
-    // Il legame con la situazione, per l'identità di copertura.
-    situationId: situation.id,
-  };
-}
-
-/**
  * `includeDeterministicSituations` decide se la risposta espone l'INTERA lista
  * deterministica delle situazioni correnti (`buildAdvisorSituations`).
  *
@@ -447,44 +390,6 @@ export function situationAsCouncilIssue(
  *   ogni messaggio.
  */
 export type AdvisorResponseParseOptions = CouncilIssueParseOptions & { includeDeterministicSituations?: boolean; strategicContext?: StrategicThreadContext };
-
-/**
- * T04 — La rete: copre le situazioni scoperte **che hanno mosse**.
- *
- * Sta accanto a `withAdvisorBriefingCoverage`, non al posto suo: la copertura
- * continua a **misurare** ciò che resta scoperto, e resta la fonte di verità su
- * di essa. Questa funzione aggiunge le proposte che il briefing ha mancato,
- * passando dalla validazione del server (`resolveCouncilIssue`), così una
- * proposta derivata è trattata come qualsiasi altra: chiavi ignote scartano la
- * scheda, non la accettano in parte.
- *
- * Il risultato è un `AdvisorResponse` nuovo: la copertura va **ricalcolata**
- * dopo (`withAdvisorBriefingCoverage`), perché le proposte appena aggiunte
- * coprono. Mai dichiarare una copertura che non si è ricalcolata.
- */
-export function withSituationDerivedProposals(
-  snapshot: VerifiedWorldSnapshot,
-  result: AdvisorResponse,
-): AdvisorResponse {
-  const uncovered = uncoveredAdvisorSituations(result);
-  const existing = new Set(result.issues.map(issue => issue.id));
-  const added: CouncilIssue[] = [];
-  for (const situation of uncovered) {
-    const derived = situationAsCouncilIssue(snapshot, situation);
-    if (!derived || existing.has(derived.id)) continue;
-    try {
-      added.push(resolveCouncilIssue(snapshot, derived, 'advisor'));
-    } catch (error) {
-      // Fail closed e visibile: la proposta derivata non si fabbrica. La
-      // situazione resta scoperta e la copertura lo dichiarerà.
-      const reason = error instanceof Error ? error.message : String(error);
-      console.warn(`[AdvisorSituation] proposta derivata scartata per ${situation.id}: ${reason}`);
-    }
-  }
-  if (!added.length) return result;
-  const issues = [...result.issues, ...added];
-  return withAdvisorBriefingCoverage(snapshot, { ...result, issues });
-}
 
 /** Punto unico del Consulente: situazioni e proposte restano separate. */
 export function parseAdvisorResponse(snapshot: VerifiedWorldSnapshot, text: string, origin: CouncilIssueOrigin = 'advisor', options: AdvisorResponseParseOptions = {}): AdvisorResponse {
@@ -504,33 +409,9 @@ export function parseAdvisorResponse(snapshot: VerifiedWorldSnapshot, text: stri
         && (!issue.situationId || parsedSituations.situations.some(situation => situation.id === issue.situationId)))
       : parsedIssues.issues,
   };
-  if (!briefing) return result;
-  // T04 — La copertura MISURA, poi la rete COPRE ciò che può coprire con le mosse
-  // che il modello ha scritto. Mai il contrario, e mai una copertura dichiarata
-  // invece che ricalcolata (`withSituationDerivedProposals` la ricalcola).
-  //
-  // Questo è il punto per cui passa la prosa del modello. L'altro percorso di
-  // briefing — `buildRealityAdvisorContext`, il deterministico, quando il
-  // provider è giù — chiama la stessa rete separatamente.
-  //
-  // **Il limite, dichiarato per intero** (misurato in T08): la rete copre solo le
-  // situazioni che hanno MOSSE. Le sei situazioni che `buildAdvisorSituations`
-  // costruisce dai segnali non ne hanno mai, e non possono averne — è una
-  // proiezione, non una scelta politica. Quindi su quel percorso la rete non
-  // aggiunge nulla, e la copertura resta `complete: false` con sei situazioni
-  // scoperte: la forma del 16:43.
-  //
-  // Non è un difetto che si chiuda con una riga di codice. Coprirle davvero
-  // significherebbe far generare le mosse al modello partendo da quelle sei
-  // situazioni — cioè il repair mirato già esistente, che però oggi vede un
-  // elenco vuoto perché la rete lo precede. È il seguito naturale di T04, non
-  // parte di esso: dichiararlo è meglio che fingere una copertura.
-  //
-  // Il compromesso sulle situazioni che la rete copre davvero: la domanda è
-  // composta dal server («Quale strada scegliamo su «X»?») e non dal modello. Le
-  // MOSSE — la sostanza che il Presidente legge e sceglie — restano quelle scritte
-  // dal modello, identiche.
-  return withSituationDerivedProposals(snapshot, withAdvisorBriefingCoverage(snapshot, result));
+  // Solo questioni validate del modello/repair coprono le situazioni.
+  // Nessuna domanda generica derivata dal server, neppure dalle soluzioni legacy.
+  return briefing ? withAdvisorBriefingCoverage(snapshot, result) : result;
 }
 
 /** Legacy text/plain chats must not silently discard paid-for proposals.

@@ -530,7 +530,7 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     expect(briefingPrompt).toContain(ADVISOR_BRIEFING_SITUATION_PROTOCOL);
     expect(briefingPrompt).not.toContain(ADVISOR_CONVERSATION_PROTOCOL);
     expect(briefingPrompt).not.toContain('council_issue = 0');
-    expect(briefingPrompt).toContain('almeno una proposta concreta per ogni situazione');
+    expect(briefingPrompt).toContain('una questione politica concreta per ogni situazione');
     expect(briefingPrompt).toContain('COUNCIL PROPOSAL ANCHORS');
     expect(briefingPrompt).toContain('DEVI emettere');
 
