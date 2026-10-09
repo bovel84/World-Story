@@ -30,10 +30,10 @@ describe('CouncilIssue optional variety protocol', () => {
     expect(COUNCIL_ISSUE_PROTOCOL).toContain('Usa solo chiavi presenti in facts');
   });
 
-  it('separa SITUAZIONE da PROPOSTA DI ATTO e ancora i titoli ai fatti', () => {
+  it('separa SITUAZIONE da QUESTIONE POLITICA e ancora i titoli ai fatti', () => {
     expect(SITUATION_BASE_PROTOCOL).toMatch(/numero fisso/);
-    expect(SITUATION_BASE_PROTOCOL).toMatch(/SITUAZIONE da PROPOSTA DI ATTO/);
-    expect(SITUATION_BASE_PROTOCOL).toContain('ogni situazione deve avere almeno una proposta collegata');
+    expect(SITUATION_BASE_PROTOCOL).toMatch(/SITUAZIONE da QUESTIONE POLITICA/);
+    expect(SITUATION_BASE_PROTOCOL).toContain('ogni situazione deve avere una questione verificata collegata');
     expect(ADVISOR_BRIEFING_SITUATION_PROTOCOL).toMatch(/titoli devono essere concreti/i);
   });
 

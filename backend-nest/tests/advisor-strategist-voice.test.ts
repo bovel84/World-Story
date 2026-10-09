@@ -25,13 +25,13 @@ describe('advisor strategist voice', () => {
     expect(usa).not.toMatch(/crisi|emergenze immediate|programmi in corso/i);
   });
 
-  it('requires interpretation, alternatives and strategic judgment, not four visible fact labels or mandatory cards', () => {
+  it('requires interpretation, open political questions and strategic judgment, not four visible fact labels or mandatory cards', () => {
     const prompt = buildRealityAdvisorPrompt(buildRealityAdvisorContext(country('KHM', 0.8, -2)).advisorContext, 'Come procediamo?');
     expect(prompt).toContain('storico e stratega');
     expect(prompt).toContain('tutte e sole le questioni strategiche realmente distinte e salienti');
     expect(prompt).not.toContain('una o più di tre');
     expect(prompt).toContain('numero fisso');
-    expect(prompt).toContain('SITUAZIONE da PROPOSTA DI ATTO');
+    expect(prompt).toContain('SITUAZIONE da QUESTIONE POLITICA');
     expect(prompt).toContain('non creare questioni per riempire una quota');
     expect(prompt).not.toContain('1-3 direzioni');
     expect(prompt).toContain('Per una domanda puntuale rispondi al punto');

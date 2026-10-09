@@ -101,14 +101,14 @@ describe('T06 — la bozza non nasce mai vuota (T-I3)', () => {
   });
 
   it('aperta la seduta senza mossa, la bozza è deposta e non vuota', () => {
-    // Guardia sul percorso vero: `openIssue` depone la bozza in ogni caso, e il
-    // ramo dipende da `chosenOption`. Senza mossa prende `councilDraft` (che
-    // porta il testo della questione), con la mossa prende il contenuto scelto.
+    // Il Consulente porta solo la questione: nessuna strada prefabbricata
+    // entra nella Tavola o nella bozza durante l'apertura.
     expect(office).toContain('setDrafts(previous => ({ ...previous, [room.id]: prepared }))');
     const start = office.indexOf('const prepared: RoomDraft');
     const body = office.slice(start, office.indexOf('setDrafts', start));
-    expect(body).toContain('chosenOption?.content.trim()');
-    expect(body).toContain('councilDraft(seeded, currentTurn ?? 0)');
+    expect(body).not.toContain('chosenOption');
+    expect(body).toContain('councilDraft(room, currentTurn ?? 0)');
+    expect(office).not.toContain('seedChosenRoad');
   });
 
   it('la bozza conserva il testo quando la Tavola ha misure: nessuna regressione di P07', () => {

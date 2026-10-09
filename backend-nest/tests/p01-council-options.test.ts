@@ -1,11 +1,11 @@
 /**
- * P01 — La proposta del Consulente porta le **mosse**, non solo il problema.
+ * Legacy CouncilIssue options remain parseable; Advisor no longer requests them.
  *
  * Difende le invarianti del piano PROPOSTE_CONSIGLIERE_PARITA_PAX.md:
  *  - P-I1 l'opzione è **prosa**, non un fatto: nessuna cifra, nessuna chiave;
  *  - P-I5 **retrocompatibilità**: una scheda senza `options` resta valida;
  *  - i limiti (2-5 opzioni, lunghezze) sono validati dallo schema, non dal prompt;
- *  - il protocollo chiede le opzioni e vieta «dovremmo/potremmo» (lo standard Pax).
+ *  - il protocollo Advisor non chiede soluzioni; quello del ministro resta invariato.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -106,35 +106,28 @@ describe('P01 — il parser scarta le schede con opzioni malformate', () => {
   });
 });
 
-describe('P01 — il protocollo chiede le mosse (qualità Pax)', () => {
-  it('chiede 2-5 opzioni con titolo immersivo e content eseguibile', () => {
-    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('"options"');
-    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('2-5 mosse');
-    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('immersiva');
-    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('prima persona plurale');
+describe('Advisor anchor protocol without solutions', () => {
+  it('does not request options or executable orders', () => {
+    expect(COUNCIL_ANCHOR_PROTOCOL).not.toMatch(/options|2-5 mosse|\[OPZIONI\]|ordine PRONTO|2-4 iniziative|proponi (?:una decisione|decisioni politiche)/i);
+    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('non una soluzione operativa');
   });
 
-  it('vieta i verbi deboli e le cifre nelle opzioni', () => {
-    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('dovremmo');
-    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('nessuna cifra');
+  it('keeps grounding and financial constraints', () => {
+    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('cassa non significa surplus libero');
+    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('Nessuna cifra non verificata');
   });
 
   it('conserva lo standard qualitativo migrato da suggestions.ts (P06)', () => {
-    // Le regole che erano in `buildSuggestionsQualityInstruction` e che, dopo la
-    // cancellazione del file, vivono SOLO qui. Se sparissero, si perderebbe lo
-    // standard di qualità che l'autore ha chiesto.
     expect(COUNCIL_ANCHOR_PROTOCOL).toContain('prosa da memoria di governo');
     expect(COUNCIL_ANCHOR_PROTOCOL).toContain('bollettino');
     expect(COUNCIL_ANCHOR_PROTOCOL).toContain('soddisfazione 32/100');
     expect(COUNCIL_ANCHOR_PROTOCOL).toContain('Non nominare anime del governo');
     expect(COUNCIL_ANCHOR_PROTOCOL).toContain('Non inventare guerre');
     expect(COUNCIL_ANCHOR_PROTOCOL).toContain('Non riproporre iniziative completate');
-    // L'esempio di forma: la cosa più incisiva dello standard, non un ornamento.
-    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('Esempio di forma corretta');
-    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('osservatori neutrali');
+    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('vincoli verificati');
   });
 
-  it('l’esempio JSON del protocollo principale include options', () => {
+  it('l’esempio JSON del protocollo dei ministri continua a includere options', () => {
     expect(COUNCIL_ISSUE_PROTOCOL).toContain('"options"');
   });
 

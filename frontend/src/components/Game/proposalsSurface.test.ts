@@ -2,10 +2,9 @@
  * P07 — Le proposte arrivano alle superfici.
  *
  * Test-contratto sul sorgente (convenzione del progetto). Difende il percorso
- * completo della mossa, dal Consulente all'atto:
+ * completo della questione, dal Consulente all'atto:
  *
- *   AdvisorChat → CouncilIssueInline (card scegliibili, già difese in
- *   `councilOptions.test.ts`) → openIssue(issue, chosenOption) →
+ *   AdvisorChat → CouncilIssueInline (questione senza soluzioni) → openIssue(issue) →
  *   orderDraftStore/`drafts` → ActDraftPanel (la bozza, modificabile) → firma.
  *
  * La misura dice che **non c'è una seconda superficie da costruire**: il
@@ -27,9 +26,10 @@ describe('P07 — il percorso della mossa, dal Consulente all’atto', () => {
   });
 
   it('la stanza del Governo collega il clic alla bozza', () => {
-    expect(office).toContain('const openIssue = (issue: CouncilIssue, chosenOption?:');
-    expect(office).toContain('const room = startRoom(rapporteur, issue)');
-    expect(office).toContain('text: chosenOption.content.trim()');
+    expect(office).toContain('const openIssue = (issue: CouncilIssue): void =>');
+    expect(office).toContain('const room = startRoom(rapporteur, discussionIssue)');
+    expect(office).toContain('councilDraft(room, currentTurn ?? 0)');
+    expect(office).not.toContain('seedChosenRoad');
   });
 
   it('la bozza è resa da ActDraftPanel, modificabile prima della firma', () => {
