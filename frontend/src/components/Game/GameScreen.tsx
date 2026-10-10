@@ -16,7 +16,7 @@ import { selectTotalUnread, useActionsStore, useChatStore, useGameStore, useUISt
 import { useOrderDraftStore } from '../../stores/orderDraftStore';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import type { MapRegionFocusRequest } from '../Map/mapFocus';
-import { buildGovernmentVisualSnapshot, governmentVisualEpoch, governmentVisualRuntimeMatches, mapFocusFromVisual, type MapFocusVisual } from './governmentVisual';
+import { buildGovernmentVisualSnapshot, governmentVisualEpoch, governmentVisualRuntimeMatches, mapFocusFromVisual, mapLayerForVisual, type MapFocusVisual } from './governmentVisual';
 import { useToast } from '../ui/ToastProvider';
 import { deriveNationalContext } from './nationalContext';
 import { councilPresence } from './governmentDossier';
@@ -194,7 +194,11 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     if (!snapshot || snapshot.scopeKey !== liveScope || useUIStore.getState().loading
       || card.regionIds.some(id => !live.currentWorld?.regions[id]) || !mapFocusFromVisual(card, snapshot, 0)) return;
     setMapFocusRequest(previous => mapFocusFromVisual(card, snapshot, (previous?.requestId || 0) + 1));
-    setMapLegendLayer('political'); // Same ownership palette as the preview.
+    // MAP11 — La mappa grande si apre sulla **stessa** lettura della scheda: se la
+    // scheda è colorata dal prodotto, il layer è quello del prodotto. Le altre
+    // grandezze restano sulla mappa politica: `military` mostra fronti e reparti,
+    // che è un'altra cosa, e sarebbe una mappa che dice qualcosa di diverso.
+    setMapLegendLayer(mapLayerForVisual(card) ?? 'political');
     setMapContextSelection(null);
     setSelectedRegion(null);
     setShowOpening(false);

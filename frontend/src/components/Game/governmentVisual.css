@@ -19,6 +19,7 @@
 .government-visual-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; list-style: none; font-size: 11px; color: #becedd; }
 .government-visual-legend li { display: flex; align-items: center; gap: 6px; }
 .government-visual-swatch { flex: 0 0 9px; width: 9px; height: 9px; border: 1px solid #dceaf370; border-radius: 2px; }
+.government-visual-legend-title { flex: 1 0 100%; margin-bottom: 2px; color: #8fa9bd; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
 .government-visual-description, .government-visual-fallback { color: #a2bbce; font-size: 12px; line-height: 1.5; }
 .government-visual-fallback { padding: 18px 12px; background: #0a141e; }
 .government-visual-open { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; margin-top: 12px; padding: 10px 12px; border: 1px solid #5b7c95; border-radius: 4px; background: #172e40; color: #e7f1f9; font: 500 12px/1.4 system-ui, sans-serif; text-align: left; cursor: pointer; }

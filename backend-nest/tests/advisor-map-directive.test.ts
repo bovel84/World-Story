@@ -64,6 +64,26 @@ describe('M05 — la direttiva mappa nel prompt REALE del Consulente', () => {
   });
 });
 
+describe('MAP05 — la grandezza dichiarata, mai le cifre', () => {
+  it('il prompt REALE del Consulente insegna `metric`, con le tre grandezze canoniche', () => {
+    const prompt = advisorPrompt('Dove produce il paese?');
+    expect(prompt).toMatch(/MAP05/);
+    expect(prompt).toContain('"metric":"pil"');
+    for (const metric of ['pil', 'popolazione', 'difesa']) expect(prompt).toContain(metric);
+    // Il confine di C01 resta: il modello sceglie COSA guardare, non le cifre.
+    expect(prompt).toMatch(/mai una cifra/i);
+    expect(prompt).toMatch(/non scrivere mai gli id delle regioni/i);
+  });
+
+  it('il protocollo REALE del ministro insegna `metric` e vieta di indovinare gli id', () => {
+    expect(MINISTER_DIALOGUE_PROTOCOL).toMatch(/MAP05/);
+    expect(MINISTER_DIALOGUE_PROTOCOL).toContain('"metric":"pil"');
+    expect(MINISTER_DIALOGUE_PROTOCOL).toMatch(/non indovinarli/i);
+    // Il ministro continua a poter indicare gli id canonici quando li ha.
+    expect(MINISTER_DIALOGUE_PROTOCOL).toMatch(/regionIds/);
+  });
+});
+
 describe('M-PROGETTI — la mappa serve anche a spiegare un progetto o un\'idea', () => {
   it('il prompt REALE del Consulente autorizza la mappa per un progetto/idea, senza derogare a M-I1', () => {
     const prompt = advisorPrompt('Come svilupperesti il progetto della rete ferroviaria?');

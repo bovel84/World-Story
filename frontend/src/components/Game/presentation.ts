@@ -27,6 +27,7 @@ import type { TreasuryRoad } from './treasuryAct';
 import { matchSpendingVoice } from './spendingFocus';
 import { focusedProposals } from './seatProposals';
 import { parseDecisionActions, stripDecisionFences, type DecisionAction } from './decisionWorkspace';
+import { REGION_METRICS, type RegionMetric } from './regionMetrics';
 
 /** Le chiavi di evidenza che il ministro può richiamare. */
 export const EVIDENCE_KEYS = ['spesa', 'trend', 'cifre', 'piano', 'mappa', 'idee'] as const;
@@ -113,6 +114,14 @@ export interface PresentationDirective {
   readonly regionIds?: readonly string[];
   /** Parser provenance, not an LLM field: never draw a silently reduced map. */
   readonly invalidRegionIds?: boolean;
+  /**
+   * MAP05 — La **grandezza** da mostrare sulla mappa, fra le tre canoniche
+   * (`pil`, `popolazione`, `difesa`). È una scelta di *cosa guardare*, mai una
+   * cifra: i numeri e la scala li mette il resolver dalle regioni del motore.
+   * Il modello può dichiararla quando la sua raccomandazione riguarda una
+   * grandezza; altrimenti è il testo del Presidente a farla scegliere.
+   */
+  readonly metric?: RegionMetric;
   /**
    * WS-GOVUX-P3 — Il **bersaglio** mirato di `annotate`/`dismiss` (default:
    * `evidence`). Serve a rimuovere/aggiornare un'evidenza della tela senza
@@ -269,6 +278,12 @@ export function validateDirective(raw: string): PresentationDirective | null {
   const invalidRegionIds = evidence === 'mappa' && candidate.regionIds !== undefined
     && (!Array.isArray(candidate.regionIds) || !candidate.regionIds.length || candidate.regionIds.length > MAX_MAP_REGION_IDS || !candidate.regionIds.every(safeRegionId));
 
+  // MAP05 — La grandezza da mostrare: solo le tre canoniche. Un valore ignoto è
+  // omesso (si resta sul colore politico), non interpretato: il modello sceglie
+  // *cosa* guardare, la scala la decide il resolver.
+  const metricRaw = typeof candidate.metric === 'string' ? candidate.metric.toLowerCase() : '';
+  const metric = (REGION_METRICS as readonly string[]).includes(metricRaw) ? (metricRaw as RegionMetric) : undefined;
+
   // WS-GOVUX-P3 — Il bersaglio mirato (solo una chiave di evidenza nota) e la
   // versione di stato (intero non negativo). Valori non validi ⇒ omessi, non
   // interpretati: la direttiva resta valida ma senza il campo inventato.
@@ -287,6 +302,7 @@ export function validateDirective(raw: string): PresentationDirective | null {
     ...(note ? { note } : {}),
     ...(regionIds && regionIds.length > 0 ? { regionIds } : {}),
     ...(invalidRegionIds ? { invalidRegionIds: true } : {}),
+    ...(metric ? { metric } : {}),
     ...(target ? { target } : {}),
     ...(version !== undefined ? { version } : {}),
   };
