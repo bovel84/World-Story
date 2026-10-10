@@ -171,6 +171,92 @@ describe('M05 — la direttiva del modello (senza id) produce la mappa del paese
   });
 });
 
+describe('MAP02 — le zone di cui si parla salgono a primarie, con il loro vicinato', () => {
+  // Un paese di 5 province, di cui una sola nominata: è il caso reale (la
+  // conversazione parla di una provincia, la scheda disegnava tutte le altre).
+  const country = (): Region[] => [
+    { id: 'k1', name: 'Irbid', owner: 'A', polityName: 'Paese A', color: '#007A3D', svgPath: 'M0 0L60 0L60 60L0 60Z', objects: [], borders: ['k2', 'k3'], metadata: {} },
+    { id: 'k2', name: 'Sakib', owner: 'A', polityName: 'Paese A', color: '#007A3D', svgPath: 'M60 0L120 0L120 60L60 60Z', objects: [], borders: ['k1'], metadata: {} },
+    { id: 'k3', name: 'Al Salt', owner: 'A', polityName: 'Paese A', color: '#007A3D', svgPath: 'M0 60L60 60L60 120L0 120Z', objects: [], borders: ['k1'], metadata: {} },
+    { id: 'k4', name: 'Maan', owner: 'A', polityName: 'Paese A', color: '#007A3D', svgPath: 'M60 60L120 60L120 120L60 120Z', objects: [], borders: [], metadata: {} },
+    { id: 'k5', name: 'Aqaba', owner: 'A', polityName: 'Paese A', color: '#007A3D', svgPath: 'M120 60L180 60L180 120L120 120Z', objects: [], borders: [], metadata: {} },
+  ] as Region[];
+
+  const territoryCard = (content: string) => resolveGovernmentVisuals(
+    { role: 'assistant', content, visualRequest: explicitRequest() },
+    naked(country()),
+  )[0];
+
+  it('la provincia nominata è primaria, i suoi vicini adiacenti, il resto contesto', () => {
+    const card = territoryCard('La crisi di Irbid richiede attenzione.');
+    expect(card.zones?.primary).toEqual(['k1']);
+    expect(card.zones?.adjacent).toEqual(['k2', 'k3']);
+    expect(card.zones?.context).toEqual(['k4', 'k5']);
+    // L'insieme canonico non cambia: le zone sono solo una lettura in più.
+    expect(card.regionIds).toEqual(['k1', 'k2', 'k3', 'k4', 'k5']);
+  });
+
+  it('l\'inquadratura segue le primarie, non l\'intero insieme', () => {
+    const whole = governmentVisualModel({ type: 'map-focus', title: 'T', regionIds: ['k1', 'k2', 'k3', 'k4', 'k5'], scopeKey: SCOPE }, naked(country()))!;
+    const focused = governmentVisualModel(territoryCard('La crisi di Irbid.'), naked(country()))!;
+    // Il riquadro è più stretto: contiene il soggetto e il suo intorno, non tutto il paese.
+    const width = (viewBox: string) => Number(viewBox.split(/\s+/)[2]);
+    expect(width(focused.preview!.viewBox)).toBeLessThan(width(whole.preview!.viewBox));
+    expect(focused.preview!.paths).toHaveLength(5); // il contesto resta disegnato intorno
+  });
+
+  it('la scheda dichiara il soggetto e marca i ruoli nel DOM', () => {
+    const html = renderToStaticMarkup(<GovernmentVisualCard card={territoryCard('La crisi di Irbid.')} snapshot={naked(country())} />);
+    expect(html).toContain('In evidenza: Irbid');
+    expect(html).toContain('sulle 5 del contesto');
+    expect(html).toContain('data-role="primary"');
+    expect(html).toContain('data-role="adjacent"');
+    expect(html).toContain('data-role="context"');
+    // L'etichetta dentro la mappa segue la primaria (il soggetto si nomina).
+    expect(html).toContain('>Irbid</text>');
+  });
+
+  it('senza una zona nominata la scheda è esattamente quella di prima', () => {
+    const card = territoryCard('Nessun nome di provincia in questa risposta.');
+    expect(card.zones).toBeUndefined();
+    const html = renderToStaticMarkup(<GovernmentVisualCard card={card} snapshot={naked(country())} />);
+    expect(html).not.toContain('data-role=');
+    expect(html).not.toContain('In evidenza:');
+  });
+
+  it('un nome che non è una provincia non produce nessuna zona', () => {
+    const card = territoryCard('Parlami di Sivas e della regione di confine.');
+    expect(card.zones).toBeUndefined();
+  });
+
+  it('le zone non fanno mai crescere l\'insieme canonico, e un vicino fuori scheda non entra', () => {
+    const regions = country();
+    regions[0] = { ...regions[0], borders: ['k2', 'fuori-scheda'] } as Region;
+    const card = resolveGovernmentVisuals({ role: 'assistant', content: 'La crisi di Irbid.', visualRequest: explicitRequest() }, naked(regions))[0];
+    const all = [...card.zones!.primary, ...card.zones!.context, ...card.zones!.adjacent];
+    expect(all.sort()).toEqual(['k1', 'k2', 'k3', 'k4', 'k5']);
+    expect(all).not.toContain('fuori-scheda');
+  });
+
+  it('una mappa di fronte o diplomatica è già il suo soggetto: nessuna graduazione', () => {
+    const front = { id: 'f', name: 'Fronte', status: 'active', regionIds: ['k1', 'k2'] } as WarFrontPayload;
+    const withFront = buildGovernmentVisualSnapshot({
+      scopeKey: SCOPE, canonicalSnapshotKey: SCOPE, militarySnapshotKey: SCOPE,
+      index: buildMapContextIndex({ regions: country(), units: [], fronts: [front] }), unavailable: false, playerPolityId: 'A',
+    })!;
+    expect(resolveGovernmentVisuals({ role: 'assistant', content: 'La crisi di Irbid.', issues: [{ signalKeys: ['conflict:f'] }] }, withFront)[0].zones).toBeUndefined();
+  });
+
+  it('una primaria che non esiste più non entra nelle zone (la scheda non cresce di nascosto)', () => {
+    const card = resolveGovernmentVisuals({ role: 'assistant', content: 'La crisi di Irbid.', visualRequest: explicitRequest() }, naked(country()))[0];
+    // Il mondo cambia: Irbid non è più fra le regioni della scheda.
+    const shrunk = naked(country().filter(region => region.id !== 'k1'));
+    const model = governmentVisualModel({ ...card, regionIds: ['k2', 'k3', 'k4', 'k5'] }, shrunk);
+    expect(model).not.toBeNull();
+    expect(model!.zones?.primary ?? []).toEqual([]);
+  });
+});
+
 describe('M-I2 — il testo non promette una mappa che non c\'è', () => {
   it('un messaggio senza card e senza richiesta non mostra nulla', () => {
     const snapshot = naked(ownedRegions(3));
