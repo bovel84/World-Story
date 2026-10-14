@@ -139,6 +139,15 @@ export interface ReactionContextInput {
   pressures?: Array<{ id: string; kind: string; title: string; detail: string }>;
   ongoingProcesses?: Array<{ id: string; title: string; sourceActionId: string }>;
   crisis?: { level?: string; headline?: string };
+  /** Dated game history / active preset threads, kept distinct from current orders. */
+  worldCauses?: readonly WorldReactionCause[];
+}
+
+export interface WorldReactionCause {
+  kind: 'prior_event' | 'world_process';
+  summary: string;
+  sourceRef: string;
+  polityIds?: readonly string[];
 }
 
 /** Ordine del turno corrente: testo + ID canonico della stessa azione. */
@@ -314,6 +323,12 @@ function polityOptions(
  */
 export function buildReactionContext(input: ReactionContextInput): ReactionContext {
   const mentioned = mentionedPolityIds(input);
+  const worldCauses = (input.worldCauses ?? []).filter(cause => cause.summary.trim() && cause.sourceRef).slice(0, 5);
+  const causalActors = new Map<string, WorldReactionCause>();
+  for (const cause of worldCauses) {
+    const ids = [...(cause.polityIds ?? []), ...mentionedPolityIds({ ...input, focusTexts: [cause.summary] })];
+    for (const id of ids) if (!causalActors.has(id)) causalActors.set(id, cause);
+  }
   const adjacent = frontierOwnerIds(input);
   const resources = input.resources || {};
   const creditHeadroom = Number(resources.creditHeadroom ?? 0);
@@ -339,10 +354,12 @@ export function buildReactionContext(input: ReactionContextInput): ReactionConte
         ? { kind: 'economic_pressure', summary: input.pressures.find(pressure => pressure.kind === 'external')!.title, sourceRef: input.pressures.find(pressure => pressure.kind === 'external')!.id }
         : input.pressures?.length
           ? { kind: 'internal_pressure', summary: input.pressures[0].title, sourceRef: input.pressures[0].id }
-          : { kind: 'prior_event', summary: 'Nessuna nuova azione: il mondo prosegue i filoni documentati.' };
+          : worldCauses.length
+            ? { kind: worldCauses[0].kind, summary: worldCauses[0].summary, sourceRef: worldCauses[0].sourceRef }
+            : { kind: 'prior_event', summary: 'Nessuna nuova azione: il mondo prosegue i filoni documentati.' };
 
   // Attori: nominati, vicini, con rapporto registrato. Nessuna terza nazione arbitraria.
-  const polityIds = [...new Set([...mentioned, ...adjacent, ...Object.keys(input.relationships || {})])]
+  const polityIds = [...new Set([...mentioned, ...causalActors.keys(), ...adjacent, ...Object.keys(input.relationships || {})])]
     .filter(id => id && id !== 'neutral' && id !== input.playerPolityId)
     .filter(id => Object.values(input.regions).some(region => region.owner === id))
     .slice(0, MAX_ACTORS);
@@ -353,7 +370,9 @@ export function buildReactionContext(input: ReactionContextInput): ReactionConte
       id: polityId,
       name: input.polityNames[polityId] || polityId,
       role,
-      because: because(input, polityId, mentioned, adjacent),
+      because: !mentioned.includes(polityId) && causalActors.has(polityId)
+        ? `${causalActors.get(polityId)!.sourceRef}: ${causalActors.get(polityId)!.summary}`
+        : because(input, polityId, mentioned, adjacent),
       interests: [stance(input, polityId, input.playerPolityId) === 'hostile' ? 'sicurezza' : 'interesse nazionale'],
       options: polityOptions(input, polityId, role, creditHeadroom),
     };

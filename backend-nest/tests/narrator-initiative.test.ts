@@ -18,6 +18,9 @@ function game(override: boolean): any {
     players: [{ id: 'p1', name: 'Cambogia', regionId: 'KHM', polityId: 'KHM' }],
     playerPolityId: 'KHM', polityNames: { KHM: 'Cambogia' }, actions: [], results: [],
     activeCommitments: commitment,
+    storylines: [{ id: 'rural', title: 'Ricostruzione rurale', summary: 'Il paese ricostruisce i collegamenti.', parties: ['KHM'] }],
+    polityNationSituations: [{ polityId: 'KHM', countryName: 'Cambogia', startDate: '2000-01-01',
+      situation: 'Le comunità rurali cercano accesso ai mercati.', generatedAt: '2000-01-01', version: 1 }],
     worldState: { pressures: [{ id: 'rural', kind: 'internal', title: pressure,
       detail: 'I collegamenti limitano l’accesso ai mercati.', severity: 2, source: 'Comunità rurali' }] },
   };
@@ -56,6 +59,8 @@ describe('narratore: iniziativa causale nella chiamata del turno', () => {
     const prompt = llm.stream.mock.calls[0][2];
     expect(prompt).toContain(pressure);
     expect(prompt).toContain(commitment);
+    expect(prompt).toContain('Ricostruzione rurale');
+    expect(prompt).toContain('Le comunità rurali cercano accesso ai mercati.');
     expect(prompt.match(/\[MONDO VIVO/g)).toHaveLength(1);
     expect(prompt).toContain('Regole auto-jump senza ordini');
     expect(prompt).not.toContain('Fermati SOLO sull\'evento');

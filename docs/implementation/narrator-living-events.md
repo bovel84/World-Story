@@ -34,3 +34,29 @@ Prova in partita: avanzare senza ordini in una nazione con una pressione aperta,
 leggere lo sviluppo e intervenire. Poi verificare che un ordine abbia il suo
 esito e che una questione rinviata prosegua senza essere semplicemente ripetuta.
 Non sono state eseguite chiamate a pagamento per questa modifica.
+
+## Reazioni autonome e consulente contestuale
+
+Il contesto delle reazioni include ora anche le nazioni nominate in un massimo
+di tre eventi canonici recenti (entro 180 giorni) e due filoni attivi del preset.
+Gli ordini correnti restano prioritari; una causa mondiale non viene classificata
+come ordine del giocatore. Gli attori devono esistere sulla mappa e mantengono
+opzioni e vincoli del motore. I dossier NPC ricevono gli stessi attori selezionati.
+Eventi futuri, pagine non ancora lette e fatti remoti non entrano nella selezione.
+
+Il narratore principale legge anche le situazioni nazionali già preparate dal
+turno e i filoni pertinenti: prima questi dati non arrivavano al suo prompt.
+Il contesto aggiuntivo è limitato a due filoni e tre nazioni, con estratti di
+450/500 caratteri. Non abilita il passaggio LLM separato worldPulse; restano
+invariati preparazione e caching preesistenti dei contesti nazionali.
+
+Il consulente può ora collegare una scheda alla situazione iniziale del paese
+o alla premessa del preset, anche quando manca una baseline storica o un allarme
+numerico. Le fonti sono risolte server-side: da sole sono sufficienti solo
+all'apertura; dopo richiedono continuità in segnali o fatti della partita.
+Restano subordinati al presente e alla cronaca, senza trasformare opportunità,
+traiettorie o intenzioni in risorse o avvenimenti già accaduti.
+
+Verifiche aggiuntive: 101 test mirati di contesto/reazioni/consulente e 67 del
+turno, streaming e modalità strict, tutti superati, più build backend. Sono
+controlli con provider simulato; la varietà effettiva resta da valutare giocando.

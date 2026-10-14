@@ -10,6 +10,9 @@ import type { VerifiedRecentEvent, VerifiedWorldSnapshot } from './VerifiedWorld
 
 export interface StrategicThreadContext {
   historicalBaseline?: string;
+  /** Persisted, country-specific starting context, not current inventory. */
+  nationSituation?: string;
+  presetContext?: { name: string; startDate: string; premise: string };
   temporalScope?: { initialDate: string | null; currentDate: string | null };
   strategicHistory?: readonly VerifiedRecentEvent[];
   /** Full eligible chronicle (server-only): keeps evidence keys stable across queries. */
@@ -41,9 +44,16 @@ function evidenceKey(kind: StrategicThreadEvidence['kind'], sourceRef: string, t
 }
 
 function historicalEvidence(context: StrategicThreadContext): StrategicThreadEvidence[] {
-  if (!context.temporalScope?.initialDate || !context.historicalBaseline) return [];
-  return context.historicalBaseline.split(/\n+|(?<=[.!?])\s+/).map(text => text.trim()).filter(Boolean).slice(0, 24)
-    .map(text => ({ key: evidenceKey('historical', 'historicalBaseline', text), kind: 'historical', text, sourceRef: 'historicalBaseline' }));
+  if (!context.temporalScope?.initialDate) return [];
+  const passages = (sourceRef: string, body: string | undefined, limit: number): StrategicThreadEvidence[] =>
+    (body ?? '').split(/\n+|(?<=[.!?])\s+/).map(text => text.trim()).filter(Boolean).slice(0, limit)
+      .map(text => ({ key: evidenceKey('historical', sourceRef, text), kind: 'historical', text, sourceRef }));
+  return [
+    ...passages('historicalBaseline', context.historicalBaseline, 24),
+    ...passages('nationSituation', context.nationSituation?.slice(0, 1800), 8),
+    ...passages('presetContext.premise', context.presetContext?.startDate === context.temporalScope.initialDate
+      ? context.presetContext.premise.slice(0, 800) : undefined, 4),
+  ];
 }
 
 function threadHistory(snapshot: VerifiedWorldSnapshot, context: StrategicThreadContext): VerifiedRecentEvent[] {
@@ -128,6 +138,7 @@ export function renderStrategicThreadEvidence(snapshot: VerifiedWorldSnapshot, c
     'Prima interpreta un STRATEGIC THREAD: cosa accade, attori/luoghi documentati, posta politica, vincoli e alternative. Poi rendilo advisor_situation nella STESSA risposta; non emettere un secondo elenco o una seconda chiamata. Chat e card devono raccontare lo stesso mondo.',
     'Le evidenceKeys citano SOLO questo registro. I segnali pertinenti vanno comunque collegati: sono prove e vincoli, NON il nome o l’identità del problema. Non inventare chiavi, fatti, attori o capacità.',
     'All’apertura una prova historical pertinente può sostenere la continuità politica immediata se CURRENT STATE non la contraddice, anche senza signalKeys. Non trasforma guerre storiche in guerre registrate, né crea forze, territori, accordi, infrastrutture o risorse. Un evento remoto o concluso non è una crisi attuale.',
+    'Le prove nationSituation e presetContext.premise descrivono il punto di partenza del paese e dello scenario. Usa luoghi, attori e interessi pertinenti per formulare situazioni specifiche della nazione e dell’epoca, anche opportunità; non trasformare traiettorie o possibilità in eventi avvenuti. Dopo l’apertura richiedono la stessa continuità attuale delle altre prove historical.',
     'CURRENT STATE > PLAYER HISTORY > HISTORICAL BASELINE. Se una crisi è risolta, un programma concluso o un’alleanza cambiata, NON riproporre la vecchia situazione: descrivi semmai conseguenze o opportunità attuali provate. Gli atti firmati non sono effetti eseguiti.',
     HISTORICAL_CONTINUITY_RULE,
   ].join('\n');

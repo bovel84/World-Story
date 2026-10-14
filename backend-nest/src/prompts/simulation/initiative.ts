@@ -1,4 +1,5 @@
 import type { PromptVariables } from '../types';
+import type { NationSituationRecord } from '../../core/government/NationSituation';
 
 /** Prompt-only direction: no new model call, state, effects or event schema. */
 export function buildNarrativeInitiative(): string {
@@ -26,4 +27,26 @@ export function buildNarrativeSituationSources(vars: PromptVariables): string {
     const body = value!.trim();
     return `[${label}]\n${body.length > cap ? `${body.slice(0, cap - 1).trimEnd()}…` : body}`;
   }).join('\n\n');
+}
+
+/** These sources were prepared by the turn pipeline but only worldPulse read
+ * the storylines; the main narrator never received national directions. */
+export function buildWorldNarrativeContext(input: {
+  date: string; startDate: string; playerPolityId: string; actorIds: readonly string[];
+  storylines?: readonly { id: string; title: string; summary: string; parties: readonly string[]; trajectory?: string; active_from?: string; active_until?: string }[];
+  situations?: readonly NationSituationRecord[];
+}): string {
+  const allowed = new Set([input.playerPolityId, ...input.actorIds]);
+  const threads = (input.storylines ?? [])
+    .filter(thread => thread.parties.some(id => allowed.has(id))
+      && (!thread.active_from || thread.active_from <= input.date)
+      && (!thread.active_until || thread.active_until >= input.date))
+    .sort((a, b) => Number(b.parties.includes(input.playerPolityId)) - Number(a.parties.includes(input.playerPolityId)))
+    .slice(0, 2).map(thread => `Filone ${thread.id}: ${thread.title}. ${thread.summary} ${thread.trajectory ?? ''}`.slice(0, 450));
+  const nations = (input.situations ?? [])
+    .filter(record => allowed.has(record.polityId) && record.startDate === input.startDate && record.startDate <= input.date)
+    .slice(0, 3).map(record => `${record.countryName} (${record.polityId}), al ${record.startDate}: ${record.situation.slice(0, 500)}`);
+  if (!threads.length && !nations.length) return '';
+  return `\n[DIREZIONI DEL MONDO — scenario e interessi, non risultati già accaduti]\n${[...threads, ...nations].join('\n')}
+STATO CORRENTE > CRONACA DELLA PARTITA > FILONI DEL PRESET > CONTESTO NAZIONALE. Alla data ${input.date} riprendi solo questioni ancora plausibili: una crisi risolta non riparte perché citata nel contesto iniziale. Le tendenze non sono profezie né effetti materiali. Una nazione può agire per i propri interessi, anche senza una nostra azione; reactions e opzioni restano quelle ammesse dal motore.\n`;
 }
