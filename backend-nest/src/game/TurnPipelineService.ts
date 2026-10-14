@@ -896,7 +896,17 @@ export class TurnPipelineService {
       // `appliedEvents`, che resta «eventi applicati al motore», né toccano
       // actionOutcomes/voided/targetDate o la decisione NPC dell'auto-jump.
       // Servono solo alla cronologia/timeline/persistenza.
-      const worldPulseEvents = (promptResult as { worldPulseEvents?: SimulationEvent[] }).worldPulseEvents || [];
+      // The sidecar was generated from the full provider result, including
+      // future events discarded at an auto-jump checkpoint. It has no event
+      // provenance, so never persist it when the accepted prefix is shorter.
+      // Independently reject any pulse dated after the committed checkpoint.
+      const autoJumpPrefixTruncated = autoJump && (
+        appliedEvents.length < events.length || consumedEvents > appliedEvents.length
+      );
+      const worldPulseEvents = (autoJumpPrefixTruncated
+        ? []
+        : (promptResult as { worldPulseEvents?: SimulationEvent[] }).worldPulseEvents || []
+      ).filter(event => dateInPeriod(event.date, periodStart, period.end));
       if (worldPulseEvents.length > 0) {
         turnResult.events.push(
           ...worldPulseEvents.map(event => this.ctx.publicText(event.headline)).filter(Boolean),
