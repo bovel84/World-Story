@@ -993,6 +993,24 @@ describe('Этап 2: Intervene', () => {
 });
 
 describe('Этап 2: auto-jump «к следующему событию»', () => {
+  it('senza ordini si ferma sul primo sviluppo interno senza applicare il seguito', async () => {
+    jumpMode = 'auto_same';
+    try {
+      const { session } = createGame();
+      await session.processWorldAdvance(0);
+      const headlines = session.getResults().flatMap((result: any) => result.events);
+      expect(headlines).toContain('Primo evento del giorno');
+      expect(headlines).not.toContain('Secondo evento stesso giorno');
+      expect(session.getCurrentDate()).toBe('1951-03-10');
+      expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('POL');
+      expect(session.getChats()).toHaveLength(0);
+      expect(session.getPendingActions()).toHaveLength(0);
+      expect(capturedPrompt).toContain('Regole auto-jump senza ordini');
+    } finally {
+      jumpMode = 'normal';
+    }
+  });
+
   it('non applica effetti globali o chat future, ma conserva la reazione al primo evento', async () => {
     jumpMode = 'auto_future';
     const { session } = createGame();

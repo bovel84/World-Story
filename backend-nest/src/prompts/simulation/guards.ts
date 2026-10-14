@@ -46,6 +46,13 @@ export function buildOrderCoverageRule(vars: PromptVariables): string {
 }
 
 export function buildAutoJumpInstruction(vars: PromptVariables, eventBudget = 1): string {
+  if (!vars.PLAYER_ACTIONS_THIS_ROUND?.trim()) {
+    return `\nRegole auto-jump senza ordini:
+- Fermati al primo sviluppo significativo di una causa documentata entro il ${vars.TARGET_ROUND_DATE}: anche una richiesta interna, un processo o un'opportunità può richiedere l'attenzione del governo.
+- Emetti quell'evento e usa la sua data come targetDate. Non aspettare una risposta straniera a ordini inesistenti e non inventare reactions per fermare il salto. La nazione del giocatore non prende nuove iniziative senza ordine.
+- Se non esiste uno sviluppo plausibile entro l'orizzonte, non emettere eventi e completa con targetDate:null.
+- Questa regola prevale sui preset che chiedono di distribuire eventi sull'intero periodo.`;
+  }
   // L'auto-jump non si ferma al primo fatto di cronaca: prosegue finché una
   // nazione non decide concretamente in risposta agli ordini del giocatore.
   // Il budget concede lo spazio per attraversare i fatti di contorno.

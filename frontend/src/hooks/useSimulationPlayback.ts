@@ -227,6 +227,7 @@ export function useSimulationPlayback(): SimulationPlayback {
           : undefined);
       if (result.intervened) {
         await applyRunCompletion(result as any);
+        useUIStore.getState().openModule('orders');
       } else {
         setPausedReader(null);
       }

@@ -16,7 +16,7 @@ import db, { withCanonicalTransaction } from '../database';
 import { chatRepository, gameRepository, relationshipRepository, worldRepository } from '../repositories';
 import { addDays, dateInPeriod, jumpHorizon, resolvePeriod } from '../core/simulation/calendar';
 import { applyStagedStrictEffects, assertExecutableStrictEffects } from '../core/simulation/TurnOrchestrator';
-import { autoJumpEventBudget, isDecisiveNpcDecision } from '../core/simulation/EventBudget';
+import { autoJumpEventBudget, isAutoJumpStop } from '../core/simulation/EventBudget';
 import { projectProgress } from '../core/simulation/MilitaryProduction';
 import { EFFECT_LIMITS } from '../core/simulation/NationalEffects';
 import { rejectDirectMaterialCommand, validateStrictResultSafe } from '../core/simulation/EffectValidator';
@@ -279,11 +279,10 @@ export class TurnPipelineService {
           proposedEvents.push(canonicalEvent);
           return true;
         }
-        // In auto-jump il salto si arresta sulla prima decisione NPC che
-        // risponde agli ordini del giocatore, oppure al tetto del budget se
-        // nessuno decide: ignora gli eventuali record successivi del modello.
+        // Con ordini attendiamo la decisione NPC; senza ordini basta il primo
+        // sviluppo canonico, anche interno. Non applicare i record successivi.
         if (autoJump && autoJumpStopReached) {
-          console.log('[GameSession] Auto-jump: event after the decisive NPC decision ignored');
+          console.log('[GameSession] Auto-jump: event after the stopping checkpoint ignored');
           return false;
         }
         if (autoJump && appliedEvents.length >= autoJumpEventLimit) {
@@ -308,7 +307,7 @@ export class TurnPipelineService {
         appliedEvents.push(canonicalEvent);
         // La decisione che chiude il salto entra nel checkpoint; le sue
         // conseguenze successive no (il controllo è DOPO l'applicazione).
-        if (autoJump && isDecisiveNpcDecision(canonicalEvent)) {
+        if (autoJump && isAutoJumpStop(canonicalEvent, actions.length)) {
           autoJumpStopReached = true;
         }
         // È una sola anteprima narrativa: nessun delta o data viene ancora

@@ -57,11 +57,12 @@ import {
 } from './prompts/government';
 import type { GovernmentSnapshot } from './core/simulation/GovernmentFactions';
 import { addDays, formatItalianDate } from './core/simulation/calendar';
-import { autoJumpEventBudget } from './core/simulation/EventBudget';
+import { autoJumpEventBudget, fixedJumpEventBudget } from './core/simulation/EventBudget';
 import { equipmentById } from './core/simulation/MilitaryIndustry';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
 import { LLMError, LLMContractError, LLMRouter } from './llm';
 import { isSmallModel, narrativeBudgetsFor, type NarrativeBudgets } from './llm/modelTier';
+import { buildNarrativeInitiative, buildNarrativeSituationSources } from './prompts/simulation/initiative';
 import { DEFAULT_NARRATIVE_FLAGS, type NarrativeFlags } from './llm/narrativeFlags';
 
 interface GameData {
@@ -1374,7 +1375,7 @@ export class PromptEngine {
     const actionsCount = normalizedActions.length;
     const maxEvents = autoJump
       ? autoJumpEventBudget(actionsCount)
-      : Math.min(30, Math.max(1, Math.ceil(jumpDays / 21), actionsCount));
+      : fixedJumpEventBudget(jumpDays, actionsCount);
     const renderedOverride = promptOverride ? renderPromptTemplate(promptOverride, vars) : undefined;
     const constrained = !game.strictMode && this.isConstrainedModel('jump');
     const compactBudgets = narrative.tieredMemory && constrained ? narrativeBudgetsFor(jumpModel) : undefined;
@@ -1390,6 +1391,7 @@ export class PromptEngine {
           const basePrompt = renderedOverride
             ? renderedOverride
               + buildCausalityGuard(vars)
+              + '\n' + buildNarrativeSituationSources(vars)
               + (autoJump ? buildAutoJumpInstruction(vars, maxEvents) : '')
             : buildSimulationPrompt(vars, { autoJump, eventBudget: maxEvents, texture: narrative.texture });
           // I preset possono definire il mondo, non rimuovere causalità,
@@ -1399,7 +1401,7 @@ export class PromptEngine {
             + buildIncrementalOutputInstruction(vars, maxEvents, !!autoJump);
         })();
     const histories = renderPolityHistoricalBaselines(game.polityHistoricalBaselines ?? [], normalizedActions.map(action => action.text).join(' '));
-    const prompt = baseSimulationPrompt + `\n\n[WORLD TEMPORAL BOUNDARY]\nPunto di divergenza: ${game.world.startDate || 'non disponibile: non usare storia reale esterna'}.\n`
+    const prompt = baseSimulationPrompt + buildNarrativeInitiative() + `\n\n[WORLD TEMPORAL BOUNDARY]\nPunto di divergenza: ${game.world.startDate || 'non disponibile: non usare storia reale esterna'}.\n`
       + (histories || `${HISTORICAL_BASELINE_RULE}\nBaseline non disponibile: usa stato corrente e storia della partita, non inventare un passato sostitutivo.`);
 
     let parsedObjectCount = 0;
