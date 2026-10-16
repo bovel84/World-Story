@@ -302,7 +302,7 @@ describe('Chat diplomatiche', () => {
     session.setSSEBroadcaster((type: any, data: any) => sseEvents.push({ type, data }));
 
     session.queueAction('Rafforzare la frontiera');
-    await session.processNextAction(30);
+    await session.processNextAction(0);
 
     const broadcast = sseEvents.find(e => e.type === 'chat_message');
     const chat = session.getChats()[0];
