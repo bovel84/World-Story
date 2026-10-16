@@ -75,11 +75,11 @@ Regole oggetti territoriali (mapChanges):
 Quando il periodo è concluso emetti come ULTIMA riga:
 {"type":"complete","narration":"Sintesi complessiva","actionOutcomes":[{"actionId":"ID esatto ordine","status":"accepted|partial|rejected","summary":"esito specifico","expectedDate":"YYYY-MM-DD opzionale per partial","eventHeadlines":[]}],"voided":[],"startChat":[],"relationshipChanges":[],"worldChanges":{"regionOwners":{},"regionColors":{}},"targetDate":"${completionTargetDate}"}
 
-Se un dispaccio richiede un contatto diplomatico, non lasciare "startChat" vuoto. Usa:
+Gli eventi sono l'output principale. Le reactions degli NPC NON aprono automaticamente chat. Usa "startChat" solo quando il dispaccio documenta una comunicazione rivolta esplicitamente al governo di ${vars.PLAYER_POLITY}; per vicende tra soli NPC usa []. Se c'è un contatto diretto, usa:
 {"participants":["NOME politia promotrice","ALTRA politia coinvolta"],"topic":"primo messaggio concreto e ordine del giorno","kind":"meeting|summit|negotiation|conference|ultimatum|technical|statement","eventHeadline":"titolo ESATTO di una riga event emessa"}
 - "participants" contiene solo politie esistenti non controllate dal giocatore. La prima è la promotrice e parla per prima.
 - Una politia crea una chat diretta con il giocatore; due o più creano una riunione di gruppo con il giocatore.
-- "eventHeadline" è obbligatorio: impedisce che una chat riferita a un evento futuro o scartato entri nella partita.
+- "eventHeadline" è obbligatorio e deve riferirsi a un evento applicabile che nomina ${vars.PLAYER_POLITY} e il motivo del contatto. Non aprire chat per semplici reazioni, notizie su terzi o osservatori.
 
 ${autoJump && !vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? buildAutoJumpInstruction(vars, maxEvents) : autoJump
   ? 'In auto-jump targetDate DEVE essere la data dell’evento che contiene la decisione NPC che ferma il salto (reazione di ruolo "counterparty" o misura autonoma con "counterAction"). Non fermarti al primo fatto di cronaca: se i fatti di contorno precedono la decisione, emettili comunque in ordine cronologico. Se nessun evento porta una decisione NPC con causa verificabile entro l’orizzonte, non inventarne uno: non emettere righe event e completa con "targetDate":null.'
@@ -410,16 +410,7 @@ Regole actionOutcomes e voided:
   eseguirla e inseriscila in "voided" con una spiegazione chiara per il
   giocatore. Le altre azioni eseguile normalmente. Se tutto è realistico,
   usa "voided": [].
-- "startChat": se un evento provoca una risposta diplomatica, una riunione,
-  un vertice, una conferenza, un negoziato, un ultimatum o un tavolo tecnico,
-  crea qui il relativo canale. "participants" deve contenere tutte e sole le
-  politie NPC direttamente coinvolte (prima la promotrice), usando nomi
-  esistenti nella mappa; il giocatore viene aggiunto automaticamente. Una
-  politia apre una chat diretta, due o più una riunione di gruppo.
-  "eventHeadline" deve copiare ESATTAMENTE il titolo dell'evento causale e
-  "topic" deve essere il primo messaggio concreto, non un'etichetta generica.
-  Non creare chat per ogni notizia: soltanto quando gli attori hanno davvero
-  motivo di comunicare. Se nessuna, usa "startChat": [].
+- "startChat": racconta PRIMA gli eventi mondiali; le reactions raccontano cosa decidono gli NPC e NON creano chat. Apri un canale SOLO se un evento descrive una comunicazione diretta di un NPC al governo di ${vars.PLAYER_POLITY}, che dev'essere nominato esplicitamente nel dispaccio. Il contatto può essere una proposta, un ultimatum, una richiesta, un negoziato o una convocazione; non basta che un paese compaia nella cronaca. Usa partecipanti NPC esistenti che prendono parte al contatto, promotore per primo. Con più interlocutori crea UNA chat di gruppo per evento, non canali separati. "eventHeadline" deve copiare ESATTAMENTE il titolo dell'evento e "topic" essere la prima battuta concreta. Per scontri e trattative fra terzi, normali reactions o semplici osservatori usa "startChat": [].
 - Le chat nella sezione [Diplomazia] sono impegni reali: accordi, patti,
   ultimatum e rifiuti devono influenzare eventi e narrazione. Quando cambiano
   concretamente i rapporti fra due politie, registralo in relationshipChanges;
