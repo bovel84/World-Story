@@ -50,6 +50,8 @@ export interface PromptVariables {
   ORDER_FUNDING?: string;
   /** Contesto di reazione già filtrato dal motore: attori, vincoli e opzioni. */
   REACTION_CONTEXT?: string;
+  /** Structured projection preserves all allowed NPC/option IDs on compact models. */
+  COMPACT_REACTION_CONTEXT?: string;
 
   // События
   ALL_EVENTS_WITH_CONSOLIDATION: string;

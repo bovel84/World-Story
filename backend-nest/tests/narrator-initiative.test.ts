@@ -4,6 +4,7 @@ import { fixedJumpEventBudget, isAutoJumpStop } from '../src/core/simulation/Eve
 import { buildNarrativeSituationSources } from '../src/prompts/simulation/initiative';
 import { buildConstrainedSimulationPrompt } from '../src/prompts/simulation/prompt';
 import type { PromptVariables } from '../src/prompts/types';
+import { buildReactionContext, renderReactionContext } from '../src/core/simulation/ReactionContext';
 
 const pressure = 'Le comunità chiedono accesso alle strade rurali';
 const commitment = 'Consultazione sui collegamenti rurali ancora aperta';
@@ -47,6 +48,24 @@ function router(model: string, count = 1) {
 }
 
 describe('narratore: iniziativa causale nella chiamata del turno', () => {
+  it('il percorso Flash trasmette l’ultimo attore e tutte le sue opzioni nella singola chiamata', async () => {
+    const data = game(false);
+    const ids = Array.from({ length: 8 }, (_, i) => `NPC${i}`);
+    data.reactionContextData = buildReactionContext({ playerPolityId: 'KHM', playerPolityName: 'Cambogia', focusTexts: [],
+      polityNames: Object.fromEntries(ids.map(id => [id, id])),
+      regions: Object.fromEntries(ids.map(id => [id, { id, name: id, owner: id }])),
+      worldCauses: [{ kind: 'world_process', sourceRef: 'storyline:talks', summary: 'S'.repeat(500), polityIds: ids }] });
+    data.reactionContext = renderReactionContext(data.reactionContextData);
+    expect(data.reactionContext.length).toBeGreaterThan(2500);
+    const llm = router('glm-5.3-flash');
+    await new PromptEngine(llm as any).runSimulation(data, [], 30);
+    const prompt = llm.stream.mock.calls[0][2];
+    for (const option of data.reactionContextData.allowedOptionIds) expect(prompt).toContain(option);
+    expect(prompt).toContain('eventHeadline ESATTO');
+    expect(llm.stream).toHaveBeenCalledTimes(1);
+    expect(llm.generate).not.toHaveBeenCalled();
+  });
+
   // These are wiring/regression checks with mock output, not a quality benchmark.
   it.each([
     ['glm-5.3-flash', false], ['gpt-test', false], ['gpt-test', true], ['glm-5.3-flash', true],

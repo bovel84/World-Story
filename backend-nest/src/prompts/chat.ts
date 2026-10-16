@@ -52,6 +52,31 @@ function compact(value: unknown, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
 }
 
+/** The reply needs the cause and consequence, not eight unrelated headlines.
+ * Read only committed, dated events and keep the whole excerpt bounded. */
+export function diplomaticEventContext(input: {
+  date: string; names: readonly string[];
+  results: readonly { date?: string; events: string[]; timelineEvents?: { date: string; headline: string; detail?: string }[] }[];
+}): string[] {
+  const normalize = (value: string) => ` ${value.toLocaleLowerCase('it').normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()} `;
+  const names = input.names.filter(n => n.trim()).map(normalize);
+  const now = Date.parse(input.date);
+  if (!Number.isFinite(now)) return [];
+  const seen = new Set<string>();
+  return input.results.slice(-8).flatMap(result => result.timelineEvents?.length
+    ? result.timelineEvents : (result.events ?? []).map(headline => ({ date: result.date ?? '', headline, detail: '' })))
+    .filter(event => {
+      const date = Date.parse(event.date);
+      const key = `${event.date}:${event.headline}`;
+      if (!Number.isFinite(date) || date > now || now - date > 180 * 86_400_000 || seen.has(key)) return false;
+      seen.add(key);
+      const text = normalize(`${event.headline} ${event.detail ?? ''}`);
+      return names.some(name => text.includes(name));
+    }).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4)
+    .map(event => `${event.date}: ${compact(event.headline, 100)} — ${compact(event.detail, 280)}`);
+}
+
 function renderHistory(history: ChatHistoryItem[], playerPolityName: string): string {
   if (history.length === 0) return '(La trattativa sta iniziando)';
   return history.slice(-16)
@@ -85,7 +110,7 @@ Rispondi SOLO con JSON valido: {"speaker":"<nome esatto dalla lista>"}`;
 export function buildChatPrompt(vars: ChatPromptVars): string {
   const speaker = vars.respondingParticipant;
   const events = vars.recentEvents.length > 0
-    ? vars.recentEvents.map(e => `- ${e}`).join('\n')
+    ? vars.recentEvents.slice(0, 4).map(e => `- ${compact(e, 420)}`).join('\n')
     : '(Nessun evento recente rilevante)';
   const latest = vars.playerMessage.trim()
     ? `\n[${vars.mode === 'reaction' ? 'Ordini ed eventi appena conclusisi' : `Dichiarazione ufficiale appena inviata da ${vars.playerPolityName}`}]\n${vars.playerMessage.trim()}\n`
@@ -135,10 +160,14 @@ ${latest}
 ${modeRule}
 - Porta la conversazione verso una posizione, una condizione, un accordo o un rifiuto chiaro: non trascinarla senza scopo.
 - Valuta seriamente offerte e richieste, ma difendi gli interessi e il carattere di ${speaker.name}.
+- Riprendi il punto preciso ancora aperto: una promessa, un rifiuto, una concessione o una domanda della cronaca. Non ricominciare ogni replica da saluti e dichiarazioni generiche. Non inventare precedenti assenti.
+- Fai sentire una volontà autonoma: cosa vogliamo ottenere, quale limite non accettiamo e quale passo reciproco proponiamo adesso. Scegli solo gli elementi pertinenti; non usare una formula fissa. Un alleato può opporsi e un rivale può cooperare se conviene. Mantieni condizioni e linea politica finché un fatto nuovo giustifica il cambiamento.
+- Una proposta vaga riceve una domanda concreta; una proposta svantaggiosa una controproposta motivata o un rifiuto; una concessione utile può sbloccare il confronto. Non chiudere ogni messaggio con la stessa domanda e non rendere gli altri presenti una voce unica.
+- Distingui dichiarazioni, intese condizionate e atti eseguiti: questa chat non sposta truppe, denaro o confini e non firma nuovi atti per ${vars.playerPolityName}. Un fatto è compiuto soltanto se confermato nello stato o negli eventi della partita.
 - Le sole nazioni presenti in questa trattativa sono: ${presentNames}. Non far parlare né trattare come presenti altre nazioni: un altro paese può essere citato solo come attore esterno della situazione, mai come interlocutore.
 - Usa forza, territori e relazioni per decidere, ma NON citare cifre, percentuali, punteggi, livelli, indici, PIL, popolazione, numero di regioni o divisioni, tassi o statistiche. Traduci i dati in giudizi politici naturali («una forza militare superiore», «un’economia fragile», «una popolazione esigua»).
 - Parla come un diplomatico: frasi naturali, tono da nota ufficiale o colloquio tra governi. Non menzionare dossier, priorità interne, difficoltà di gioco o campi tecnici.
-- Adatta il tono a quello del giocatore, restando professionale. Niente teatralità, gergo moderno eccessivo o spiegazioni da narratore.
+- Usa una voce riconoscibile coerente con personalità, rapporto ed epoca: cordiale, secca, diffidente, orgogliosa o conciliante quando motivato. Paragrafi brevi, aperture variate, nessuna scena inventata o spiegazione da narratore.
 - Non dire mai di essere un’IA e non parlare della meccanica del gioco.
 - Scrivi in italiano, in modo concreto, normalmente 2–5 frasi e massimo 1200 caratteri.
 

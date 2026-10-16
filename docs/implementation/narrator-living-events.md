@@ -60,3 +60,37 @@ traiettorie o intenzioni in risorse o avvenimenti già accaduti.
 Verifiche aggiuntive: 101 test mirati di contesto/reazioni/consulente e 67 del
 turno, streaming e modalità strict, tutti superati, più build backend. Sono
 controlli con provider simulato; la varietà effettiva resta da valutare giocando.
+# Estensione: orchestrazione del preset e diplomazia (16 ottobre 2026)
+
+Il modello riceve nella chiamata di turno un teatro nazionale e un teatro
+indipendente del preset, con rotazione deterministica tra i turni. Un obiettivo
+NPC attivo può fornire una causa anche senza filoni. La selezione esclude obiettivi
+chiusi/futuri/del giocatore e filoni risolti, congelati o fuori periodo. Gli ordini
+correnti mantengono la precedenza; gli altri attori condividono gli otto posti
+disponibili tra cause diverse. Il narratore legge gli stessi filoni selezionati
+per la whitelist, senza eseguire automaticamente le loro traiettorie.
+
+Il percorso compatto conserva tutti gli actorId/optionId e distribuisce il budget
+dei dossier fra i paesi: prima un taglio sequenziale poteva eliminare intere
+agende. Il prompt chiede interesse, occasione, mossa sostenibile e risposta degli
+altri attori, includendo iniziative pacifiche. I contatti al giocatore usano il
+contratto startChat/eventHeadline già esistente.
+
+Le chat ricevono fino a quattro estratti datati e pertinenti, con conseguenze
+anziché soli titoli; escludono fatti futuri, remoti e duplicati. Le indicazioni
+di dialogo chiedono continuità di promesse/condizioni, controproposte motivate e
+una voce coerente con paese ed epoca, distinguendo accordi discussi e atti eseguiti.
+
+Nessuna nuova chiamata LLM per orchestrare o riassumere; restano i limiti e il
+caching preesistenti per i contesti storici/nazionali (una nuova nazione può
+richiedere la preparazione del contesto alla prima apparizione). worldPulse
+resta opzionale. EffectValidator, ReactionDecisions e persistenza invariati.
+
+Verifiche dell'estensione: 167 test mirati superati, build backend superata.
+Provider simulati: verificati selezione, propagazione, limiti, contratti e flussi;
+nessuna misura della qualità di prosa del provider reale e nessuna chiamata a pagamento.
+
+Riferimenti di confronto: preset pubblici della comunità Pax Historia, non
+accesso al loro motore interno:
+- https://www.paxhistoria.co/presets/tfhF009KpCGk4watlBCd
+- https://www.paxhistoria.co/presets/mEX1XF9kEpsHoIwUINpv

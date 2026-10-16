@@ -323,11 +323,23 @@ function polityOptions(
  */
 export function buildReactionContext(input: ReactionContextInput): ReactionContext {
   const mentioned = mentionedPolityIds(input);
-  const worldCauses = (input.worldCauses ?? []).filter(cause => cause.summary.trim() && cause.sourceRef).slice(0, 5);
+  const worldCauses = (input.worldCauses ?? []).filter(cause => cause.summary.trim() && cause.sourceRef).slice(0, 6);
   const causalActors = new Map<string, WorldReactionCause>();
-  for (const cause of worldCauses) {
-    const ids = [...(cause.polityIds ?? []), ...mentionedPolityIds({ ...input, focusTexts: [cause.summary] })];
-    for (const id of ids) if (!causalActors.has(id)) causalActors.set(id, cause);
+  // Explicit preset/agenda parties get room before incidental mentions in
+  // recent headlines. Current orders still have first priority below.
+  const causeGroups = [...worldCauses]
+    .sort((a, b) => Number(!!b.polityIds?.length) - Number(!!a.polityIds?.length))
+    .map(cause => ({ cause, ids: [...new Set([...(cause.polityIds ?? []),
+      ...mentionedPolityIds({ ...input, focusTexts: [cause.summary] })])]
+      .filter(id => id !== input.playerPolityId && id !== 'neutral'
+        && Object.values(input.regions).some(region => region.owner === id)) }));
+  // Round-robin the causes: one large alliance must not consume all eight
+  // seats before an independent theatre gets its first actor.
+  for (let slot = 0; slot < MAX_ACTORS; slot++) {
+    for (const { cause, ids } of causeGroups) {
+      const id = ids[slot];
+      if (id && !causalActors.has(id)) causalActors.set(id, cause);
+    }
   }
   const adjacent = frontierOwnerIds(input);
   const resources = input.resources || {};
