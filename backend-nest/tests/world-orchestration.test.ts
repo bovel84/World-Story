@@ -15,9 +15,9 @@ describe('orchestrazione del mondo con budget limitato', () => {
       { ...thread('resolved', ['FRA']), state: 'risolto' },
       { ...thread('future', ['ITA']), active_from: '2001-01-01' }];
     const base = { date: '2000-06-01', playerPolityId: 'KHM', results: [], storylines };
-    expect(selectWorldStorylines(storylines, 'KHM', base.date, 1).map(t => t.id)).toEqual(['national-a', 'trade']);
+    expect(selectWorldStorylines(storylines, 'KHM', base.date, 1).map(t => t.id)).toEqual(['national-a', 'trade', 'talks']);
     const causes = buildWorldReactionCauses({ ...base, turn: 2 });
-    expect(causes.map(c => c.sourceRef)).toEqual(['storyline:national-b', 'storyline:talks']);
+    expect(causes.map(c => c.sourceRef)).toEqual(['storyline:national-b', 'storyline:talks', 'storyline:trade']);
     const context = buildReactionContext({ playerPolityId: 'KHM', playerPolityName: 'Cambogia',
       focusTexts: [], currentActions: [], polityNames: { USA: 'Stati Uniti', CAN: 'Canada' },
       regions: { usa: { id: 'usa', name: 'Washington', owner: 'USA' }, can: { id: 'can', name: 'Ottawa', owner: 'CAN' } }, worldCauses: causes });
