@@ -85,3 +85,54 @@
   .thematic-facts dd { text-align: left; }
   .thematic-swatch { width: 12px; height: 12px; }
 }
+
+
+/* WS-LIGHT-INSPECTOR — dati territoriali a inchiostro su carta chiara. */
+.map-context-inspector {
+  background: #fffdf7;
+  color: #263c33;
+}
+.context-breadcrumb button { color: #305f45; border-bottom-color: #8caf94; }
+.map-context-section > header small,
+.context-unit-row small, .context-link-list small,
+.context-inline-facts dt, .thematic-facts dt { color: #596f60; }
+.map-context-section h4, .thematic-group h4 { color: #314e3d; }
+.context-unit-row > button, .context-link-list button,
+.context-inline-facts > div, .context-equipment li,
+.thematic-facts > div {
+  background: #f3f5ed;
+  border-color: #c4d2c4;
+  color: #263c33;
+}
+.context-unit-row > button, .context-link-list button { border-left-color: #6c9275; }
+.context-unit-row > button:hover, .context-link-list button:hover,
+.context-unit-row > button:focus-visible, .context-link-list button:focus-visible {
+  background: #e6eee3;
+  border-color: #5e9273;
+}
+.context-empty, .context-readonly {
+  background: #f2f3ea;
+  border-left-color: #97a993;
+  color: #53695c !important;
+}
+.context-readonly { border-left-color: #a17a3b; }
+.context-inline-facts dd, .thematic-facts dd { color: #294436; }
+.context-equipment li { color: #3a5645; }
+.context-route { color: #266d55 !important; }
+.context-navigation button {
+  background: #e9efe5;
+  color: #305d45;
+  border-color: #a5bda8;
+}
+.context-navigation button:hover,
+.context-navigation button:focus-visible { background: #dce8d9; border-color: #7eab89; }
+.thematic-context, .polity-context {
+  background: linear-gradient(180deg, #f3f5ed 0%, transparent 100%);
+}
+.thematic-hint { color: #596e60; }
+.thematic-change {
+  background: #fff2dc;
+  border-left-color: #aa803d;
+  color: #775521;
+}
+.polity-context > header h3 { color: #2c4b39; }
