@@ -22,6 +22,9 @@ describe('Auto-jump — finestra adattiva, non limite agli eventi', () => {
 
   it('reagisce a crisi documentate e non oltrepassa le scadenze', () => {
     const args = { currentDate: '2000-01-01', hasOrders: false };
+    expect(adaptiveAutoHorizon({ ...args, crisisLevel: 'critical' })).toBe(14);
+    expect(adaptiveAutoHorizon({ ...args, hasOrders: true, crisisLevel: 'critical' })).toBe(14);
+    expect(adaptiveAutoHorizon({ ...args, crisisLevel: 'watch' })).toBe(30);
     expect(adaptiveAutoHorizon({ ...args, pressures: [{ severity: 3 }] })).toBe(14);
     expect(adaptiveAutoHorizon({ ...args, pressures: [{ severity: 2 }] })).toBe(30);
     expect(adaptiveAutoHorizon({ ...args, pressures: [{ severity: 2, deadlineDate: '2000-01-09' }] })).toBe(8);
