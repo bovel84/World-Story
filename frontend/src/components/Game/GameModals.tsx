@@ -11,13 +11,16 @@
  *  - un errore di salvataggio è notificato, mai ingoiato;
  *  - le conferme distruttive (rewind, load) usano il variant `destructive`.
  */
+import { Suspense, lazy } from 'react';
 import { gameApi, type GameEnding } from '../../services/api';
 import type { Game } from '../../types';
 import type { SaveSummary } from './SavePickerModal';
-import { SavePickerModal } from './SavePickerModal';
-import { SaveGameModal } from './SaveGameModal';
-import { GameOverOverlay } from './GameOverOverlay';
-import { FeasibilityCheck, type FeasibilityResult } from './FeasibilityCheck';
+import type { FeasibilityResult } from './FeasibilityCheck';
+// Il menu non scarica i dialoghi dei salvataggi/fine gioco/verifica se chiusi.
+const SavePickerModal = lazy(() => import('./SavePickerModal').then(mod => ({ default: mod.SavePickerModal })));
+const SaveGameModal = lazy(() => import('./SaveGameModal').then(mod => ({ default: mod.SaveGameModal })));
+const GameOverOverlay = lazy(() => import('./GameOverOverlay').then(mod => ({ default: mod.GameOverOverlay })));
+const FeasibilityCheck = lazy(() => import('./FeasibilityCheck').then(mod => ({ default: mod.FeasibilityCheck })));
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/ToastProvider';
 
@@ -101,12 +104,13 @@ export function GameModals({
         cancelLabel="Mantieni"
         variant="destructive"
       />
-      <SavePickerModal
-        open={showSavePicker}
+      <Suspense fallback={null}>
+      {showSavePicker && <SavePickerModal
+        open={true}
         currentGameId={currentGameId}
         onClose={onCloseSavePicker}
         onSelect={onSelectSave}
-      />
+      />}
       {/* Fase 6: la modale di salvataggio era importata ma mai renderizzata: il
           bottone SALVA del desk non faceva nulla. Render + chiamata API. */}
       {showSaveModal && currentGame && (
@@ -164,6 +168,7 @@ export function GameModals({
           onReverify={onReverify}
         />
       )}
+      </Suspense>
     </>
   );
 }
