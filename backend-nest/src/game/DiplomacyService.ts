@@ -276,7 +276,7 @@ export class DiplomacyService {
       turn: number;
       fallbackDate: string;
       simulationId?: string;
-      events?: Array<{ headline: string; date: string }>;
+      events?: Array<{ headline: string; date: string; description?: string; reactions?: Array<{ actorId?: string; polityName?: string }> }>;
       requireEventLink?: boolean;
     },
   ): {
@@ -300,6 +300,7 @@ export class DiplomacyService {
       (options.events || []).map(event => [event.headline.trim().toLocaleLowerCase('it'), event] as const),
     );
     const opened = new Set<string>();
+    const openedEvents = new Set<string>();
     const resolver = this.ctx.buildResolvers().polities;
 
     for (const start of starts || []) {
@@ -310,6 +311,19 @@ export class DiplomacyService {
       if (options.requireEventLink && !linkedEvent) {
         console.warn('[GameSession] startChat ignorata: evento causale non applicato:', eventHeadline || '(mancante)');
         continue;
+      }
+      // Una crisi fra terzi non crea automaticamente una chat col giocatore:
+      // il dispaccio deve coinvolgere esplicitamente la sua nazione.
+      if (linkedEvent) {
+        const playerId = this.ctx.playerPolityId();
+        const playerName = this.ctx.publicPolityName(playerId).trim().toLocaleLowerCase('it');
+        const source = `${linkedEvent.headline} ${linkedEvent.description || ''}`.toLocaleLowerCase('it');
+        const playerMentioned = (playerName && source.includes(playerName))
+          || source.includes(`[${playerId.toLocaleLowerCase('it')}]`);
+        if (!playerMentioned) {
+          console.warn('[GameSession] startChat ignorata: il giocatore non è coinvolto nel dispaccio:', eventHeadline);
+          continue;
+        }
       }
 
       const requestedNames = [...(Array.isArray(start.participants) ? start.participants : [])];
@@ -347,11 +361,14 @@ export class DiplomacyService {
         }
       }
 
+      const eventKey = eventHeadline.toLocaleLowerCase('it');
       const duplicateKey = [
         [...validPolityIds].sort().join('|'),
-        eventHeadline.toLocaleLowerCase('it'),
+        eventKey,
       ].join('::');
-      if (opened.has(duplicateKey)) continue;
+      // Al massimo un canale per evento: le conferenze vanno chieste
+      // come unica startChat con tutti i partecipanti pertinenti.
+      if (opened.has(duplicateKey) || (eventKey && openedEvents.has(eventKey))) continue;
       opened.add(duplicateKey);
 
       try {
@@ -420,6 +437,7 @@ export class DiplomacyService {
           message: firstMessage,
         });
         validPolityIds.forEach(id => participantPolityIds.add(id));
+        if (eventKey) openedEvents.add(eventKey);
       } catch (error) {
         console.warn('[GameSession] startChat: impossibile aprire il canale diplomatico:', requestedNames, error);
       }
