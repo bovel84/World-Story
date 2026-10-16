@@ -538,15 +538,18 @@ describe('World pulse — integrazione nel run senza toccare il risultato princi
   });
 });
 
-describe('Passo 2 — unica fonte di verità per il tetto eventi e formato', () => {
-  it('il prompt standard deriva il tetto dagli eventi e non usa più «25-30»', () => {
+describe('Passo 2 — nessun tetto numerico ai dispacci e formato NDJSON', () => {
+  it('il prompt standard non impone un tetto numerico agli eventi', () => {
     const prompt = buildSimulationPrompt(baseVars);
-    expect(prompt).toContain('MAI più di 12 per turno');
+    expect(prompt).toContain('senza quote o tetti numerici per turno');
+    expect(prompt).not.toContain('MAI più di 12 per turno');
     expect(prompt).not.toContain('25-30');
   });
 
-  it('il budget passato dal motore vince sul default', () => {
-    expect(buildSimulationPrompt(baseVars, { eventBudget: 5 })).toContain('MAI più di 5 per turno');
+  it('il parametro legacy del budget non impone un cap al prompt', () => {
+    const prompt = buildSimulationPrompt(baseVars, { eventBudget: 5 });
+    expect(prompt).toContain('senza quote o tetti numerici per turno');
+    expect(prompt).not.toContain('MAI più di 5 per turno');
   });
 
   it('il prompt chiuso non contraddice il protocollo NDJSON', () => {
