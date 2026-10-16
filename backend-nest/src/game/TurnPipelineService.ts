@@ -26,7 +26,7 @@ import { ingestJevBatch, relationshipMemoryInputs, consolidateJevMemory } from '
 import { loadSimulationCatalog } from '../scenario/loader';
 import { shortId } from '../utils/short-id';
 import type { RelationshipType } from '../core/RelationshipMatrix';
-import type { SimulationEvent } from '../prompts/types';
+import type { SimulationChatStart, SimulationEvent } from '../prompts/types';
 import { mergeTimelineChronologically } from '../prompts/simulation/worldPulse';
 import type { PolityHistoricalBaseline } from '../core/government/HistoricalBaseline';
 import type { NationSituationRecord } from '../core/government/NationSituation';
@@ -549,7 +549,7 @@ export class TurnPipelineService {
       // Le chat sono conseguenze eccezionali di contatti rivolti al giocatore,
       // non il prodotto automatico di tutte le reazioni internazionali.
       const chatTimelineEvents: TimelineEventRecord[] = [];
-      const explicitChatStarts = applyCompletionEffects || (autoJump && !intervened)
+      const explicitChatStarts: SimulationChatStart[] = applyCompletionEffects || (autoJump && !intervened)
         ? promptResult.startChat || []
         : [];
       const acceptedHeadlines = new Set(appliedEvents.map(event => event.headline.trim().toLocaleLowerCase('it')));
