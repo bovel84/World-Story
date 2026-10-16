@@ -196,8 +196,8 @@ describe('Pertinenza delle reazioni NPC', () => {
     session.queueAction('Attaccare le posizioni dello Zimbabwe a Gwanda');
     await session.processNextAction(0);
 
-    const chatPolities = session.getChats().map((chat: any) => chat.polityId);
-    expect(chatPolities).toContain('ZWE');
+    // Reazione canonica in cronaca, senza messaggio automatico.
+    expect(session.getChats()).toHaveLength(0);
 
     const worldEvent = session.getTimeline().flatMap((entry: any) => entry.events)
       .find((event: any) => event.headline === 'Botswana attacca le posizioni zimbabwesi a Gwanda');
@@ -312,8 +312,8 @@ describe('Pertinenza delle reazioni NPC', () => {
     expect(worldEvent.detail).toContain('Zimbabwe');
     // La reaction fuori contesto è stata omessa, non rimappata su un altro attore.
     expect(worldEvent.detail).not.toContain('Malaysia');
-    expect(session.getChats().map((chat: any) => chat.polityId)).toContain('ZWE');
-    expect(session.getChats().map((chat: any) => chat.polityId)).not.toContain('MYS');
+    // La reazione resta attribuita al suo actorId nell'evento, senza chat.
+    expect(session.getChats()).toHaveLength(0);
   });
 
   it('l’attribuzione usa l’actorId validato, non l’etichetta polityName', async () => {
@@ -336,8 +336,8 @@ describe('Pertinenza delle reazioni NPC', () => {
       .find((event: any) => event.headline === 'Botswana attacca le posizioni zimbabwesi a Gwanda');
     expect(worldEvent.detail).toContain('Zimbabwe');
     expect(worldEvent.detail).not.toContain('Malaysia');
-    expect(session.getChats().map((chat: any) => chat.polityId)).toContain('ZWE');
-    expect(session.getChats().map((chat: any) => chat.polityId)).not.toContain('MYS');
+    // La reazione resta attribuita al suo actorId nell'evento, senza chat.
+    expect(session.getChats()).toHaveLength(0);
   });
 
   it('un evento legacy senza actorId resta leggibile e non viene riscritto', async () => {
