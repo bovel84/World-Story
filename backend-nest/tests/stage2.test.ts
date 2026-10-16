@@ -23,7 +23,7 @@ let capturedPrompt = '';
 /** Счётчик вызовов механики consolidation */
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
-let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
+let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_player_contact' | 'auto_foreign_contact' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
 /** Testo dell'ordine a cui la risposta `move_accepted` attribuisce un esito accettato. */
 let moveOrderText = '';
 /** projectId da copiare nell'outcome di chiusura del fixture F01. */
@@ -194,6 +194,32 @@ function jumpResponse(): any {
         voided: [],
         startChat: [],
         worldChanges: { regionOwners: {}, regionColors: {} },
+      };
+    case 'auto_player_contact':
+      return {
+        events: [{
+          headline: 'La Polonia chiede garanzie alla ФРГ',
+          description: 'La Polonia interpella direttamente la ФРГ e propone una trattativa sulle garanzie di confine.',
+          date: '1951-03-10', mapChanges: [],
+        }],
+        narration: 'Richiesta diplomatica al governo del giocatore.',
+        voided: [],
+        startChat: [{ participants: ['Polonia'], topic: 'Chiediamo garanzie sui confini.', kind: 'negotiation', eventHeadline: 'La Polonia chiede garanzie alla ФРГ' }],
+        worldChanges: { regionOwners: {}, regionColors: {} },
+        targetDate: '1951-03-10',
+      };
+    case 'auto_foreign_contact':
+      return {
+        events: [{
+          headline: 'La Polonia invita la Francia a un vertice',
+          description: 'La Polonia interpella soltanto la Francia per i colloqui commerciali regionali.',
+          date: '1951-03-10', mapChanges: [],
+        }],
+        narration: 'Il vertice riguarda solo le due nazioni NPC.',
+        voided: [],
+        startChat: [{ participants: ['Polonia'], topic: 'Proponiamo un vertice con la Francia.', kind: 'summit', eventHeadline: 'La Polonia invita la Francia a un vertice' }],
+        worldChanges: { regionOwners: {}, regionColors: {} },
+        targetDate: '1951-03-10',
       };
     case 'auto_future':
       return {
@@ -1011,7 +1037,34 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     }
   });
 
-  it('non applica effetti globali o chat future, ma conserva la reazione al primo evento', async () => {
+  it('apre una chat solo dopo un evento che interpella direttamente il giocatore', async () => {
+    jumpMode = 'auto_player_contact';
+    try {
+      const { session } = createGame();
+      await session.processWorldAdvance(0);
+      expect(session.getResults().flatMap((r: any) => r.events)).toContain('La Polonia chiede garanzie alla ФРГ');
+      expect(session.getChats()).toHaveLength(1);
+      expect(session.getChats()[0].polityId).toBe('POL');
+      expect(session.getChatMessages(session.getChats()[0].id).some((m: any) =>
+        m.content === 'Chiediamo garanzie sui confini.')).toBe(true);
+    } finally {
+      jumpMode = 'normal';
+    }
+  });
+
+  it('non apre una chat con il giocatore per trattative autonome fra NPC', async () => {
+    jumpMode = 'auto_foreign_contact';
+    try {
+      const { session } = createGame();
+      await session.processWorldAdvance(0);
+      expect(session.getResults().flatMap((r: any) => r.events)).toContain('La Polonia invita la Francia a un vertice');
+      expect(session.getChats()).toHaveLength(0);
+    } finally {
+      jumpMode = 'normal';
+    }
+  });
+
+  it('non applica effetti globali né apre chat per la sola reazione o un evento futuro', async () => {
     jumpMode = 'auto_future';
     const { session } = createGame();
     session.queueAction('Attendere la risposta della Polonia');
@@ -1020,10 +1073,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
 
     expect(session.getCurrentDate()).toBe('1951-03-10');
     expect(session.getRegion(`${WORLD_ID}_FRA`).owner).toBe('FRA');
-    expect(session.getChats()).toHaveLength(1);
-    expect(session.getChats()[0].polityId).toBe('POL');
-    expect(session.getChatMessages(session.getChats()[0].id)
-      .some((message: any) => message.content === 'Discussione futura da non aprire')).toBe(false);
+    expect(session.getChats()).toHaveLength(0);
     expect(action.result.events).toContain('Il primo evento importante');
     expect(action.result.events).not.toContain('Un evento futuro da non applicare');
     expect(action.result.narration).toContain('La Polonia risponde alla proposta tedesca.');

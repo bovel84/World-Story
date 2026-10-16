@@ -175,7 +175,7 @@ describe('DiplomacyService — canali', () => {
       [{ polityName: 'Francia', topic: 'Reazione già nel dispaccio', kind: 'statement',
         participants: ['Francia'], eventHeadline: 'Vertice', alreadyNarrated: true }],
       { turn: 4, fallbackDate: '1951-04-01', simulationId: 'run-1',
-        events: [{ headline: 'Vertice', date: '1951-04-01' }], requireEventLink: true },
+        events: [{ headline: 'Vertice', description: 'La Francia interpella il Giocatore.', date: '1951-04-01' }], requireEventLink: true },
     );
     // La cronaca non lo ripete…
     expect(result.timelineEvents).toHaveLength(0);
@@ -186,20 +186,34 @@ describe('DiplomacyService — canali', () => {
     expect(result.participantPolityIds.has('FRA')).toBe(true);
   });
 
-  // Il contrario: un canale che il **modello** ha chiesto è un fatto nuovo e
-  // resta una notizia a tutti gli effetti (SPEC §G21). La soppressione non
-  // deve diventare una scusa per togliere dalla cronaca ciò che vi appartiene.
-  it('un canale chiesto dal modello resta una voce di cronaca', () => {
+  // Anche quando il modello chiede la chat, il contatto era già narrato:
+  // il canale esiste senza generare un dispaccio duplicato.
+  it('una startChat esplicita collegata al dispaccio non duplica la cronaca', () => {
     const d = makeService();
     const result = d.openSimulationChats(
       [{ polityName: 'Francia', topic: 'Proposta di intesa', kind: 'negotiation',
         participants: ['Francia'], eventHeadline: 'Vertice' }],
       { turn: 5, fallbackDate: '1951-05-01', simulationId: 'run-2',
-        events: [{ headline: 'Vertice', date: '1951-05-01' }], requireEventLink: true },
+        events: [{ headline: 'Vertice', description: 'La Francia interpella il Giocatore.', date: '1951-05-01' }], requireEventLink: true },
     );
-    expect(result.timelineEvents).toHaveLength(1);
-    expect(result.suppressedTimelineEvents).toHaveLength(0);
-    expect(result.timelineEvents[0].headline).toContain('avvia un negoziato');
+    expect(result.timelineEvents).toHaveLength(0);
+    expect(result.suppressedTimelineEvents).toHaveLength(1);
+    expect(result.broadcasts).toHaveLength(1);
+    expect(result.acceptedStarts).toHaveLength(1);
+  });
+
+  it('un contatto fra paesi terzi non apre canali né impegni per il giocatore', () => {
+    const d = makeService();
+    const result = d.openSimulationChats(
+      [{ polityName: 'Francia', participants: ['Francia'], topic: 'Proposta fra terzi',
+        eventHeadline: 'Trattativa fra terzi' }],
+      { turn: 6, fallbackDate: '1951-06-01', events: [
+        { headline: 'Trattativa fra terzi', description: 'La Francia apre un confronto con altri vicini.',
+          date: '1951-06-01' },
+      ], requireEventLink: true },
+    );
+    expect(result.acceptedStarts).toHaveLength(0);
+    expect(result.broadcasts).toHaveLength(0);
   });
 
   // Il parser dei `startChat` del modello non legge `alreadyNarrated`: il campo
