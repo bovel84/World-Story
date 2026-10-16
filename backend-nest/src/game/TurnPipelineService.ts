@@ -569,7 +569,8 @@ export class TurnPipelineService {
       // strutturato (ultimatum dalle chat, proposte validate del modello): la
       // cronaca potrà essere riassunta, il registro no.
       const commitmentEffects = this.ctx.recordCommitments({
-        startChat: chatStarts,
+        // Una startChat respinta non può lasciare ultimatum/promesse fantasma.
+        startChat: chatEffects.acceptedStarts,
         proposals: (promptResult as { commitments?: unknown }).commitments,
         updates: (promptResult as { commitmentUpdates?: unknown }).commitmentUpdates,
       });
