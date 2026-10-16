@@ -31,7 +31,7 @@ export function adaptiveAutoHorizon(input: {
   const pending = input.pressures || [];
   const high = pending.some(p => Number(p.severity) >= 3);
   const elevated = pending.some(p => Number(p.severity) >= 2);
-  const base = input.hasOrders ? 30 : high ? 14 : elevated ? 30 : 60;
+  const base = input.hasOrders ? 90 : high ? 14 : elevated ? 30 : 60;
   const upcoming = pending
     .map(p => p.deadlineDate ? daysBetween(input.currentDate, p.deadlineDate) : 0)
     .filter(days => days > 0);
