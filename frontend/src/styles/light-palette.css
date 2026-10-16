@@ -1,0 +1,298 @@
+/**
+ * World Story — Edizione Chiara
+ * Palette: carta avorio, superfici pergamena, accento salvia/ottone.
+ * Ultimo foglio globale: cambia esclusivamente la presentazione.
+ * Non altera la geografia o i colori semantici degli eventi.
+ */
+:root {
+  color-scheme: light;
+  --ws-surface-map-shell: #ecefe9;
+  --ws-surface-command: #fffdf7;
+  --ws-surface-command-raised: #ebe6db;
+  --ws-text-primary: #263b35;
+  --ws-text-secondary: #52665e;
+  --ws-action-primary: #b8d7c4;
+  --ws-attention: #916329;
+  --ws-danger: #ac443b;
+  --ws-paper: #faf6ee;
+  --ws-ink: #24352d;
+  --op-ink: #26382f;
+  --op-muted: #596b62;
+  --op-paper: #f7f3e9;
+  --op-paper-deep: #eae3d5;
+  --op-sheet: #fffdf7;
+  --op-rule: #c6c0b2;
+  --op-red: #a7473b;
+  --op-red-dark: #84352d;
+  --op-night: #2c4940;
+  --op-night-2: #365749;
+  --op-gold: #9a742f;
+  --edition-paper: #f7f3e9;
+  --edition-paper-deep: #eae3d5;
+  --edition-ink: #26382f;
+  --edition-muted: #596b62;
+  --edition-rule: #c6c0b2;
+  --edition-red: #a7473b;
+}
+html, body, #root, .app {
+  background-color: #f7f3e9;
+  color: var(--op-ink);
+}
+:where(button, input, textarea, select):focus-visible {
+  outline-color: #326e59;
+}
+/* Home: luminosità da atlante cartaceo, mantenendo la silhouette del pianeta. */
+.landing.landing {
+  background: #f7f3e9 !important;
+  color: #26382f !important;
+}
+.landing .landing-hero {
+  background: radial-gradient(ellipse at 50% 24%, #fffefa 3%, #e9efdf 56%, #cdded0 100%) !important;
+  color: #26382f !important;
+}
+.landing .landing-planet {
+  background: radial-gradient(closest-side at 50% 0%, #c5d8c2, #a9c4ac 52%, #719e8e 98%) !important;
+  box-shadow: 0 -8px 65px rgb(75 112 89 / 15%) !important;
+  opacity: .78;
+}
+.landing .landing-stars,
+.landing .landing-stars::before,
+.landing .landing-stars::after { opacity: .18; }
+.landing .landing-hero::before {
+  color: #314a3e !important;
+  border-bottom-color: rgb(49 74 62 / 35%) !important;
+}
+.landing .landing-hero::after { color: #77603d !important; }
+.landing .landing-title {
+  background: none !important;
+  color: #29493b !important;
+  -webkit-text-fill-color: #29493b !important;
+  text-shadow: 0 1px 0 #fffaf1;
+}
+.landing .landing-subtitle {
+  color: #496358 !important;
+  -webkit-text-fill-color: #496358 !important;
+}
+.landing.landing .landing-cta {
+  background: #32644e !important;
+  color: #fffdf7 !important;
+  border: 1px solid #28553f !important;
+  box-shadow: 0 5px 15px rgb(38 72 54 / 18%) !important;
+}
+.landing.landing .landing-cta:hover { background: #254f3b !important; color: #fffdf7 !important; }
+.landing.landing .landing-cta-secondary {
+  background: #fffdf7 !important;
+  border: 1px solid #789485 !important;
+  color: #264c3a !important;
+}
+.landing.landing .landing-cta-secondary:hover {
+  background: #e1eadd !important; color: #244e39 !important;
+}
+.landing .landing-sections { background: #f7f3e9 !important; color: #26382f !important; }
+.landing .landing-section-title,
+.landing .landing-save-name,
+.landing .landing-map-info h4 { color: #26382f !important; -webkit-text-fill-color: #26382f !important; }
+.landing .landing-save-meta,
+.landing .landing-save-date,
+.landing .landing-map-info span { color: #596b62 !important; }
+.landing .landing-save-card,
+.landing .landing-map-card { background: #fffdf7 !important; border-color: #c9c3b5 !important; }
+.landing .landing-save-play { background: #32644e !important; color: #fffdf7 !important; }
+
+/* Scenari e scelta nazione: card visibili anche al passaggio del mouse. */
+.template-selector, .country-selector, .create-world {
+  background-color: #f7f3e9 !important;
+  color: #26382f !important;
+}
+.template-selector .template-card,
+.country-selector .country-card,
+.country-selector .country-list-item {
+  background: #fffdf7 !important;
+  color: #26382f !important;
+  border-color: #c6c0b2 !important;
+  box-shadow: 0 3px 10px rgb(35 65 48 / 7%) !important;
+}
+.template-selector .template-card:hover,
+.country-selector .country-card:hover,
+.country-selector .country-list-item:hover {
+  background: #eaf1e8 !important;
+  border-color: #638b71 !important;
+}
+.template-selector .template-card :is(.template-name, .template-description, .template-meta),
+.template-selector .template-card:hover :is(.template-name, .template-description, .template-meta) {
+  color: #26382f !important;
+  -webkit-text-fill-color: #26382f !important;
+}
+.country-selector .country-card.selected,
+.country-selector .country-list-item.selected {
+  background: #d8e8db !important;
+  color: #1e4b38 !important;
+  border-color: #44755a !important;
+}
+.template-selector :is(input, select),
+.country-selector :is(input, select) {
+  background: #fffdf7;
+  color: #26382f;
+  border-color: #aaa99a;
+}
+
+/* Barra superiore: carta chiara, date e comandi a inchiostro scuro. */
+.hud-bar,
+.game-shell-hud .hud-bar {
+  background: linear-gradient(110deg, #fffdf7, #edf2e8 65%, #f8f2e7) !important;
+  border-bottom: 1px solid #bdcbbd !important;
+  color: #26382f !important;
+  box-shadow: 0 2px 12px rgb(38 56 47 / 9%) !important;
+}
+.hud-bar::after { background: #789a81 !important; }
+.hud-bar :is(.hud-logo-text, .hud-world-name, .hud-date-display),
+.game-shell-hud :is(.hud-logo-text, .hud-world-name, .hud-date-display) {
+  background: none !important;
+  color: #26382f !important;
+  -webkit-text-fill-color: #26382f !important;
+  text-shadow: none !important;
+}
+.hud-bar :is(.hud-icon-btn, .hud-date-nav, .hud-dispatch-toggle),
+.game-shell-hud :is(.hud-icon-btn, .hud-date-nav, .hud-dispatch-toggle) {
+  color: #35584a !important;
+  -webkit-text-fill-color: #35584a !important;
+  border-color: #aebfac !important;
+}
+.game-shell-hud .hud-date-pill,
+.hud-bar .hud-date-pill,
+.hud-bar .hud-date-display {
+  background: #fffdf7 !important;
+  border-color: #becbb9 !important;
+}
+.hud-bar :is(.hud-icon-btn, .hud-date-nav):hover:not(:disabled),
+.game-shell-hud :is(.hud-icon-btn, .hud-date-nav).active {
+  background: #dae9db !important;
+  color: #234c38 !important;
+  -webkit-text-fill-color: #234c38 !important;
+}
+.hud-bar .hud-turn-badge { color: #49685b !important; }
+.hud-bar .hud-advance-btn { background: #32644e !important; color: #fffdf7 !important; }
+
+/* Rail, desk e dossier: superfici coerenti (la mappa geografica resta invariata). */
+.game-shell-rail, .game-shell-desk, .province-inspector {
+  background: #fffdf7 !important;
+  color: #26382f !important;
+  border-color: #c7cec1 !important;
+}
+.game-shell-rail .command-rail { background: #f4f2e9 !important; }
+.game-shell-rail .rail-btn {
+  color: #486457 !important;
+  -webkit-text-fill-color: #486457 !important;
+}
+.game-shell-rail .rail-btn:hover,
+.game-shell-rail .rail-btn:focus-visible { background: #e2ebdf !important; color: #254d39 !important; }
+.game-shell-rail .rail-btn.active,
+.game-shell-rail .rail-btn.active:hover {
+  background: #d3e5d7 !important;
+  color: #23513a !important;
+  -webkit-text-fill-color: #23513a !important;
+  box-shadow: inset 0 -2px 0 #4d795f !important;
+}
+.game-shell-desk :is(.game-panel, .nation-desk, .nation-dock, .advisor-chat, .chats-panel, .event-feed),
+.game-shell-desk :is(.province-inspector-body, .news-feed-wrap, .nation-module-header) {
+  color: #26382f !important;
+}
+.game-shell-desk :is(.game-panel, .advisor-chat, .chats-panel, .event-feed, .nation-dock) {
+  background: #fffdf7 !important;
+}
+.game-shell-desk :is(.nation-module-header, .advisor-banner, .event-feed-header),
+.world-news-panel .event-feed-header {
+  background: #e8ede3 !important;
+  color: #26382f !important;
+  border-color: #bdcbbd !important;
+}
+.game-shell-desk :is(.advisor-banner-title, .event-feed-title, .nation-module-title),
+.game-shell-desk .event-feed-header :is(h1, h2, h3, strong, span, small),
+.world-news-panel .event-feed-header :is(h1, h2, h3, strong, span, small) {
+  color: #26382f !important;
+  -webkit-text-fill-color: #26382f !important;
+}
+.game-shell-desk :is(.advisor-banner-sub, .event-feed-readonly, .chats-empty, .country-selector label),
+.game-shell-desk .chat-input-row textarea::placeholder {
+  color: #536e5d !important;
+  -webkit-text-fill-color: #536e5d !important;
+}
+.game-shell-desk .chat-input-row textarea,
+.game-shell-desk .chat-item,
+.game-shell-desk .new-chat-picker,
+.game-shell-desk .chats-panel .chat-bubble {
+  background: #f8f8f1 !important;
+  color: #26382f !important;
+  -webkit-text-fill-color: #26382f !important;
+  border-color: #ced7c9 !important;
+}
+.game-shell-desk :is(.chats-panel, .chat-item, .chat-bubble, .advisor-entry, .entry-text),
+.game-shell-desk .entry-text :is(p, strong, em, span) {
+  color: #26382f !important;
+  -webkit-text-fill-color: #26382f !important;
+}
+.game-shell-desk .advisor-entry.assistant .entry-text,
+.game-shell-desk .minister-entry .entry-text {
+  background: #f5f5ed !important;
+  border: 1px solid #cbd9ca !important;
+  border-left: 3px solid #608b70 !important;
+  color: #26382f !important;
+}
+.game-shell-desk .advisor-entry.user .entry-text {
+  background: #dceadd !important;
+  color: #214735 !important;
+  -webkit-text-fill-color: #214735 !important;
+  border: 1px solid #b5d2bd !important;
+}
+.game-shell-desk .advisor-entry.user .entry-text :is(strong, p) {
+  color: #214735 !important;
+  -webkit-text-fill-color: #214735 !important;
+}
+.game-shell-desk .btn-feed-live {
+  color: #28553d !important;
+  -webkit-text-fill-color: #28553d !important;
+  border-color: #91a992 !important;
+}
+.world-news-panel, .world-news-panel .event-feed {
+  background: #fffdf7 !important;
+  color: #26382f !important;
+}
+.world-news-panel .event-feed-item {
+  background: #f8f8f1 !important;
+  border-color: #cad5c8 !important;
+  border-left-color: #629279 !important;
+  color: #26382f !important;
+}
+.world-news-panel .event-feed-item :is(strong, span, small) {
+  color: #26382f !important;
+  -webkit-text-fill-color: #26382f !important;
+}
+
+/* Informazioni e grafici: contrasto coerente con la carta. */
+.advisor-chart {
+  background: #fffdf7;
+  border-color: #cad5c8;
+  border-left-color: #59866b;
+}
+.advisor-chart :is(.advisor-chart-title, .advisor-chart-label, .advisor-chart-value, .advisor-chart-delta) {
+  color: #26382f;
+}
+.advisor-chart :is(.advisor-chart-unit, .advisor-chart-note) { color: #56675f; }
+.advisor-chart-track { background: #e6e6dc; }
+.advisor-chart-delta.tone-positive { color: #26784b; }
+.advisor-chart-delta.tone-warning { color: #795d22; }
+
+/* Pannelli sospesi e modali: superficie coerente, senza cambiare geometrie. */
+:where(.save-picker, .save-modal, .llm-modal, .prompt-editor-content, .hud-timeline-panel) {
+  background: #fffdf7 !important;
+  color: #26382f !important;
+  border-color: #c7cec1 !important;
+}
+:where(.save-picker, .save-modal, .llm-modal, .prompt-editor-content) :is(input, textarea, select) {
+  background: #fffdf7;
+  color: #26382f;
+  border-color: #b9c9b9;
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing .landing-planet, .template-selector .template-card { transition: none !important; }
+}

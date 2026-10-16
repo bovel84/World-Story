@@ -231,3 +231,51 @@
   background: #2a1a16;
   border-bottom: 1px solid #4a2c24;
 }
+
+
+/* WS-LIGHT-ATLAS — solo gli strumenti della mappa cambiano colore.
+   Colori politici, confini, unità e layer informativi restano semantici. */
+.world-map {
+  --atlas-panel: #fffdf7;
+  --atlas-raised: #e9efe5;
+  --atlas-rule: #b5c8b8;
+  --atlas-ink: #284235;
+  --atlas-muted: #576d60;
+  --atlas-change: #8b6328;
+}
+.world-map .map-search,
+.world-map .map-shortcuts button,
+.world-map .map-search-results {
+  box-shadow: 0 3px 10px rgb(32 64 48 / 13%);
+}
+.world-map .maplibregl-ctrl-scale {
+  background: rgb(255 253 247 / 94%);
+}
+.world-map .maplibregl-popup-content {
+  background: #fffdf7;
+  color: #284235;
+  border-color: #b5c8b8;
+}
+.world-map .map-thematic-notice {
+  background: rgb(255 253 247 / 95%);
+  color: #344d3e;
+  border-color: #b5c8b8;
+}
+.static-geo-map,
+.map-error-boundary { background: #edf0e7; }
+.static-geo-map.is-empty { color: #455c50; }
+.static-geo-map-notice {
+  color: #6b4b1d;
+  background: #fff1d8;
+  border-color: #d7bd8b;
+}
+.static-geo-map-skipped {
+  color: #5b6d61;
+  background: #eeeae0;
+  border-color: #c5c8bd;
+}
+.map-error-boundary-notice {
+  color: #8a382f;
+  background: #fff0e8;
+  border-color: #e1b2a6;
+}

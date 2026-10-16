@@ -358,3 +358,179 @@
 .advisor-archive summary { cursor: pointer; font: 500 12px/1.4 system-ui, sans-serif; color: #9fb2c4; }
 .advisor-archive section { margin-top: 8px; }
 .advisor-archive h4 { margin: 0 0 4px; font: 600 11px/1.2 system-ui, sans-serif; letter-spacing: .08em; color: #9fb2c4; text-transform: uppercase; }
+
+
+/* WS-LIGHT-COUNCIL — sala del governo su carta chiara.
+   Separato e in coda: questo file viene caricato lazy dopo il tema globale. */
+.government-office.council-office {
+  --council-ink: #273c34;
+  --council-muted: #596b62;
+  --council-night: #fffdf7;
+  --council-rule: #c6d0c4;
+  --council-brass: #806026;
+  background: #fffdf7;
+  color: var(--council-ink);
+  border-color: #c6d0c4;
+  box-shadow: 0 18px 60px rgb(23 51 33 / 22%);
+}
+.government-office.council-office :is(.council-room-chip, .council-room-prose) {
+  color: #263c33;
+}
+.government-office.council-office .council-room-chip {
+  border-color: #c1ccc0;
+  background: #edf2e9;
+}
+.council-room-thread { background: #fffdf7; scrollbar-color: #a1b3a5 transparent; }
+.council-room-compose, .council-room-toolbar {
+  background: #eef1e8;
+  border-color: #c6d0c4;
+}
+.council-room-compose-row textarea,
+.government-office.council-office .chat-input-row textarea,
+.government-office.council-office .advisor-chat textarea {
+  background: #fffdf7 !important;
+  color: #263c33 !important;
+  border-color: #a9c2ab !important;
+}
+.council-room-compose-meta option {
+  background: #fffdf7;
+  color: #263c33;
+}
+.council-room-compose-row textarea::placeholder,
+.government-office.council-office .chat-input-row textarea::placeholder {
+  color: #66776d !important;
+}
+.council-room-invitation, .council-room-suggested-seat {
+  background: #edf2e9;
+  color: #385b46;
+  border-color: #c1ccc0;
+}
+.council-room-invitation p { color: #263c33; }
+.council-room-compose-row button {
+  background: #356650;
+  border-color: #2c5a46;
+  color: #fffdf7;
+}
+.council-room-board-toggle, .council-room-conclude {
+  border-color: #b4c5b4;
+  color: #315c45;
+}
+.council-room-drawer, .gov-sheet:has(#council-board-sheet-title) {
+  background: #f9f6ee;
+  color: #263c33;
+}
+.council-room-notice { color: #596b62; }
+.council-room-error { color: #a6382d; }
+.council-room-failure {
+  background: #fff2e7;
+  border-color: #d9a58f;
+}
+.council-room-failure-text, .council-room-retry { color: #8c372f; }
+.council-room-resume {
+  background: #e8f0e6;
+  border-color: #a4bca7;
+  color: #315b42;
+}
+.gov-sheet:has(#council-convene-title) {
+  background: #fffdf7;
+  color: #263c33;
+}
+.gov-sheet:has(#council-convene-title) :is(.gov-sheet-close, .gov-sheet-item) {
+  color: #263c33;
+}
+.gov-sheet:has(#council-convene-title) .gov-sheet-item {
+  border-color: #cad4c8;
+}
+.council-board-situation {
+  background: #f2f1e8;
+  border-color: #ccd5c8;
+}
+.council-board-situation-title,
+.council-board-decision p { color: #263c33; }
+.council-board-situation-meta,
+.council-board-situation-facts,
+.council-board-situation-origin,
+.council-board-response-options summary,
+.council-board-response-detail { color: #566b60; }
+.council-board-situation-inaction { color: #8a4f27; }
+.council-board-decision h4, .council-board-response h4 { color: #805e27; }
+.council-board-response-picked, .council-board-response-toggle { color: #256645; }
+
+/* Consulente: messaggi e schede su superfici leggibili, senza invertire il testo. */
+.government-office-bar {
+  background: #edf1e8;
+  color: #263c33;
+  border-color: #c6d0c4;
+}
+.government-office.council-office .government-advisor {
+  background: #f7f7ef;
+  border-color: #c6d0c4;
+}
+.government-office.council-office .government-advisor :is(.advisor-entry, .advisor-typing, .advisor-loading, .advisor-thinking-text) {
+  color: #263c33 !important;
+}
+.government-office.council-office .government-advisor .advisor-entry .entry-text {
+  color: #263c33 !important;
+  -webkit-text-fill-color: #263c33 !important;
+  background: #fffdf7 !important;
+  border: 1px solid #cbd9cb !important;
+  border-left: 3px solid #648b6a !important;
+}
+.government-office.council-office .government-advisor .advisor-entry.user .entry-text {
+  background: #dcebdd !important;
+  color: #214735 !important;
+  -webkit-text-fill-color: #214735 !important;
+}
+.government-office.council-office .government-advisor .advisor-typing i {
+  background: #446a54;
+}
+.government-office.council-office :is(.government-advisor-heading, .government-roster-heading, .advisor-proposals-label) {
+  color: #7e5e27;
+}
+.government-office.council-office :is(.advisor-focus, .advisor-focus-situation) {
+  color: #263c33;
+  background: #e5eee4;
+  border-color: #c2d1c1;
+}
+.government-office.council-office :is(.advisor-focus-title, .advisor-situations-heading, .advisor-situation-summary, .advisor-focus-close) {
+  color: #263c33;
+}
+.government-office.council-office :is(.advisor-focus-kind, .advisor-situation-deepen) {
+  color: #315e4a;
+}
+.government-office.council-office :is(.advisor-situations-subheading, .advisor-question-ministers, .government-roster-state, .advisor-archive summary, .advisor-archive h4) {
+  color: #566b60;
+}
+.government-office.council-office :is(.advisor-situation-card, .advisor-question-card, .government-roster-seat) {
+  background: #fffdf7;
+  color: #263c33;
+  border-color: #b9cdb9;
+}
+.government-office.council-office .advisor-situation-card.active {
+  background: #e2eee2;
+  border-color: #52816a;
+  box-shadow: inset 0 0 0 1px #8cbaa1;
+}
+.government-office.council-office .advisor-situation-severity {
+  background: #e4eee4;
+  color: #2e6346;
+  border-color: #a5bfad;
+}
+.government-office.council-office .advisor-situation-severity[data-importance="3"] {
+  background: #fff0d5;
+  border-color: #c9a46c;
+  color: #755224;
+}
+.government-office.council-office .advisor-situation-severity[data-importance="1"] {
+  background: #e3f2e8;
+  color: #315e41;
+}
+.government-office.council-office .advisor-focus-close,
+.government-office.council-office .government-reports button,
+.government-office.council-office .gov-situation-examine {
+  color: #285b42;
+  border-color: #adc3b0;
+}
+.government-office.council-office .advisor-archive {
+  border-color: #cbd7cb;
+}
