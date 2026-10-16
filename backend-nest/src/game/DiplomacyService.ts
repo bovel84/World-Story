@@ -289,10 +289,13 @@ export class DiplomacyService {
      * comunque, così il giocatore riceve la notifica e trova il canale.
      */
     suppressedTimelineEvents: TimelineEventRecord[];
+    /** Solo le richieste che hanno davvero aperto un canale. */
+    acceptedStarts: SimulationChatStart[];
     broadcasts: Array<Record<string, unknown>>;
     participantPolityIds: Set<string>;
   } {
     const suppressedTimelineEvents: TimelineEventRecord[] = [];
+    const acceptedStarts: SimulationChatStart[] = [];
     const timelineEvents: TimelineEventRecord[] = [];
     const broadcasts: Array<Record<string, unknown>> = [];
     const participantPolityIds = new Set<string>();
@@ -425,7 +428,9 @@ export class DiplomacyService {
         // La reazione è già nel blocco «Reazioni internazionali» del dispaccio:
         // la voce esiste ma non entra in cronaca (invariante I5). Un canale
         // chiesto dal modello, invece, è un fatto nuovo e resta una notizia.
-        (start.alreadyNarrated ? suppressedTimelineEvents : timelineEvents).push(voce);
+        // L'invito era già narrato nell'evento causale: il canale non
+        // aggiunge un secondo dispaccio che oscuri la cronaca.
+        (linkedEvent || start.alreadyNarrated ? suppressedTimelineEvents : timelineEvents).push(voce);
         broadcasts.push({
           chatId: chat.id,
           polityId: chat.polityId,
@@ -438,12 +443,13 @@ export class DiplomacyService {
         });
         validPolityIds.forEach(id => participantPolityIds.add(id));
         if (eventKey) openedEvents.add(eventKey);
+        acceptedStarts.push(start);
       } catch (error) {
         console.warn('[GameSession] startChat: impossibile aprire il canale diplomatico:', requestedNames, error);
       }
     }
 
-    return { timelineEvents, suppressedTimelineEvents, broadcasts, participantPolityIds };
+    return { timelineEvents, suppressedTimelineEvents, acceptedStarts, broadcasts, participantPolityIds };
   }
 
   // ── Conversazione LLM (repliche, «lascia che parlino», reazioni NPC) ──────
