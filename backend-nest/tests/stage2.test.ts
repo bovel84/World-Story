@@ -1063,7 +1063,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
       expect(events).toContain('La Polonia firma un nuovo patto');
       expect(events).toContain('Una crisi commerciale produce nuove misure');
       expect(session.getCurrentDate()).toBe('1951-07-01');
-      expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('FRG');
+      expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('DEU');
       expect(session.getChats()).toHaveLength(0);
       expect(capturedPrompt).toContain('Non imporre limiti numerici agli eventi');
     } finally {
