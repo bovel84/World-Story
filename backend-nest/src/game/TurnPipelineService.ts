@@ -16,7 +16,7 @@ import db, { withCanonicalTransaction } from '../database';
 import { chatRepository, gameRepository, relationshipRepository, worldRepository } from '../repositories';
 import { addDays, dateInPeriod, jumpHorizon, resolvePeriod } from '../core/simulation/calendar';
 import { applyStagedStrictEffects, assertExecutableStrictEffects } from '../core/simulation/TurnOrchestrator';
-import { autoJumpEventBudget, isAutoJumpStop } from '../core/simulation/EventBudget';
+import { isAutoJumpStop } from '../core/simulation/EventBudget';
 import { projectProgress } from '../core/simulation/MilitaryProduction';
 import { EFFECT_LIMITS } from '../core/simulation/NationalEffects';
 import { rejectDirectMaterialCommand, validateStrictResultSafe } from '../core/simulation/EffectValidator';
@@ -170,10 +170,9 @@ export class TurnPipelineService {
 
       // jumpDays <= 0 — auto-jump «к следующему важному событию» (горизонт — год)
       const autoJump = jumpDays <= 0;
-      // Senza ordini, raccogli un piccolo lotto di notizie mondiali dalla
-      // stessa generazione; con ordini, interrompi sulla prima risposta
-      // decisiva NPC. Il budget è condiviso con il prompt.
-      const autoJumpEventLimit = autoJumpEventBudget(actions.length);
+      // Il numero di eventi non è limitato per turno: valgono solo la
+      // finestra temporale, la causalità e il budget tecnico del provider.
+      // Con ordini rimane lo stop semantico alla risposta NPC.
       simulationRunId = shortId();
       this.ctx.coordinator.setActiveRunId(simulationRunId);
       this.ctx.coordinator.beginAbort();
@@ -257,7 +256,7 @@ export class TurnPipelineService {
       let consumedEvents = 0;
       let intervened = false;
       // Auto-jump: con ordini ci si ferma alla decisione NPC; senza ordini
-      // ci si ferma dopo un lotto limitato di notizie documentate.
+      // la cronaca prosegue fino al completamento del modello.
       let autoJumpStopReached = false;
       const acceptEvent = (event: SimulationEvent, index: number, apply: boolean): boolean => {
         consumedEvents = Math.max(consumedEvents, index + 1);
@@ -277,14 +276,10 @@ export class TurnPipelineService {
           proposedEvents.push(canonicalEvent);
           return true;
         }
-        // Con ordini attendiamo la decisione NPC; senza ordini raccogliamo
-        // più sviluppi documentati (fino al tetto). Non applicare il seguito.
+        // Con ordini attendiamo la decisione NPC; senza ordini continuiamo
+        // per tutti gli eventi documentati e completi della stessa risposta.
         if (autoJump && autoJumpStopReached) {
           console.log('[GameSession] Auto-jump: event after the stopping checkpoint ignored');
-          return false;
-        }
-        if (autoJump && appliedEvents.length >= autoJumpEventLimit) {
-          console.warn(`[GameSession] Auto-jump: event after the limit of ${autoJumpEventLimit} ignored`);
           return false;
         }
         const changedRegions = this.ctx.applyFrontierPlacements(
@@ -305,7 +300,7 @@ export class TurnPipelineService {
         appliedEvents.push(canonicalEvent);
         // La decisione che chiude il salto entra nel checkpoint; le sue
         // conseguenze successive no (il controllo è DOPO l'applicazione).
-        if (autoJump && isAutoJumpStop(canonicalEvent, actions.length, appliedEvents.length)) {
+        if (autoJump && isAutoJumpStop(canonicalEvent, actions.length)) {
           autoJumpStopReached = true;
         }
         // È una sola anteprima narrativa: nessun delta o data viene ancora
