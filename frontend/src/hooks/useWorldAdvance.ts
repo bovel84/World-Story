@@ -29,6 +29,7 @@ export interface UseWorldAdvanceOptions {
   restorePausedReader: (game: any) => Promise<void>;
   pausedReader: any;
   handleTimelineOpen: () => Promise<void>;
+  resetForRewind: () => void;
   setGameEnding: React.Dispatch<React.SetStateAction<GameEnding | null>>;
   setNationalCrisis: React.Dispatch<React.SetStateAction<any>>;
   activeSimulationIdRef: React.MutableRefObject<string | undefined>;
@@ -51,6 +52,7 @@ export function useWorldAdvance({
   restorePausedReader,
   pausedReader,
   handleTimelineOpen,
+  resetForRewind,
   setGameEnding,
   setNationalCrisis,
   activeSimulationIdRef,
@@ -64,7 +66,7 @@ export function useWorldAdvance({
   const clearSuggestions = useActionsStore((state) => state.clearSuggestions);
   const {
     currentGame, currentWorld, setCurrentGame, setCurrentWorld,
-    setPendingActions, addHistory,
+    setPendingActions, addHistory, setHistory,
   } = useGameStore();
 
   const handleTimeSkip = async (days: number) => {
@@ -289,11 +291,14 @@ export function useWorldAdvance({
         setCurrentWorld({ ...currentWorld, regions: newRegions });
       }
 
-      addHistory({
-        turn: updatedGame.currentTurn,
-        action: '⏪ Ripristino',
-        result: 'Ultima mossa annullata, il mondo è tornato allo stato precedente',
-      });
+      // Un rewind non è una mossa e non deve lasciare tracce nella cronaca.
+      resetForRewind();
+      setHistory(useGameStore.getState().history.filter(
+        item => item.turn < (Number(updatedGame.currentTurn) || 1),
+      ));
+      setPausedReader(null);
+      activeSimulationIdRef.current = undefined;
+      await handleTimelineOpen();
     } catch (e) {
       console.error('Rewind failed:', e);
       notify('Impossibile annullare la mossa: lo snapshot è disponibile dopo la prima mossa giocata.', 'error');

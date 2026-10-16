@@ -47,6 +47,8 @@ export interface Feed {
   markFeedRead: (id: string) => void;
   markAllFeedRead: () => void;
   dismissNews: (showNext: boolean) => void;
+  /** Svuota le anteprime del futuro scartato e ricarica il feed canonico. */
+  resetForRewind: () => void;
 }
 
 export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
@@ -55,6 +57,14 @@ export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
   const [newsQueue, setNewsQueue] = useState<FeedItem[]>([]);
   const [newsOpen, setNewsOpen] = useState(false);
   const announcedNewsIdsRef = useRef(new Set<string>());
+  const [feedRevision, setFeedRevision] = useState(0);
+  const resetForRewind = useCallback(() => {
+    announcedNewsIdsRef.current.clear();
+    setNewsQueue([]);
+    setNewsOpen(false);
+    setFeedItems([]);
+    setFeedRevision(revision => revision + 1);
+  }, []);
 
   /**
    * Risolve gli ID degli ordini nel loro testo, leggendo la **coda autorevole**
@@ -152,16 +162,24 @@ export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
         }
         setTimeline(data.timeline || []);
         setFeedItems(prev => {
-          const byId = new Map(prev.map(item => [item.id, item]));
-          for (const item of items) if (!byId.has(item.id)) byId.set(item.id, item);
-          return [...byId.values()].slice(-120);
+          // La cronaca HTTP canonica è autoritativa: un evento sparito dopo
+          // rewind o restore NON può sopravvivere nel feed locale all'infinito.
+          // Conserva soltanto anteprime live ancora in corso e lo stato letto
+          // dei dispacci confermati che hanno davvero un ID in archivio.
+          const old = new Map(prev.map(item => [item.id, item]));
+          const live = prev.filter(item => item.kind === 'live');
+          const canonical = items.map(item => ({
+            ...item,
+            read: old.get(item.id)?.read ?? true,
+          }));
+          return [...live, ...canonical].slice(-120);
         });
       })
       .catch(e => console.warn('[App] Feed: impossibile aggiornare la timeline:', e));
     void refreshTimeline();
     const timer = window.setInterval(() => void refreshTimeline(), 15_000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [gameId, setTimeline]);
+  }, [gameId, setTimeline, feedRevision]);
 
   /** Riconcilia i dettagli restituiti via HTTP con lo stesso feed dell'SSE.
    * Gli ID canonici rendono innocui ordine di arrivo e duplicati per azione. */
@@ -211,5 +229,6 @@ export function useFeed({ gameId, setTimeline }: UseFeedOptions): Feed {
     markFeedRead,
     markAllFeedRead,
     dismissNews,
+    resetForRewind,
   };
 }

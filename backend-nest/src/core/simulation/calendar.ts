@@ -17,6 +17,28 @@ export function jumpHorizon(days: number): number {
   return days <= 0 ? 365 : days;
 }
 
+/**
+ * The automatic action is a search for the next meaningful development, not
+ * permission to write a full year of history in one turn.
+ * Active domestic pressures narrow the window; explicit jumps are untouched.
+ * This is a time horizon, NEVER a cap on the number of valid world events.
+ */
+export function adaptiveAutoHorizon(input: {
+  currentDate: string;
+  hasOrders: boolean;
+  crisisLevel?: 'calm' | 'watch' | 'critical' | null;
+  pressures?: readonly { severity: number; deadlineDate?: string | null }[];
+}): number {
+  const pending = input.pressures || [];
+  const high = input.crisisLevel === 'critical' || pending.some(p => Number(p.severity) >= 3);
+  const elevated = input.crisisLevel === 'watch' || pending.some(p => Number(p.severity) >= 2);
+  const base = high ? 14 : elevated ? 30 : input.hasOrders ? 90 : 60;
+  const upcoming = pending
+    .map(p => p.deadlineDate ? daysBetween(input.currentDate, p.deadlineDate) : 0)
+    .filter(days => days > 0);
+  return upcoming.length ? Math.max(1, Math.min(base, ...upcoming)) : base;
+}
+
 /** Strictly positive, bounded period for explicit calendar advancement. */
 export function explicitDays(days: number): number {
   if (!Number.isInteger(days) || days <= 0 || days > MAX_JUMP_DAYS) {

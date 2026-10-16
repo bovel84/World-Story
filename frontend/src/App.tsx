@@ -126,6 +126,7 @@ function App() {
     pushFeed,
     actionTextFor,
     publishEventDetails,
+    resetForRewind,
   } = feedBundle;
 
   // La nazione è un modulo su richiesta: non riaprire mai il dossier rimasto
@@ -222,6 +223,7 @@ function App() {
     pushFeed,
     actionTextFor,
     setFeedItems,
+    resetForRewind,
     applyCheckpointRegions,
     setPausedReader,
     pausedReader,
@@ -241,6 +243,7 @@ function App() {
     restorePausedReader,
     pausedReader,
     handleTimelineOpen,
+    resetForRewind,
     setGameEnding,
     setNationalCrisis,
     activeSimulationIdRef,

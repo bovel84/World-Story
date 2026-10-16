@@ -43,6 +43,7 @@ export interface UseSimulationStreamOptions {
    */
   actionTextFor: (sourceActionIds?: string[]) => string | undefined;
   setFeedItems: React.Dispatch<React.SetStateAction<any[]>>;
+  resetForRewind: () => void;
   applyCheckpointRegions: (changedRegions: any[] | undefined) => void;
   setPausedReader: React.Dispatch<React.SetStateAction<any>>;
   pausedReader: any;
@@ -63,6 +64,7 @@ export function useSimulationStream({
   pushFeed,
   actionTextFor,
   setFeedItems,
+  resetForRewind,
   applyCheckpointRegions,
   setPausedReader,
   pausedReader,
@@ -72,7 +74,7 @@ export function useSimulationStream({
   setIsProcessingTurn,
   setTurnProgress,
 }: UseSimulationStreamOptions): SimulationStream {
-  const { setCurrentGame, setCurrentWorld, setChangedRegions, clearChangedRegions, addHistory } = useGameStore();
+  const { setCurrentGame, setCurrentWorld, setChangedRegions, clearChangedRegions, addHistory, setHistory } = useGameStore();
   const { notify } = useToast();
 
   const activeSimulationIdRef = useRef<string | undefined>();
@@ -251,6 +253,20 @@ export function useSimulationStream({
       setTurnProgress('');
       // Il run scaglionato è chiuso: il lettore non chiede più decisioni.
       setPausedReader(null);
+      if (data?.rewound || data?.resetTimeline) {
+        // Rewind NON è un nuovo dispaccio. Cancella subito notizie in anteprima,
+        // card obsolete e storico locale del turno scartato, poi refetch canonico.
+        resetForRewind();
+        const restoredTurn = Number(data.newTurn) || 1;
+        setHistory(useGameStore.getState().history.filter(item => item.turn < restoredTurn));
+        if (data.newDate) {
+          setCurrentGame(prev => prev ? {
+            ...prev, currentTurn: restoredTurn, currentDate: data.newDate,
+          } : prev);
+        }
+        void handleTimelineOpen();
+        return;
+      }
       if (data?.pausedBudget) {
         pushFeed('Nessun ulteriore sviluppo viene confermato nel periodo. Avanza di nuovo per proseguire la cronaca.', 'world', data.newDate);
       }

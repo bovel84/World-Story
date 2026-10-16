@@ -3226,15 +3226,23 @@ export class GameSession {
     this.status = 'playing';
     gameRepository.setStatus(this.id, 'playing');
     this.ending = null;
-    // Результат откаченного хода записан с turn == восстановленному currentTurn
+    // Elimina sia la cronaca dei turni scartati, sia il ledger dei relativi
+    // checkpoint. Non basta cancellare turn_results: simulation_events e
+    // outbox possono mantenere notizie del futuro già annullato.
     gameRepository.deleteAfterTurn(this.id, this.currentTurn - 1);
+    gameRepository.discardSimulationFuture(this.id, this.currentTurn, this.currentDate);
     // Снапшот потреблён — повторный rewind подряд невозможен
     this.persistence.consumeRewindSnapshot(snapshotId);
 
     this.broadcast('turn_complete', {
       turn: this.currentTurn,
       narration: '⏪ Ritorno al turno precedente',
-      events: ['⏪ Turno annullato, il mondo è tornato allo stato precedente'],
+      // Il rewind è una notifica di sistema, NON una notizia storica.
+      // Il client deve ricaricare la cronaca canonica, mai appendere la
+      // precedente anteprima dello stream come se fosse un evento confermato.
+      events: [],
+      eventDetails: [],
+      resetTimeline: true,
       newTurn: this.currentTurn,
       newDate: this.currentDate,
       rewound: true,
