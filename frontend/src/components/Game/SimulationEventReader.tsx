@@ -102,10 +102,10 @@ export function SimulationEventReader({
 
         <div className="simulation-reader-progress" aria-label="Stato del playback">
           <span className="simulation-reader-live-dot" aria-hidden="true" />
-          <span>Tempo fermo al checkpoint corrente</span>
+          <span>Puoi intervenire su questa notizia</span>
           <span className="simulation-reader-sealed">
             {playback.remaining > 0
-              ? `${playback.remaining} ${playback.remaining === 1 ? 'evento sigillato' : 'eventi sigillati'}`
+              ? `${playback.remaining} ${playback.remaining === 1 ? 'notizia da leggere' : 'notizie da leggere'}`
               : 'Chiusura del periodo disponibile'}
           </span>
         </div>
@@ -162,13 +162,13 @@ export function SimulationEventReader({
             className="btn-intervene"
             onClick={onIntervene}
             disabled={loading}
-            title="Chiude il salto a questo checkpoint"
+            title="Ferma il tempo a questa notizia e apre il governo per decidere come rispondere"
           >
-            Intervieni
+            Intervieni nel governo
           </button>
         </footer>
         <p className="simulation-reader-note">
-          Le proposte non ancora lette restano sigillate; l'archivio non modifica questo checkpoint.
+          Puoi continuare a seguire gli eventi oppure fermarti qui e preparare una risposta con il governo.
         </p>
     </AccessibleDialog>
   );

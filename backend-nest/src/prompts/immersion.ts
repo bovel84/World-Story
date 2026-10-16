@@ -5,17 +5,17 @@
  * paragrafi» qui, «90-140 parole» nella riga seguente, «4-6 frasi» in
  * `simulation/prompt.ts:228` — e il modello non poteva obbedire a tutte.
  *
- * La misura scelta è **una**: antefatto e sviluppo in **due frasi brevi**.
+ * La misura scelta è **una**: antefatto, sviluppo ed eventuale posta in gioco.
  * Non è la sintesi estrema del riferimento (15-25 parole): il nostro dispaccio
  * deve restare comprensibile **senza aver letto i precedenti** (regola già
  * scritta sotto), quindi gli serve l'antefatto. Ma non è più il paragrafo da
- * 140 parole: due frasi, ognuna con un fatto.
+ * 140 parole: due o tre frasi, senza un secondo evento per il solo contesto.
  *
  * Se questo numero cambia, cambia qui: `simulation/prompt.ts` lo importa.
  */
-export const EVENT_BODY_WORDS = 'due frasi brevi, 35-60 parole in tutto';
+export const EVENT_BODY_WORDS = 'due o tre frasi brevi, 40-75 parole in tutto';
 
-export const EVENT_DESCRIPTION_GUIDE = `Antefatto in una frase e sviluppo in una seconda: chi agisce, dove, e che cosa cambia rispetto a prima. ${EVENT_BODY_WORDS}`;
+export const EVENT_DESCRIPTION_GUIDE = `Antefatto e sviluppo: chi agisce, dove, e che cosa cambia rispetto a prima. Se c'è una scelta aperta, una breve frase chiarisce la posta in gioco senza decidere per il governo. ${EVENT_BODY_WORDS}`;
 
 /** Shared by full, preset and compact simulation paths; no extra model call. */
 export function buildImmersionContract(): string {

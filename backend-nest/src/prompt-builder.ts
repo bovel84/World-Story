@@ -44,7 +44,8 @@ import { buildNarrativeMemory } from './prompts/narrative-memory';
 import type { MinisterMemoryScope } from './core/government/MinisterMemory';
 import { getJevConfig } from './core/government/jev/jev.config';
 import { repairReactionDecisions, validateReactionDecisions, describeReactionShape, completeEventReactions, completeEventReactionsList, type ReactionDecisionIssue, type ReactionEventLike } from './core/simulation/ReactionDecisions';
-import type { ReactionContext } from './core/simulation/ReactionContext';
+import type { ReactionContext, WorldReactionCause } from './core/simulation/ReactionContext';
+import { compactReactionContext } from './prompts/simulation/orchestration';
 import { buildNationalDecisionContext, buildActionElaborationGuard, buildMinisterWorldContext, renderWorldIdentity, renderNationalContext, renderMinisterWorldContext } from './prompts/national-context';
 import { SEAT_LABEL, CABINET_SEATS, type CabinetSeat } from './core/government/Cabinet';
 import { ministerDossierFrom } from './core/government/MinisterChat';
@@ -57,11 +58,12 @@ import {
 } from './prompts/government';
 import type { GovernmentSnapshot } from './core/simulation/GovernmentFactions';
 import { addDays, formatItalianDate } from './core/simulation/calendar';
-import { autoJumpEventBudget } from './core/simulation/EventBudget';
+import { autoJumpEventBudget, fixedJumpEventBudget } from './core/simulation/EventBudget';
 import { equipmentById } from './core/simulation/MilitaryIndustry';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
 import { LLMError, LLMContractError, LLMRouter } from './llm';
 import { isSmallModel, narrativeBudgetsFor, type NarrativeBudgets } from './llm/modelTier';
+import { buildNarrativeInitiative, buildNarrativeSituationSources, buildWorldNarrativeContext } from './prompts/simulation/initiative';
 import { DEFAULT_NARRATIVE_FLAGS, type NarrativeFlags } from './llm/narrativeFlags';
 
 interface GameData {
@@ -113,6 +115,7 @@ interface GameData {
    * protagonisti nel respiro del mondo. Significato del preset, non fatti.
    */
   storylines?: WorldPulseStoryline[];
+  worldCauses?: WorldReactionCause[];
   /** H06 — situazioni (e direzione) delle altre nazioni del teatro. */
   polityNationSituations?: NationSituationRecord[];
   /** Processi in corso (esiti partial) che la simulazione deve portare avanti. */
@@ -1374,10 +1377,13 @@ export class PromptEngine {
     const actionsCount = normalizedActions.length;
     const maxEvents = autoJump
       ? autoJumpEventBudget(actionsCount)
-      : Math.min(30, Math.max(1, Math.ceil(jumpDays / 21), actionsCount));
+      : fixedJumpEventBudget(jumpDays, actionsCount);
     const renderedOverride = promptOverride ? renderPromptTemplate(promptOverride, vars) : undefined;
     const constrained = !game.strictMode && this.isConstrainedModel('jump');
     const compactBudgets = narrative.tieredMemory && constrained ? narrativeBudgetsFor(jumpModel) : undefined;
+    if (constrained && reactionContext) {
+      vars.COMPACT_REACTION_CONTEXT = compactReactionContext(reactionContext, compactBudgets?.compactReactionChars ?? 2_500);
+    }
     const baseSimulationPrompt = constrained
       ? buildConstrainedSimulationPrompt(vars, {
           autoJump,
@@ -1390,6 +1396,7 @@ export class PromptEngine {
           const basePrompt = renderedOverride
             ? renderedOverride
               + buildCausalityGuard(vars)
+              + '\n' + buildNarrativeSituationSources(vars)
               + (autoJump ? buildAutoJumpInstruction(vars, maxEvents) : '')
             : buildSimulationPrompt(vars, { autoJump, eventBudget: maxEvents, texture: narrative.texture });
           // I preset possono definire il mondo, non rimuovere causalità,
@@ -1399,7 +1406,11 @@ export class PromptEngine {
             + buildIncrementalOutputInstruction(vars, maxEvents, !!autoJump);
         })();
     const histories = renderPolityHistoricalBaselines(game.polityHistoricalBaselines ?? [], normalizedActions.map(action => action.text).join(' '));
-    const prompt = baseSimulationPrompt + `\n\n[WORLD TEMPORAL BOUNDARY]\nPunto di divergenza: ${game.world.startDate || 'non disponibile: non usare storia reale esterna'}.\n`
+    const worldContext = buildWorldNarrativeContext({ date: game.currentDate, startDate: game.world.startDate, turn: game.currentTurn,
+      playerPolityId: game.playerPolityId ?? game.players[0]?.polityId ?? '',
+      actorIds: reactionContext?.actors.map(actor => actor.id) ?? [],
+      storylines: game.storylines, situations: game.polityNationSituations, causes: game.worldCauses });
+    const prompt = baseSimulationPrompt + buildNarrativeInitiative() + worldContext + `\n\n[WORLD TEMPORAL BOUNDARY]\nPunto di divergenza: ${game.world.startDate || 'non disponibile: non usare storia reale esterna'}.\n`
       + (histories || `${HISTORICAL_BASELINE_RULE}\nBaseline non disponibile: usa stato corrente e storia della partita, non inventare un passato sostitutivo.`);
 
     let parsedObjectCount = 0;
@@ -1432,7 +1443,7 @@ export class PromptEngine {
     // Ogni volta che nello stream si chiude un oggetto JSON `event`, lo
     // normalizziamo e lo consegniamo subito alla sessione di gioco.
     const system = constrained
-      ? 'Simula causa ed effetto. Copia gli actionId. Rispetta l’autonomia NPC. Rispondi solo in NDJSON valido: righe event, poi una riga complete.'
+      ? 'Orchestra il mondo del preset: ogni nazione persegue i propri interessi entro capacità e memoria correnti, anche senza ordini. Copia gli actionId. Non agire per il giocatore. Rispondi solo in NDJSON valido: righe event, poi una riga complete.'
       : 'Sei il simulatore di una storia alternativa. Non parafrasare gli ordini: simula decisioni autonome delle controparti rispettando personalità, priorità e memoria fornite. Ogni nazione NPC direttamente coinvolta deve rispondere nel campo reactions; il giocatore non può accettare accordi al suo posto. Usa mapChanges per cantieri, mobilitazioni, unità e opere realmente avviati o completati. Produci JSON Lines valido.';
     const requestOptions = {
       temperature: constrained ? 0.35 : 0.7,

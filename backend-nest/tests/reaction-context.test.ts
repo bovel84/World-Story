@@ -42,6 +42,24 @@ function input(overrides: Partial<ReactionContextInput> = {}): ReactionContextIn
 }
 
 describe('buildReactionContext', () => {
+  it('una nazione lontana può proseguire una vicenda documentata senza ordini del giocatore', () => {
+    const context = buildReactionContext(input({ focusTexts: [], currentActions: [],
+      worldCauses: [{ kind: 'prior_event', sourceRef: 'timeline:export', summary: 'La Malaysia apre un confronto sulle esportazioni.' }],
+    }));
+    expect(context.trigger).toMatchObject({ kind: 'prior_event', sourceRef: 'timeline:export' });
+    expect(context.actors.find(actor => actor.id === 'MYS')?.because).toContain('timeline:export');
+    expect(context.allowedOptionIds).toContain('MYS:negotiate');
+  });
+
+  it('i filoni autonomi non diventano ordini e non introducono attori assenti dalla mappa', () => {
+    const context = buildReactionContext(input({ worldCauses: [{ kind: 'world_process', sourceRef: 'storyline:trade',
+      summary: 'Cooperazione commerciale regionale', polityIds: ['MYS', 'GHOST'] }] }));
+    expect(context.trigger).toMatchObject({ kind: 'player_action', sourceRef: 'a1' });
+    expect(context.actors.find(actor => actor.id === 'MYS')?.because).toContain('storyline:trade');
+    expect(context.actors.some(actor => actor.id === 'GHOST')).toBe(false);
+    expect(context.actors.find(actor => actor.id === 'ZWE')?.because).toMatch(/nominata esplicitamente/);
+  });
+
   it('identifica la controparte nominata e i vicini, escludendo le potenze lontane', () => {
     const context = buildReactionContext(input());
     const ids = context.actors.map(actor => actor.id);

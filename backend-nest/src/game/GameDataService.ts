@@ -24,6 +24,8 @@ import type { ResourceLedger } from '../core/simulation/ResourceMarket';
 import type { RegionState } from '../game-session';
 import { playerMilitaryPosture, renderMilitaryPosture } from './MilitaryPosture';
 import { playerCentricRelationships } from './reactionInputs';
+import { buildWorldReactionCauses } from './worldReactionCauses';
+import type { NpcObjective } from '../core/simulation/NpcAgenda';
 
 export interface GameDataContext {
   gameId: string;
@@ -56,6 +58,7 @@ export interface GameDataContext {
   buildNpcStrategicDossiers(focusTexts: string[], accounts: Record<string, NationalAccount>): string;
   /** GAMEPLAY-LONG: impegni in vigore, pronti per il prompt. */
   activeCommitments?(): string;
+  activeNpcObjectives?(): readonly NpcObjective[];
   /** H09 — i filoni attivi del preset, per il respiro del mondo. */
   activeStorylinesForWorld?(): { id: string; title: string; summary: string; parties: readonly string[]; trajectory?: string }[];
   relationships(): unknown;
@@ -151,6 +154,10 @@ export class GameDataService {
     const processRows = gameRepository.getOngoingProcesses(this.ctx.gameId);
     const playerStock = this.ctx.resourceStock(this.ctx.playerPolityId());
     const playerAccountForContext = accounts[this.ctx.playerPolityId()];
+    const storylines = this.ctx.activeStorylinesForWorld?.() ?? [];
+    const worldCauses = buildWorldReactionCauses({ date: this.ctx.currentDate(),
+      turn: this.ctx.currentTurn(), objectives: this.ctx.activeNpcObjectives?.(),
+      playerPolityId: this.ctx.playerPolityId(), results: this.ctx.results(), storylines });
 
     // Contesto di reazione: chi è coinvolto e quali opzioni sono ammesse. È
     // calcolato una volta sola perché serve sia al prompt (testo) sia al
@@ -169,6 +176,7 @@ export class GameDataService {
       playerPolityName: polityNames[this.ctx.playerPolityId()],
       focusTexts,
       currentActions,
+      worldCauses,
       polityNames,
       polityAliases,
       regions: regionsObj,
@@ -328,10 +336,14 @@ export class GameDataService {
       relationships: this.ctx.relationships(),
       // Identità stabile + priorità dinamiche + memoria per le politie davvero
       // rilevanti al teatro corrente. È la stessa fonte usata dalle chat.
-      npcStrategicProfiles: this.ctx.buildNpcStrategicDossiers(focusTexts, accounts),
+      npcStrategicProfiles: this.ctx.buildNpcStrategicDossiers([
+        ...focusTexts,
+        ...reactionContextData.actors.filter(actor => !actor.id.includes(':')).map(actor => actor.name),
+      ], accounts),
       // H09 — i filoni attivi del preset: fanno entrare in scena i protagonisti
       // nel respiro del mondo. Significato del preset, mai un fatto del motore.
-      storylines: this.ctx.activeStorylinesForWorld?.() ?? [],
+      storylines,
+      worldCauses,
       // Il registro degli impegni è strutturato e dura più della cronaca: il
       // narratore lo riceve come vincolo, non come ricordo approssimativo.
       activeCommitments: this.ctx.activeCommitments?.() ?? '',

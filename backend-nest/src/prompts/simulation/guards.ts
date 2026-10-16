@@ -46,6 +46,13 @@ export function buildOrderCoverageRule(vars: PromptVariables): string {
 }
 
 export function buildAutoJumpInstruction(vars: PromptVariables, eventBudget = 1): string {
+  if (!vars.PLAYER_ACTIONS_THIS_ROUND?.trim()) {
+    return `\nRegole auto-jump senza ordini:
+- Fermati al primo sviluppo significativo di una causa documentata entro il ${vars.TARGET_ROUND_DATE}: anche una richiesta interna, un processo o un'opportunità può richiedere l'attenzione del governo.
+- Emetti quell'evento e usa la sua data come targetDate. Non aspettare una risposta straniera a ordini inesistenti e non inventare reactions per fermare il salto. La nazione del giocatore non prende nuove iniziative senza ordine.
+- Se non esiste uno sviluppo plausibile entro l'orizzonte, non emettere eventi e completa con targetDate:null.
+- Questa regola prevale sui preset che chiedono di distribuire eventi sull'intero periodo.`;
+  }
   // L'auto-jump non si ferma al primo fatto di cronaca: prosegue finché una
   // nazione non decide concretamente in risposta agli ordini del giocatore.
   // Il budget concede lo spazio per attraversare i fatti di contorno.
@@ -126,7 +133,8 @@ export function buildNpcAgencyGuard(vars: PromptVariables): string {
   return `
 [INIZIATIVA AUTONOMA DELLE NAZIONI NPC — regola non negoziabile]
 - Le nazioni diverse da ${vars.PLAYER_POLITY} NON sono comparse che attendono gli ordini del giocatore: perseguono attivamente il proprio dossier. Quando lo stato strategico, la cronaca, la diplomazia o i processi in corso offrono una causa verificabile (tensione di confine, minaccia, imminenza, alleanza, ultimatum, crisi aperta, opportunità economica o territoriale), quella nazione adotta nel periodo una misura autonoma e concreta.
-- Misure difensive ammesse: mobilitazione di riserve, fortificazioni e opere di difesa (fortification, base, airbase, radar, missile_site), difesa aerea e costiera, schieramento difensivo su un confine, pattugliamento navale, patto o garanzia difensiva, evacuazione, embargo difensivo.
+- Scegli lo strumento utile all'interesse nazionale, non un'escalation obbligatoria: negoziato, proposta commerciale, cooperazione, mediazione, pressione politica o iniziativa economica. Le opzioni ammesse sono quelle del CONTESTO DI REAZIONE; un annuncio non è una capacità acquisita.
+- Misure difensive ammesse quando giustificate: mobilitazione di riserve, fortificazioni e opere di difesa (fortification, base, airbase, radar, missile_site), difesa aerea e costiera, schieramento difensivo su un confine, pattugliamento navale, patto o garanzia difensiva, evacuazione, embargo difensivo.
 - Misure offensive ammesse: concentramento e piano offensivo, incursione o raid, blocco navale, bombardamento, ultimatum armato, preparazione d'invasione, sostegno a un alleato in guerra, taglio delle forniture.
 - Ogni misura adottata compare in "reactions" nel campo "counterAction", con la priorità del dossier che l'ha motivata; se è materialmente iniziata o operativa, compare anche nelle "mapChanges" dello stesso evento, nel territorio della nazione che agisce: cantieri con start_construction, mobilitazioni con start_mobilization, formazioni operative con spawn_unit, spostamenti con move_unit, fortificazioni e opere finite con complete_construction.
 - Prima di chiudere un evento rileggi "headline" e "description": ogni misura materiale nominata come avviata o operativa deve avere la mapChange corrispondente; una proposta, un annuncio o uno studio non crea oggetti.

@@ -2182,6 +2182,10 @@ export class GameSession {
         return this.buildNpcStrategicDossiers(focusTexts, accounts);
       },
       activeCommitments: () => this.commitments.describeForPrompt(),
+      activeNpcObjectives: () => {
+        this.refreshNpcAgenda();
+        return Object.values(this.npcAgenda.agendaFor()).flat();
+      },
       // H09 — i filoni attivi del mondo (tutte le parti, non solo il giocatore):
       // il respiro del mondo racconta anche le nazioni non giocate.
       activeStorylinesForWorld: () => this.activeWorldStorylines(),

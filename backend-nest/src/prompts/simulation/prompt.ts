@@ -12,6 +12,8 @@ import { buildGovernmentNarrativeGuard } from '../government';
 import { AUTO_JUMP_MAX_EVENTS } from '../../core/simulation/EventBudget';
 import { CONSTRAINED_NARRATIVE_BUDGETS, type NarrativeBudgets } from '../../llm/modelTier';
 import { buildNarrativeTextureBlock } from './narrativeTexture';
+import { compactNpcDossiers } from './orchestration';
+import { buildNarrativeSituationSources } from './initiative';
 import {
   buildAutoJumpInstruction,
   buildOrderCoverageRule,
@@ -39,8 +41,8 @@ Ignora SOLO il formato JSON finale descritto sopra e serializza invece la rispos
 - Emetti UN evento completo appena lo hai deciso, prima di elaborare il successivo.
 - Gli eventi devono essere cronologici e ciascuno deve tenere conto degli eventi già emessi.
 - Emetti un evento SOLO se deriva da una causa verificabile: un ordine del giocatore, un fatto della cronaca, una trattativa diplomatica o lo stato strategico/mappa fornito. Non riempire il limite con fatti indipendenti.
-- Ogni evento è una REAZIONE: a un ordine del giocatore, a un altro evento già emesso o a un fatto documentato della cronaca. NON limitarti a riscrivere l'ordine al passato: la notizia dice cosa è cambiato. Vale [OGNI ORDINE PRODUCE UNA NOTIZIA] qui sotto: ogni ordine ha il proprio evento.
-- Non superare ${maxEvents} eventi significativi.${autoJump ? (maxEvents > 1
+- Ogni evento sviluppa una CAUSA: un ordine, un evento già emesso, un fatto della cronaca o una situazione documentata nello stato e nella premessa nazionale. La causa è nota, lo sviluppo può essere nuovo. NON limitarti a riscrivere l'ordine al passato: la notizia dice cosa è cambiato. Vale [OGNI ORDINE PRODUCE UNA NOTIZIA] qui sotto: ogni ordine ha il proprio evento.
+- Non superare ${maxEvents} eventi significativi.${autoJump && vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? (maxEvents > 1
   ? `\n- Modalità auto-jump: emetti da 1 a ${maxEvents} eventi in ordine cronologico — un evento per ordine del giocatore, più lo spazio per i fatti di contorno. NON fermarti al primo fatto importante in sé: prosegui finché una nazione non decide concretamente in risposta agli ordini del giocatore. Fermati sull'evento che contiene quella decisione (controparte diretta o misura autonoma con "counterAction"): la sua data è il campo targetDate.`
   : '\n- Modalità auto-jump: emetti i fatti di contorno in ordine cronologico e fermati sull\'evento in cui una nazione decide concretamente in risposta agli ordini del giocatore.') : ''}
 
@@ -79,7 +81,7 @@ Se un dispaccio richiede un contatto diplomatico, non lasciare "startChat" vuoto
 - Una politia crea una chat diretta con il giocatore; due o più creano una riunione di gruppo con il giocatore.
 - "eventHeadline" è obbligatorio: impedisce che una chat riferita a un evento futuro o scartato entri nella partita.
 
-${autoJump
+${autoJump && !vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? buildAutoJumpInstruction(vars, maxEvents) : autoJump
   ? 'In auto-jump targetDate DEVE essere la data dell’evento che contiene la decisione NPC che ferma il salto (reazione di ruolo "counterparty" o misura autonoma con "counterAction"). Non fermarti al primo fatto di cronaca: se i fatti di contorno precedono la decisione, emettili comunque in ordine cronologico. Se nessun evento porta una decisione NPC con causa verificabile entro l’orizzonte, non inventarne uno: non emettere righe event e completa con "targetDate":null.'
   : 'Non aspettare di avere pianificato tutti gli eventi: completa e pubblica il primo, poi passa al seguente.'}`;
 }
@@ -120,11 +122,15 @@ FATTI MATERIALI E DIPLOMATICI:
 ${clipForConstrainedModel(vars.STRATEGIC_STATE, b.compactStrategicChars)}
 
 CONTESTO DI REAZIONE (attori e opzioni ammesse dal motore):
-${clipForConstrainedModel(vars.REACTION_CONTEXT, b.compactReactionChars) || '(nessuno)'}
+${vars.COMPACT_REACTION_CONTEXT || clipForConstrainedModel(vars.REACTION_CONTEXT, b.compactReactionChars) || '(nessuno)'}
 ${buildReactionContractGuard()}
 
 NPC RILEVANTI — identità e memoria vincolanti:
-${clipForConstrainedModel(vars.NPC_STRATEGIC_PROFILES, b.compactNpcChars)}
+${compactNpcDossiers(vars.NPC_STRATEGIC_PROFILES, b.compactNpcChars)}
+
+${buildNarrativeSituationSources(vars)}
+
+${vars.ORDER_FUNDING ? `[ORDINI SENZA COPERTURA — vincolo del motore]\nQuesti ordini non possono avere esito accepted: usa partial solo per una fase coperta, altrimenti rejected/voided.\n${vars.ORDER_FUNDING}` : ''}
 
 PROCESSI GIÀ APERTI:
 ${clipForConstrainedModel(vars.ONGOING_PROCESSES, b.compactProcessesChars) || '(nessuno)'}
@@ -150,11 +156,11 @@ REGOLE:
 2. Il giocatore controlla solo ${vars.PLAYER_POLITY}. Altre politie decidono per sé secondo priorità, risorse, rapporti e memoria. Nessun accordo è concluso senza reaction favorevole/condizionata della controparte. Coerenza dei soggetti: nomina solo chi agisce, subisce o ha un interesse documentato; ${vars.PLAYER_POLITY} compare solo se il fatto la tocca direttamente, mai come comparsa o spettatrice.
 3. Ordine composto: se solo una fase è fattibile usa partial e mostra soltanto quella fase; se nulla è fattibile usa rejected/voided e nessun mapChanges.
 4. Reazione NPC: indica actorId e optionId presi dal CONTESTO DI REAZIONE, poi priority, response e solo se reale counterAction. Una controazione materiale (mobilitazione, unità terrestre o navale, cantiere, opera completata) deve avere anche le mapChanges corrispondenti nello stesso evento, nel territorio della politia che agisce e nella categoria ammessa dall'opzione scelta. Se una controazione colpisce un altro attore del contesto, questi decide per sé nel medesimo evento. "note" è il messaggio diretto al giocatore nel canale diplomatico: prima persona, una o due frasi d'uomo politico, senza cifre né etichette.
-4b. Iniziativa NPC: le nazioni non giocate non sono comparse. Quando una causa documentata esiste (confine teso, minaccia, alleanza, ultimatum, crisi aperta, opportunità), almeno una adotta una misura autonoma concreta, difensiva (fortification, base, airbase, radar, missile_site, mobilitazione di riserve, patto difensivo) o offensiva (concentramento, raid, blocco navale, ultimatum armato, preparazione d'invasione), con la mapChange corrispondente se materiale. Se non c'è causa, il mondo può restare fermo.
+4b. Iniziativa NPC: valuta gli interessi del preset e le agende attive anche senza ordini. Ogni nazione sceglie per sé se negoziare, proporre cooperazione, esercitare pressione, investire, mediare o usare la forza; preferisce il passo sostenibile che serve il suo obiettivo. Nessun obbligo di escalation militare: una preparazione d'invasione richiede cause documentate e capacità disponibili. Materialità e mapChanges restano vincolanti; se manca uno sviluppo plausibile può attendere.
 4c. Reazioni interne ed economia: se una nazione mobilita, schiera, spende o impone un embargo, l'evento narra anche cosa ne pensano popolazione e istituzioni (consenso o protesta, dibattito o repressione) e il costo economico proporzionato (deficit, tasse, razionamenti), preso dal Dossier nazionale calcolato dal motore (saldo, stabilità, riserve mobilitate, sforzo bellico, tensione sociale). Niente cifre inventate. Vale anche per le nazioni NPC.
 5. Mappa: start_construction/update_construction/complete_construction per cantieri/opere; start_mobilization/complete_mobilization per formazioni in preparazione/operative; spawn_unit/move_unit/remove_unit per unità operative. Tipi unità: battalion|army|fleet|missile. Tipi opere: factory|port|university|base|airbase|naval_base|fortification|radar|missile_site|infrastructure|power_plant. Annunci, studi e ordini respinti non creano marker. Una nuova formazione nasce in una provincia controllata da chi la crea, la più vicina al riferimento citato ("vicino a X", "al confine con X"); non nel territorio di un'altra politia senza incursione esplicita. Se un ordine accettato dispone che una formazione esistente avanzi o si sposti, emetti SEMPRE "move_unit" (unità, origine, destinazione): senza di esso l'unità resterebbe ferma.
 6. Scontri: per ogni battaglia scrivi una cronaca militare completa (attaccante, difensore, provincia contesa, andamento, perdite proporzionate, esito e conseguenza) e fai reagire la controparte in "reactions". Province occupate: il motore assegna il colore dell'occupante, usa "transfer" col nome del nuovo proprietario.
-7. Genera massimo ${maxEvents} eventi cronologici.${opts.autoJump ? ' In auto-jump NON fermarti al primo fatto importante: prosegui oltre i fatti di contorno e fermati sull’evento in cui una nazione decide concretamente in risposta agli ordini (reazione di ruolo "counterparty" o con "counterAction"): la sua data è il campo targetDate.' : ''}
+7. Genera massimo ${maxEvents} eventi cronologici.${opts.autoJump && !vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? buildAutoJumpInstruction(vars, maxEvents) : opts.autoJump ? ' In auto-jump NON fermarti al primo fatto importante: prosegui oltre i fatti di contorno e fermati sull’evento in cui una nazione decide concretamente in risposta agli ordini (reazione di ruolo "counterparty" o con "counterAction"): la sua data è il campo targetDate.' : ''}
 8. Nei salti lunghi produci più dispacci concreti e datati (mobilitazioni, scontri, occupazioni, trattative, economia), non un unico riassunto.
 9. Dispacci in italiano narrativo: headline e description sono frasi complete per il giocatore. VIETATE etichette tecniche o di stato ("neutral", "supportive", "opposed", "conditional", "hostile", "ally", "counterparty", nomi di campi JSON, "partial", "voided", ID). La posizione diplomatica va raccontata («La Turchia annuncia la propria neutralità»), mai scritta come parola chiave («Turchia neutral»).
 10. Il giocatore incarna ${vars.PLAYER_POLITY}: ogni suo ordine è un atto ufficiale della nazione. Nei dispacci l'attore è sempre ${vars.PLAYER_POLITY} (governo, capo di Stato, ministri), MAI «il giocatore» o «l'utente»; le altre nazioni la nominano e trattano con lei come soggetto politico reale.

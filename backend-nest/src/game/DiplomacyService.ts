@@ -23,7 +23,7 @@ import { simulationThreadKey, reactionThreadKey } from '../core/chat/threads';
 import { WorldStateEngine, type NationalAccount } from '../core/simulation/WorldStateEngine';
 import { currentStrategicPriorities, strategicProfileForPolity } from '../npc-agents';
 import { difficultyPromptBlock, type Difficulty } from '../prompts/difficulty';
-import { buildChatPrompt, buildNextSpeakerPrompt, parseChatResponse, parseNextSpeakerResponse } from '../prompts/chat';
+import { buildChatPrompt, buildNextSpeakerPrompt, parseChatResponse, parseNextSpeakerResponse, diplomaticEventContext } from '../prompts/chat';
 import type { LLMRouter } from '../llm/router';
 import type { SSEEventType } from '../sse';
 import type { ChatRecord, ChatSummary, ChatMessageRecord, ChatParticipant } from '../repositories';
@@ -593,10 +593,8 @@ export class DiplomacyService {
       }
     }
     const respondingParticipant = participantsVars.find(p => p.name === speakerName) || participantsVars[0];
-    const recentEvents = this.ctx.results()
-      .slice(-3)
-      .flatMap(result => result.timelineEvents?.map(event => event.headline) || result.events)
-      .slice(-8);
+    const recentEvents = diplomaticEventContext({ date: this.ctx.currentDate(), results: this.ctx.results(),
+      names: [this.ctx.publicPolityName(this.ctx.playerPolityId()), ...participantsVars.map(p => p.name)] });
     const prompt = buildChatPrompt({
       playerPolityName: this.ctx.publicPolityName(this.ctx.playerPolityId()),
       participants: participantsVars,

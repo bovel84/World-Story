@@ -80,6 +80,17 @@ afterAll(() => {
 });
 
 describe('GameDataService — read model', () => {
+  it('trasmette un’agenda attiva al narratore e alla stessa whitelist delle reazioni', () => {
+    const data = new GameDataService({ ...makeCtx(), activeNpcObjectives: () => [{
+      id: 'trade-france', polityId: 'FRA', type: 'economic_recovery', status: 'active', priority: 2,
+      description: 'Riaprire il negoziato commerciale', reason: 'Accesso al mercato',
+      createdDate: '1951-01-01', reviewedDate: '1951-01-01', targetPolityId: null,
+    }] }).build();
+    expect(data.worldCauses).toEqual([expect.objectContaining({ sourceRef: 'agenda:trade-france' })]);
+    expect(data.reactionContextData.actors.find((a: any) => a.id === 'FRA').because).toContain('agenda:trade-france');
+    expect(data.reactionContextData.allowedOptionIds).toContain('FRA:negotiate');
+  });
+
   it('assembla identità, mondo e giocatore', () => {
     const data = new GameDataService(makeCtx()).build();
     expect(data.id).toBe(GAME_ID);

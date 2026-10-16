@@ -55,6 +55,19 @@ export function autoJumpEventBudget(actionCount: number): number {
   return Math.max(AUTO_JUMP_MIN_EVENTS, Math.min(AUTO_JUMP_MAX_EVENTS, orders + AUTO_JUMP_LOOKAHEAD));
 }
 
+/** Reserve room for developments beyond order receipts without another LLM call. */
+export function fixedJumpEventBudget(days: number, actionCount: number): number {
+  const orders = Number.isFinite(actionCount) ? Math.max(0, Math.floor(actionCount)) : 0;
+  const duration = Number.isFinite(days) ? Math.max(1, days) : 1;
+  const developments = duration >= 21 ? 2 : 1;
+  return Math.min(30, Math.max(1 + developments, Math.ceil(duration / 21), orders + developments));
+}
+
+/** With no orders there is no foreign answer to wait for: a domestic event counts. */
+export function isAutoJumpStop(event: DecisiveEventLike | null | undefined, actionCount: number): boolean {
+  return !!event && (actionCount === 0 || isDecisiveNpcDecision(event));
+}
+
 /**
  * La decisione NPC che deve arrestare l'auto-jump:
  *  - una controparte diretta che risponde (`role === 'counterparty'`), oppure

@@ -114,6 +114,29 @@ describe('Country X — strategic focus and historical continuity', () => {
     expect(() => resolveFocusSituation(snapshot, { id: 'alpha', signalKeys: ['inventato'], evidenceKeys: [historicalKey()] }, context)).toThrow();
   });
 
+  it('la situazione iniziale nazionale può produrre una card contestuale anche senza baseline o allarme numerico', () => {
+    const snapshot = country();
+    const national = { temporalScope: context.temporalScope,
+      nationSituation: 'Le comunità di NORTH chiedono di discutere i collegamenti con i mercati regionali.' };
+    const evidence = buildStrategicThreadEvidence(snapshot, national).find(item => item.sourceRef === 'nationSituation')!;
+    const payload = { id: 'north-markets', title: 'Collegare NORTH ai mercati',
+      summary: 'Una questione di accesso e priorità territoriali, da discutere prima di impegnare risorse.',
+      kind: 'opportunity', signalKeys: [], evidenceKeys: [evidence.key] };
+    const response = parseAdvisorResponse(snapshot, block('advisor_situation', payload), 'advisor', { strategicContext: national });
+    expect(response.situations?.some(item => item.id === payload.id)).toBe(true);
+    expect(() => resolveAdvisorSituation(country(2), payload, national)).toThrow(/current|corrente|continu/i);
+  });
+
+  it('la premessa dello scenario vale solo per la data iniziale corretta', () => {
+    const snapshot = country();
+    const preset = { temporalScope: context.temporalScope,
+      presetContext: { name: 'Alternativa', startDate: '2000-01-01', premise: 'NORTH cerca una nuova rappresentanza politica.' } };
+    const evidence = buildStrategicThreadEvidence(snapshot, preset);
+    expect(evidence.some(item => item.sourceRef === 'presetContext.premise')).toBe(true);
+    expect(buildStrategicThreadEvidence(snapshot, { ...preset, presetContext: { ...preset.presetContext, startDate: '1900-01-01' } })
+      .some(item => item.sourceRef === 'presetContext.premise')).toBe(false);
+  });
+
   it('turno 2: la baseline resta, un evento scolastico indipendente non la disabilita', () => {
     const snapshot = country(2);
     snapshot.recent.events = [event('Costruita una scuola')];
