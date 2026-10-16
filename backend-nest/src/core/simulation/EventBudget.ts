@@ -27,7 +27,7 @@ export interface DecisiveEventLike {
 
 /** Eventi minimi garantiti all'auto-jump, anche con un solo ordine in coda. */
 export const AUTO_JUMP_MIN_EVENTS = 2;
-/** Senza ordini: più dispacci nello stesso salto, senza secondo giro LLM. */
+/** Stima per dimensionare la risposta, NON un limite al numero di eventi. */
 export const AUTO_JUMP_WORLD_NEWS_EVENTS = 3;
 /**
  * Tetto prudente: la ricerca di una decisione NPC non deve trasformare il
@@ -66,17 +66,15 @@ export function fixedJumpEventBudget(days: number, actionCount: number): number 
   return Math.min(30, Math.max(1 + developments, Math.ceil(duration / 21), orders + developments));
 }
 
-/** Without orders, complete a bounded news batch instead of dropping every
- * event after the first. With orders, retain the early-stop NPC decision.
- * The generator may return fewer grounded events: this is a ceiling, not a quota. */
+/** No numerical stop for world news. With orders, stop only at the meaningful
+ * NPC reply; a technical output-token/period bound remains at the LLM layer.
+ * The third argument is kept optional for compatibility with older callers. */
 export function isAutoJumpStop(
   event: DecisiveEventLike | null | undefined,
   actionCount: number,
-  acceptedEventCount: number,
+  _acceptedEventCount?: number,
 ): boolean {
-  if (!event) return false;
-  if (actionCount === 0) return acceptedEventCount >= AUTO_JUMP_WORLD_NEWS_EVENTS;
-  return isDecisiveNpcDecision(event);
+  return actionCount > 0 && isDecisiveNpcDecision(event);
 }
 
 /**
