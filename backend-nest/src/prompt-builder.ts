@@ -63,7 +63,7 @@ import { equipmentById } from './core/simulation/MilitaryIndustry';
 import { getPromptOverride, renderPromptTemplate, PromptOverrides } from './prompts/override';
 import { LLMError, LLMContractError, LLMRouter } from './llm';
 import { isSmallModel, narrativeBudgetsFor, type NarrativeBudgets } from './llm/modelTier';
-import { buildNarrativeInitiative, buildNarrativeSituationSources, buildWorldNarrativeContext } from './prompts/simulation/initiative';
+import { buildNarrativeInitiative, buildNarrativeSituationSources, buildWorldChronicleGuide, buildWorldNarrativeContext } from './prompts/simulation/initiative';
 import { DEFAULT_NARRATIVE_FLAGS, type NarrativeFlags } from './llm/narrativeFlags';
 
 interface GameData {
@@ -1410,7 +1410,7 @@ export class PromptEngine {
       playerPolityId: game.playerPolityId ?? game.players[0]?.polityId ?? '',
       actorIds: reactionContext?.actors.map(actor => actor.id) ?? [],
       storylines: game.storylines, situations: game.polityNationSituations, causes: game.worldCauses });
-    const prompt = baseSimulationPrompt + buildNarrativeInitiative() + worldContext + `\n\n[WORLD TEMPORAL BOUNDARY]\nPunto di divergenza: ${game.world.startDate || 'non disponibile: non usare storia reale esterna'}.\n`
+    const prompt = baseSimulationPrompt + buildNarrativeInitiative() + buildWorldChronicleGuide() + worldContext + `\n\n[WORLD TEMPORAL BOUNDARY]\nPunto di divergenza: ${game.world.startDate || 'non disponibile: non usare storia reale esterna'}.\n`
       + (histories || `${HISTORICAL_BASELINE_RULE}\nBaseline non disponibile: usa stato corrente e storia della partita, non inventare un passato sostitutivo.`);
 
     let parsedObjectCount = 0;

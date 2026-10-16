@@ -21,6 +21,22 @@ export function buildNarrativeInitiative(): string {
 `;
 }
 
+/**
+ * Editorial contract for the existing single simulation call. The format and
+ * validation stay in the canonical engine; these rules only improve coverage,
+ * specificity and continuity of its dated historical dispatches.
+ */
+export function buildWorldChronicleGuide(): string {
+  return `
+[CRONACA STORICA MONDIALE — qualità dei dispacci]
+- Produci una TIMELINE di fatti datati, non conversazioni: sviluppi nazionali e, quando documentati, teatri fra NPC indipendenti dal giocatore. Alterna temi politici, sociali, diplomatici, economici, militari e umanitari SOLO quando preset, stato o cronaca offrono cause concrete.
+- Headline: chi fa cosa e dove, senza vaghezze. Description: 3–5 frasi fluide, con antefatto verificabile → svolta datata → protagonisti e luogo → conseguenza → questione aperta. Varia gli incipit, non ripetere il titolo in prosa. Distingui annuncio, avvio ed esito.
+- Segui i filoni fino alle conseguenze, non ripetere notizie già concluse: ogni nuovo dispaccio sul tema deve mostrare una fase nuova. Dopo la data di divergenza la storia reale NON è un calendario obbligato; se il mondo ha deviato, prevalgono stato e scelte della partita. Non inventare leader, date esatte, vittime o cifre non supportate.
+- Un fatto fra NPC non deve nominare il giocatore; un evento nazionale non è meno importante di uno mondiale. Luoghi solo se verificati sulla mappa. MapChanges solo per effetti materiali realmente ammessi dal motore, altrimenti mapChanges:[].
+- La reaction narra la decisione nella cronaca. startChat soltanto se il dispaccio include una richiesta diretta al governo del giocatore. Conserva JSON/NDJSON, opzioni validate e budget del turno.
+`;
+}
+
 /** Sources previously absent from the compact path and from some preset overrides.
  * Independent caps keep a long government brief from hiding crises/commitments. */
 export function buildNarrativeSituationSources(vars: PromptVariables): string {
@@ -48,20 +64,27 @@ export function buildWorldNarrativeContext(input: {
   // Use the same selection as the actor whitelist, not the first two threads
   // in the file. A different selection here starved independent theatres.
   const selectedIds = input.causes?.filter(c => c.sourceRef.startsWith('storyline:')).map(c => c.sourceRef.slice(10));
-  const selected = selectedIds ? (input.storylines ?? []).filter(t => selectedIds.includes(t.id))
-    : selectWorldStorylines(input.storylines ?? [], input.playerPolityId, input.date, input.turn);
+  const storylinesById = new Map((input.storylines ?? []).map(t => [t.id, t] as const));
+  const selected = selectedIds ? selectedIds.flatMap(id => {
+    const thread = storylinesById.get(id);
+    return thread ? [thread] : [];
+  }) : selectWorldStorylines(input.storylines ?? [], input.playerPolityId, input.date, input.turn);
   const threads = selected.filter(thread => thread.parties.some(id => allowed.has(id))
     && thread.state !== 'risolto' && thread.state !== 'congelato'
     && (!thread.active_from || thread.active_from <= input.date) && (!thread.active_until || thread.active_until >= input.date))
-    .map(thread => `Filone ${thread.id}: ${thread.title}. ${thread.summary} ${thread.trajectory ?? ''}`.slice(0, 450));
+    .map(thread => `Filone ${thread.id}: ${thread.title}. ${thread.summary} ${thread.trajectory ?? ''}`.slice(0, 360));
   const agendas = (input.causes ?? []).filter(c => c.sourceRef.startsWith('agenda:') && c.polityIds?.some(id => allowed.has(id)))
     .map(c => `${c.sourceRef}: ${c.summary}`.slice(0, 500));
+  // Put recent committed facts alongside the preset's directions, so that
+  // the next dispatch develops a cause rather than replaying a headline.
+  const priorEvents = (input.causes ?? []).filter(c => c.kind === 'prior_event')
+    .slice(0, 2).map(c => `Cronaca già avvenuta, NON ripetere: ${c.summary}`.slice(0, 320));
   const records = (input.situations ?? [])
     .filter(record => allowed.has(record.polityId) && record.startDate === input.startDate && record.startDate <= input.date)
     .slice(0, 9);
   const perNation = Math.min(500, Math.floor(1500 / Math.max(1, records.length)));
   const nations = records.map(record => `${record.countryName} (${record.polityId}), al ${record.startDate}: ${record.situation.slice(0, perNation)}`);
-  if (!threads.length && !nations.length && !agendas.length) return '';
-  return `\n[DIREZIONI DEL MONDO — scenario e interessi, non risultati già accaduti]\n${[...threads, ...agendas, ...nations].join('\n')}
+  if (!threads.length && !nations.length && !agendas.length && !priorEvents.length) return '';
+  return `\n[DIREZIONI DEL MONDO — scenario e interessi, non risultati già accaduti]\n${[...priorEvents, ...threads, ...agendas, ...nations].join('\n')}
 STATO CORRENTE > CRONACA DELLA PARTITA > FILONI DEL PRESET > CONTESTO NAZIONALE. Alla data ${input.date} riprendi solo questioni ancora plausibili: una crisi risolta non riparte perché citata nel contesto iniziale. Le tendenze non sono profezie né effetti materiali. Una nazione può agire per i propri interessi, anche senza una nostra azione; reactions e opzioni restano quelle ammesse dal motore.\n`;
 }
