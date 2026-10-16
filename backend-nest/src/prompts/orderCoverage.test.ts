@@ -154,6 +154,6 @@ describe('una notizia per ordine — entrambi i protocolli', () => {
     expect(prompt).toContain('OGNI ORDINE PRODUCE UNA NOTIZIA');
     expect(prompt).toContain('ogni ordine riceve il proprio dispaccio');
     expect(prompt).not.toContain('NON trasformare automaticamente');
-    expect(prompt).toContain('Fermati SOLO sull\'evento che contiene quella decisione');
+    expect(prompt).toContain('Fermati sull\'evento che contiene quella decisione');
   });
 });
