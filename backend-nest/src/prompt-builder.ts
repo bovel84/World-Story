@@ -1224,11 +1224,12 @@ export class PromptEngine {
     game: GameData,
     result: SimulationResult,
     actions: Array<{ actionId?: string; text: string }>,
-    maxEvents: number,
+    _maxEvents: number,
     autoJump: boolean,
     repair = false,
   ): SimulationResult {
-    const boundedEvents = (result.events || []).slice(0, maxEvents);
+    // Nessun troncamento per quantità: soltanto eventi completati dal modello.
+    const boundedEvents = result.events || [];
     // Fuori dai modelli free l'adattatore è disattivato: ID ignoti, progetti
     // invalidi e protocolli sbagliati devono continuare a fallire chiuse
     // (C01/C02) invece di essere ridotti silenziosamente.
@@ -1371,9 +1372,8 @@ export class PromptEngine {
       .join('\n');
 
     const promptOverride = getPromptOverride(await resolveWorldPrompts(game), 'simulation');
-    // Budget eventi: nel salto fisso è proporzionale alla durata; in ogni caso
-    // non può scendere sotto il numero di ordini in coda. Il modello può
-    // concludere prima se manca una causa verificabile.
+    // Stima storica mantenuta per le firme dei prompt compatibili: non è un
+    // tetto. Il modello termina per cause esaurite o budget tecnico di output.
     const actionsCount = normalizedActions.length;
     const maxEvents = autoJump
       ? autoJumpEventBudget(actionsCount)
@@ -1424,7 +1424,6 @@ export class PromptEngine {
     let livePublication = true;
     let streamPublicationHalted = false;
     const emitEvent = (event: SimulationEvent) => {
-      if (emittedCount >= maxEvents) return;
       if (livePublication && streamPublicationHalted) return;
       if (reactionContext && validateReactionDecisions(event.reactions, reactionContext).length > 0) {
         if (livePublication) {
@@ -1448,7 +1447,9 @@ export class PromptEngine {
     const requestOptions = {
       temperature: constrained ? 0.35 : 0.7,
       jsonMode: false,
-      maxTokens: Math.min(8_000, Math.max(4_096, 2_800 + maxEvents * 700)),
+      // Una singola generazione per turno, con protezione tecnica di output;
+      // non esiste più un limite numerico ai dispacci.
+      maxTokens: 8_000,
       signal,
     };
     let response = await this.llm.stream(

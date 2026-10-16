@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PromptEngine } from '../src/prompt-builder';
-import { fixedJumpEventBudget, isAutoJumpStop } from '../src/core/simulation/EventBudget';
+import { autoJumpEventBudget, fixedJumpEventBudget, isAutoJumpStop } from '../src/core/simulation/EventBudget';
 import { buildNarrativeSituationSources, buildWorldChronicleGuide } from '../src/prompts/simulation/initiative';
 import { buildConstrainedSimulationPrompt } from '../src/prompts/simulation/prompt';
 import type { PromptVariables } from '../src/prompts/types';
@@ -97,6 +97,30 @@ describe('narratore: iniziativa causale nella chiamata del turno', () => {
     expect(llm.generate).not.toHaveBeenCalled();
   });
 
+  it('conserva tutti i dispacci completi anche oltre la stima di eventi', async () => {
+    const llm = router('glm-5.3-flash', 5);
+    const result = await new PromptEngine(llm as any).runSimulation(game(false), [], 30, undefined, true);
+    expect(result.events).toHaveLength(5);
+    expect(result.events.at(-1)?.date).toBe('2000-01-06');
+    const prompt = llm.stream.mock.calls[0][2];
+    expect(prompt).toContain('senza un tetto numerico artificiale');
+    expect(prompt).not.toContain('Genera massimo 3 eventi');
+    expect(llm.stream.mock.calls[0][4]?.maxTokens).toBe(8_000);
+    expect(llm.stream).toHaveBeenCalledTimes(1);
+    expect(llm.generate).not.toHaveBeenCalled();
+  });
+
+  it('anche il salto fisso non tronca gli eventi oltre la vecchia stima', async () => {
+    const llm = router('glm-5.3-flash', 8);
+    const result = await new PromptEngine(llm as any).runSimulation(game(false), [], 30);
+    expect(fixedJumpEventBudget(30, 0)).toBe(3);
+    expect(result.events).toHaveLength(8);
+    expect(result.events.at(-1)?.date).toBe('2000-01-09');
+    const prompt = llm.stream.mock.calls[0][2];
+    expect(prompt).not.toContain('Genera massimo 3 eventi');
+    expect(llm.stream).toHaveBeenCalledTimes(1);
+  });
+
   it('la guida richiede eventi mondiali datati, non copie del futuro storico', () => {
     const guide = buildWorldChronicleGuide();
     expect(guide).toContain('TIMELINE di fatti datati');
@@ -117,11 +141,16 @@ describe('narratore: iniziativa causale nella chiamata del turno', () => {
     expect(llm.generate).not.toHaveBeenCalled();
   });
 
-  it('senza ordini si ferma anche su un fatto interno; con ordini attende la decisione NPC', () => {
-    expect(isAutoJumpStop({ reactions: [] }, 0)).toBe(true);
-    expect(isAutoJumpStop({ reactions: [] }, 1)).toBe(false);
-    expect(isAutoJumpStop({ reactions: [{ role: 'counterparty' }] }, 1)).toBe(true);
-    expect(isAutoJumpStop(null, 0)).toBe(false);
+  it('senza ordini non ferma la cronaca per numero di eventi, ma conserva la risposta NPC agli ordini', () => {
+    expect(autoJumpEventBudget(0)).toBe(3);
+    expect(autoJumpEventBudget(1)).toBe(3);
+    expect(isAutoJumpStop({ reactions: [] }, 0, 1)).toBe(false);
+    expect(isAutoJumpStop({ reactions: [] }, 0, 2)).toBe(false);
+    expect(isAutoJumpStop({ reactions: [] }, 0, 3)).toBe(false);
+    expect(isAutoJumpStop({ reactions: [] }, 0, 100)).toBe(false);
+    expect(isAutoJumpStop({ reactions: [] }, 1, 3)).toBe(false);
+    expect(isAutoJumpStop({ reactions: [{ role: 'counterparty' }] }, 1, 1)).toBe(true);
+    expect(isAutoJumpStop(null, 0, 3)).toBe(false);
   });
 
   it('limita ogni fonte separatamente e conserva i vincoli di copertura nel compatto', () => {

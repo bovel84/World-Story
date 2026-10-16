@@ -45,28 +45,20 @@ export function buildOrderCoverageRule(vars: PromptVariables): string {
 - La notizia di un ordine può stare nella stessa giornata di un'altra: date uguali non si fondono, si dispongono in sequenza.`;
 }
 
-export function buildAutoJumpInstruction(vars: PromptVariables, eventBudget = 1): string {
+export function buildAutoJumpInstruction(vars: PromptVariables, _eventBudget = 1): string {
   if (!vars.PLAYER_ACTIONS_THIS_ROUND?.trim()) {
-    return `\nRegole auto-jump senza ordini:
-- Fermati al primo sviluppo significativo di una causa documentata entro il ${vars.TARGET_ROUND_DATE}: anche una richiesta interna, un processo o un'opportunità può richiedere l'attenzione del governo.
-- Emetti quell'evento e usa la sua data come targetDate. Non aspettare una risposta straniera a ordini inesistenti e non inventare reactions per fermare il salto. La nazione del giocatore non prende nuove iniziative senza ordine.
-- Se non esiste uno sviluppo plausibile entro l'orizzonte, non emettere eventi e completa con targetDate:null.
-- Questa regola prevale sui preset che chiedono di distribuire eventi sull'intero periodo.`;
+    return `\nRegole auto-jump senza ordini — CRONACA DEL MONDO:
+- Non imporre limiti numerici agli eventi. Racconta tutti gli sviluppi distinti e documentati che maturano nell'orizzonte fino al ${vars.TARGET_ROUND_DATE}: fatti nazionali, crisi autonome fra NPC e fasi nuove della stessa vicenda, sempre in ordine cronologico.
+- Genera soltanto gli eventi giustificati dal preset, dallo stato e dalla cronaca. Non aggiungere notizie di riempimento né inventare guerre o decisioni del governo del giocatore. Completa il protocollo quando le cause credibili sono esaurite oppure il budget tecnico di output sta terminando; riserva spazio al record "complete".
+- targetDate deve essere la data dell'ULTIMO evento emesso; se nessuno è plausibile, nessuna riga event e targetDate:null. Le normali reazioni fra NPC restano nella cronaca senza generare chat.
+- Questa regola prevale sui preset obsoleti che impongono un numero di dispacci o fermano tutto al primo evento.`;
   }
-  // L'auto-jump non si ferma al primo fatto di cronaca: prosegue finché una
-  // nazione non decide concretamente in risposta agli ordini del giocatore.
-  // Il budget concede lo spazio per attraversare i fatti di contorno.
-  const budgetRule = eventBudget > 1
-    ? `- Il turno contiene ordini del giocatore: disponi di ${eventBudget} eventi in ordine cronologico — il posto del giocatore (un evento per ordine) più il fatto che chiude il salto.`
-    : `- Puoi emettere più eventi in ordine cronologico: prima i fatti di contorno, poi la decisione che chiude il salto.`;
-  // La copertura degli ordini NON è ripetuta qui: vive accanto all'elenco degli
-  // ordini, in entrambi i protocolli, perché vale anche senza auto-jump.
   return `\nRegole auto-jump:
-- Il giocatore ha chiesto di avanzare nel tempo FINO AL PROSSIMO EVENTO IMPORTANTE (entro l'orizzonte del ${vars.TARGET_ROUND_DATE}).
-${budgetRule}
-- NON fermare il salto al primo fatto importante in sé: prosegui attraverso i fatti di contorno finché una nazione non assume una decisione concreta in risposta agli ordini del giocatore. Fermati SOLO sull'evento che contiene quella decisione: una reazione di ruolo "counterparty" (la controparte diretta risponde) oppure una reazione con "counterAction" (misura autonoma realmente decisa). La data di quell'evento deve essere anche il campo "targetDate" (YYYY-MM-DD).
-- Se entro l'orizzonte nessuna nazione decide nulla di verificabile, non inventare una reazione: completa con "targetDate":null.
-- Questa modalità PREVALE su qualunque istruzione del preset che chieda di distribuire eventi sull'intero periodo, generare molti eventi o non interrompere la simulazione.`;
+- Il giocatore ha chiesto di avanzare nel tempo FINO ALLA PROSSIMA DECISIONE NPC IMPORTANTE (entro il ${vars.TARGET_ROUND_DATE}).
+- Ogni ordine ha il suo dispaccio, con gli eventi di contorno necessari, senza un limite numerico arbitrario.
+- Fermati sull'evento che contiene quella decisione NPC: la risposta di una controparte diretta o una "counterAction" concreta. La data dell'evento è il campo "targetDate". Non inventare reazioni per interrompere il salto.
+- Se non esiste una risposta verificabile nell'orizzonte, completa con targetDate:null, preservando solo gli eventi che hanno una causa documentata.
+- Questa modalità PREVALE su qualunque istruzione del preset che chieda di procedere oltre la decisione NPC.`;
 }
 
 /**

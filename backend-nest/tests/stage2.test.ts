@@ -23,7 +23,7 @@ let capturedPrompt = '';
 /** Счётчик вызовов механики consolidation */
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
-let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_player_contact' | 'auto_foreign_contact' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
+let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_player_contact' | 'auto_foreign_contact' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'auto_news_batch' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
 /** Testo dell'ordine a cui la risposta `move_accepted` attribuisce un esito accettato. */
 let moveOrderText = '';
 /** projectId da copiare nell'outcome di chiusura del fixture F01. */
@@ -80,6 +80,20 @@ function jumpResponse(): any {
         startChat: [],
         worldChanges: { regionOwners: {}, regionColors: {} },
         targetDate: '1951-03-10',
+      };
+    case 'auto_news_batch':
+      return {
+        events: [
+          { headline: 'Uganda: comunità rurali chiedono provvedimenti', description: 'Nuova pressione interna.', date: '1951-02-10', mapChanges: [] },
+          { headline: 'I commercianti regionali aprono nuove trattative', description: 'Filone esterno documentato.', date: '1951-03-10', mapChanges: [] },
+          { headline: 'Una delegazione presenta una proposta concreta', description: 'Terzo evento ammissibile.', date: '1951-04-01', mapChanges: [] },
+          { headline: 'La Polonia firma un nuovo patto', description: 'Svolta ulteriore del mondo.', date: '1951-06-01',
+            mapChanges: [{ type: 'transfer', regionName: 'Польша', newOwner: 'ФРГ' }] },
+          { headline: 'Una crisi commerciale produce nuove misure', description: 'Quinto fatto documentato.', date: '1951-07-01', mapChanges: [] },
+        ],
+        narration: 'Cinque dispacci proposti.',
+        voided: [], startChat: [],
+        worldChanges: { regionOwners: {}, regionColors: {} }, targetDate: '1951-07-01',
       };
     case 'auto_multi':
       // Auto-jump con più ordini: un evento per ciascun ordine, targetDate
@@ -1019,19 +1033,39 @@ describe('Этап 2: Intervene', () => {
 });
 
 describe('Этап 2: auto-jump «к следующему событию»', () => {
-  it('senza ordini si ferma sul primo sviluppo interno senza applicare il seguito', async () => {
+  it('senza ordini applica anche il secondo dispaccio quando ha la stessa data', async () => {
     jumpMode = 'auto_same';
     try {
       const { session } = createGame();
       await session.processWorldAdvance(0);
       const headlines = session.getResults().flatMap((result: any) => result.events);
       expect(headlines).toContain('Primo evento del giorno');
-      expect(headlines).not.toContain('Secondo evento stesso giorno');
+      expect(headlines).toContain('Secondo evento stesso giorno');
       expect(session.getCurrentDate()).toBe('1951-03-10');
       expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('POL');
       expect(session.getChats()).toHaveLength(0);
       expect(session.getPendingActions()).toHaveLength(0);
       expect(capturedPrompt).toContain('Regole auto-jump senza ordini');
+    } finally {
+      jumpMode = 'normal';
+    }
+  });
+
+  it('senza ordini applica tutti i cinque dispacci cronologici senza limite numerico', async () => {
+    jumpMode = 'auto_news_batch';
+    try {
+      const { session } = createGame();
+      await session.processWorldAdvance(0);
+      const events = session.getResults().flatMap((result: any) => result.events);
+      expect(events).toContain('Uganda: comunità rurali chiedono provvedimenti');
+      expect(events).toContain('I commercianti regionali aprono nuove trattative');
+      expect(events).toContain('Una delegazione presenta una proposta concreta');
+      expect(events).toContain('La Polonia firma un nuovo patto');
+      expect(events).toContain('Una crisi commerciale produce nuove misure');
+      expect(session.getCurrentDate()).toBe('1951-07-01');
+      expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('DEU');
+      expect(session.getChats()).toHaveLength(0);
+      expect(capturedPrompt).toContain('Non imporre limiti numerici agli eventi');
     } finally {
       jumpMode = 'normal';
     }
@@ -1079,7 +1113,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     expect(action.result.narration).toContain('La Polonia risponde alla proposta tedesca.');
     expect(action.result.narration).not.toContain('crisi futura');
     expect(capturedPrompt).toContain('Questa modalità PREVALE su qualunque istruzione del preset');
-    expect(capturedPrompt).toContain('Fermati SOLO sull\'evento che contiene quella decisione');
+    expect(capturedPrompt).toContain('Fermati sull\'evento che contiene quella decisione');
     expect(capturedPrompt).toContain('"targetDate":null');
     expect(capturedPrompt).toContain("oppure prendere un'iniziativa propria SOLO se deriva");
     jumpMode = 'normal';

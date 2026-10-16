@@ -9,7 +9,6 @@
 import { PromptVariables } from '../types';
 import { buildImmersionContract, EVENT_DESCRIPTION_GUIDE } from '../immersion';
 import { buildGovernmentNarrativeGuard } from '../government';
-import { AUTO_JUMP_MAX_EVENTS } from '../../core/simulation/EventBudget';
 import { CONSTRAINED_NARRATIVE_BUDGETS, type NarrativeBudgets } from '../../llm/modelTier';
 import { buildNarrativeTextureBlock } from './narrativeTexture';
 import { compactNpcDossiers } from './orchestration';
@@ -27,7 +26,7 @@ import {
 
 export function buildIncrementalOutputInstruction(
   vars: PromptVariables,
-  maxEvents: number,
+  _maxEvents: number,
   autoJump = false,
 ): string {
   const completionTargetDate = autoJump
@@ -42,9 +41,7 @@ Ignora SOLO il formato JSON finale descritto sopra e serializza invece la rispos
 - Gli eventi devono essere cronologici e ciascuno deve tenere conto degli eventi già emessi.
 - Emetti un evento SOLO se deriva da una causa verificabile: un ordine del giocatore, un fatto della cronaca, una trattativa diplomatica o lo stato strategico/mappa fornito. Non riempire il limite con fatti privi di una causa documentata: un teatro indipendente dal giocatore è valido quando è sostenuto da un filone o da un precedente del mondo.
 - Ogni evento sviluppa una CAUSA: un ordine, un evento già emesso, un fatto della cronaca o una situazione documentata nello stato e nella premessa nazionale. La causa è nota, lo sviluppo può essere nuovo. NON limitarti a riscrivere l'ordine al passato: la notizia dice cosa è cambiato. Vale [OGNI ORDINE PRODUCE UNA NOTIZIA] qui sotto: ogni ordine ha il proprio evento.
-- Non superare ${maxEvents} eventi significativi.${autoJump && vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? (maxEvents > 1
-  ? `\n- Modalità auto-jump: emetti da 1 a ${maxEvents} eventi in ordine cronologico — un evento per ordine del giocatore, più lo spazio per i fatti di contorno. NON fermarti al primo fatto importante in sé: prosegui finché una nazione non decide concretamente in risposta agli ordini del giocatore. Fermati sull'evento che contiene quella decisione (controparte diretta o misura autonoma con "counterAction"): la sua data è il campo targetDate.`
-  : '\n- Modalità auto-jump: emetti i fatti di contorno in ordine cronologico e fermati sull\'evento in cui una nazione decide concretamente in risposta agli ordini del giocatore.') : ''}
+- Non applicare un numero massimo prestabilito di dispacci: copri gli sviluppi documentati entro il periodo e riserva spazio per il record finale "complete".${autoJump && vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? '\n- Modalità auto-jump con ordini: attraversa i fatti di contorno e fermati sulla decisione concreta della controparte, senza troncare gli eventi precedenti.' : ''}
 
 Per ogni evento emetti immediatamente:
 {"type":"event","headline":"Soggetto NPC, decisione/reazione concreta e luogo","description":"${EVENT_DESCRIPTION_GUIDE}","date":"YYYY-MM-DD","mapChanges":[],"reactions":[{"actorId":"ID esatto di un attore del CONTESTO DI REAZIONE (es. FRA)","optionId":"ID esatto di UNA opzione di quell'attore (es. FRA:condition)","polityName":"nome della stessa politia","role":"counterparty|ally|mediator|observer","stance":"supportive|opposed|conditional|neutral","priority":"priorità del dossier che guida la decisione","response":"decisione ufficiale concreta, motivata e coerente con interessi e risorse","counterAction":"eventuale misura autonoma realmente decisa nel periodo","note":"messaggio diretto al giocatore, prima persona, una o due frasi senza cifre"}]}
@@ -81,7 +78,7 @@ Gli eventi sono l'output principale. Le reactions degli NPC NON aprono automatic
 - Una politia crea una chat diretta con il giocatore; due o più creano una riunione di gruppo con il giocatore.
 - "eventHeadline" è obbligatorio e deve riferirsi a un evento applicabile che nomina ${vars.PLAYER_POLITY} e il motivo del contatto. Non aprire chat per semplici reazioni, notizie su terzi o osservatori.
 
-${autoJump && !vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? buildAutoJumpInstruction(vars, maxEvents) : autoJump
+${autoJump && !vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? buildAutoJumpInstruction(vars) : autoJump
   ? 'In auto-jump targetDate DEVE essere la data dell’evento che contiene la decisione NPC che ferma il salto (reazione di ruolo "counterparty" o misura autonoma con "counterAction"). Non fermarti al primo fatto di cronaca: se i fatti di contorno precedono la decisione, emettili comunque in ordine cronologico. Se nessun evento porta una decisione NPC con causa verificabile entro l’orizzonte, non inventarne uno: non emettere righe event e completa con "targetDate":null.'
   : 'Non aspettare di avere pianificato tutti gli eventi: completa e pubblica il primo, poi passa al seguente.'}`;
 }
@@ -109,7 +106,6 @@ export function buildConstrainedSimulationPrompt(
   vars: PromptVariables,
   opts: { autoJump?: boolean; eventBudget?: number; presetOverride?: string; texture?: boolean; budgets?: NarrativeBudgets } = {},
 ): string {
-  const maxEvents = Math.max(1, Math.min(12, opts.eventBudget || 1));
   const completionDateJson = opts.autoJump ? '"YYYY-MM-DD"' : JSON.stringify(vars.TARGET_ROUND_DATE);
   const b = opts.budgets ?? CONSTRAINED_NARRATIVE_BUDGETS;
   return `SIMULAZIONE STRATEGICA — PROTOCOLLO COMPATTO
@@ -160,7 +156,7 @@ REGOLE:
 4c. Reazioni interne ed economia: se una nazione mobilita, schiera, spende o impone un embargo, l'evento narra anche cosa ne pensano popolazione e istituzioni (consenso o protesta, dibattito o repressione) e il costo economico proporzionato (deficit, tasse, razionamenti), preso dal Dossier nazionale calcolato dal motore (saldo, stabilità, riserve mobilitate, sforzo bellico, tensione sociale). Niente cifre inventate. Vale anche per le nazioni NPC.
 5. Mappa: start_construction/update_construction/complete_construction per cantieri/opere; start_mobilization/complete_mobilization per formazioni in preparazione/operative; spawn_unit/move_unit/remove_unit per unità operative. Tipi unità: battalion|army|fleet|missile. Tipi opere: factory|port|university|base|airbase|naval_base|fortification|radar|missile_site|infrastructure|power_plant. Annunci, studi e ordini respinti non creano marker. Una nuova formazione nasce in una provincia controllata da chi la crea, la più vicina al riferimento citato ("vicino a X", "al confine con X"); non nel territorio di un'altra politia senza incursione esplicita. Se un ordine accettato dispone che una formazione esistente avanzi o si sposti, emetti SEMPRE "move_unit" (unità, origine, destinazione): senza di esso l'unità resterebbe ferma.
 6. Scontri: per ogni battaglia scrivi una cronaca militare completa (attaccante, difensore, provincia contesa, andamento, perdite proporzionate, esito e conseguenza) e fai reagire la controparte in "reactions". Province occupate: il motore assegna il colore dell'occupante, usa "transfer" col nome del nuovo proprietario.
-7. Genera massimo ${maxEvents} eventi cronologici.${opts.autoJump && !vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? buildAutoJumpInstruction(vars, maxEvents) : opts.autoJump ? ' In auto-jump NON fermarti al primo fatto importante: prosegui oltre i fatti di contorno e fermati sull’evento in cui una nazione decide concretamente in risposta agli ordini (reazione di ruolo "counterparty" o con "counterAction"): la sua data è il campo targetDate.' : ''}
+7. Genera gli eventi cronologici necessari, senza un tetto numerico artificiale.${opts.autoJump && !vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? buildAutoJumpInstruction(vars) : opts.autoJump ? ' In auto-jump NON fermarti al primo fatto importante: prosegui oltre i fatti di contorno e fermati sull’evento in cui una nazione decide concretamente in risposta agli ordini (reazione di ruolo "counterparty" o con "counterAction"): la sua data è il campo targetDate.' : ''}
 8. Nei salti lunghi produci più dispacci concreti e datati (mobilitazioni, scontri, occupazioni, trattative, economia), non un unico riassunto.
 9. Dispacci in italiano narrativo: headline e description sono frasi complete per il giocatore. VIETATE etichette tecniche o di stato ("neutral", "supportive", "opposed", "conditional", "hostile", "ally", "counterparty", nomi di campi JSON, "partial", "voided", ID). La posizione diplomatica va raccontata («La Turchia annuncia la propria neutralità»), mai scritta come parola chiave («Turchia neutral»).
 10. Il giocatore incarna ${vars.PLAYER_POLITY}: ogni suo ordine è un atto ufficiale della nazione. Nei dispacci l'attore è sempre ${vars.PLAYER_POLITY} (governo, capo di Stato, ministri), MAI «il giocatore» o «l'utente»; le altre nazioni la nominano e trattano con lei come soggetto politico reale.
@@ -180,10 +176,6 @@ Per nessun evento in auto-jump: nessuna riga event e targetDate:null.`;
 
 export function buildSimulationPrompt(vars: PromptVariables, opts?: { autoJump?: boolean; eventBudget?: number; texture?: boolean }): string {
   const autoJumpInstruction = opts?.autoJump ? buildAutoJumpInstruction(vars, opts?.eventBudget ?? 1) : '';
-  // Unica fonte di verità del tetto eventi: il budget passato dal motore, che a
-  // sua volta deriva da `AUTO_JUMP_MAX_EVENTS`. Nessun «25-30» hardcoded e
-  // duplicato: il prompt non può più contraddire il budget reale del motore.
-  const maxEvents = Math.max(1, Math.floor(opts?.eventBudget ?? AUTO_JUMP_MAX_EVENTS));
   return `Simuli un gioco strategico a turni. Il giocatore controlla la politia-stato ${vars.PLAYER_POLITY}; tutte le altre politie del mondo sono gestite da te.
 
 Il giocatore può tentare qualsiasi cosa, ma il successo delle sue azioni dipende dal realismo. NON eseguire MAI azioni PER conto del giocatore: un evento compiuto dalla politia ${vars.PLAYER_POLITY} avviene SOLO se il giocatore ne ha dato ordine esplicito in questo turno. Persino le azioni storiche di questa nazione simulale solo se il giocatore le ha realmente intraprese. Se il giocatore non ha compiuto azioni, la sua politia non prende iniziative.
@@ -275,7 +267,7 @@ Nel gioco esiste una mappa dinamica. Curalo con attenzione i trasferimenti di re
 - Ogni evento ha un titolo, una descrizione ed eventualmente modifiche alla mappa
 - Il titolo è una frase singola
 - La descrizione contiene dettagli di qualità
-- Il numero di eventi è proporzionale alla durata del salto temporale: più tempo passa, più eventi ci sono, ma MAI più di ${maxEvents} per turno (budget calcolato dal motore). In un salto lungo distribuisci gli eventi uniformemente su tutto il periodo — non interrompere la simulazione a metà
+- Il numero di eventi emerge dalle cause storiche documentate e dall'intervallo simulato, senza quote o tetti numerici per turno. Nei salti lunghi copri i diversi sviluppi in ordine cronologico; termina prima che l'output tecnico si esaurisca, riservando spazio alla riga complete
 - Citazioni per il quaderno (notebook): 0-3 eventi
 - NON creare eventi-fantoccio: "Niente è accaduto", "Inizio dell'anno", "Fine dell'anno", "Bilancio dell'anno". Costruisci una cronaca: ogni evento è significativo
 - Dai priorità agli ordini e alle crisi aperte ma racconta anche filoni già documentati di paesi lontani, autonomi dal giocatore. Non servono legami artificiali con la nazione del giocatore: serve una causa verificabile per ciascun teatro.

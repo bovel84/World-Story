@@ -27,6 +27,8 @@ export interface DecisiveEventLike {
 
 /** Eventi minimi garantiti all'auto-jump, anche con un solo ordine in coda. */
 export const AUTO_JUMP_MIN_EVENTS = 2;
+/** Stima per dimensionare la risposta, NON un limite al numero di eventi. */
+export const AUTO_JUMP_WORLD_NEWS_EVENTS = 3;
 /**
  * Tetto prudente: la ricerca di una decisione NPC non deve trasformare il
  * salto in un anno di cronaca né gonfiare i token del provider.
@@ -52,6 +54,7 @@ export const AUTO_JUMP_LOOKAHEAD = 2;
  */
 export function autoJumpEventBudget(actionCount: number): number {
   const orders = Number.isFinite(actionCount) && actionCount > 0 ? Math.floor(actionCount) : 0;
+  if (orders === 0) return AUTO_JUMP_WORLD_NEWS_EVENTS;
   return Math.max(AUTO_JUMP_MIN_EVENTS, Math.min(AUTO_JUMP_MAX_EVENTS, orders + AUTO_JUMP_LOOKAHEAD));
 }
 
@@ -63,9 +66,15 @@ export function fixedJumpEventBudget(days: number, actionCount: number): number 
   return Math.min(30, Math.max(1 + developments, Math.ceil(duration / 21), orders + developments));
 }
 
-/** With no orders there is no foreign answer to wait for: a domestic event counts. */
-export function isAutoJumpStop(event: DecisiveEventLike | null | undefined, actionCount: number): boolean {
-  return !!event && (actionCount === 0 || isDecisiveNpcDecision(event));
+/** No numerical stop for world news. With orders, stop only at the meaningful
+ * NPC reply; a technical output-token/period bound remains at the LLM layer.
+ * The third argument is kept optional for compatibility with older callers. */
+export function isAutoJumpStop(
+  event: DecisiveEventLike | null | undefined,
+  actionCount: number,
+  _acceptedEventCount?: number,
+): boolean {
+  return actionCount > 0 && isDecisiveNpcDecision(event);
 }
 
 /**
