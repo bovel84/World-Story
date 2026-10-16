@@ -534,3 +534,121 @@
 .government-office.council-office .advisor-archive {
   border-color: #cbd7cb;
 }
+
+
+/* WS-LIGHT-02 / GOVERNMENT — header, chat composer and the act register.
+ * Government CSS is dynamically loaded, so overrides for its internal
+ * components live here, AFTER the old navy component styles. */
+.government-office.council-office .government-office-bar {
+  background: #eaf0e7 !important;
+  color: #263e33 !important;
+  border-bottom: 1px solid #bacbb9 !important;
+}
+.government-office.council-office .council-head {
+  color: #273f33 !important;
+}
+.government-office.council-office .council-title {
+  color: #243f31 !important;
+  -webkit-text-fill-color: #243f31 !important;
+}
+.government-office.council-office .council-sub {
+  color: #4a6455 !important;
+  -webkit-text-fill-color: #4a6455 !important;
+}
+.government-office.council-office .desk-close-x {
+  background: #fffdf7 !important;
+  color: #274738 !important;
+  border: 1px solid #c9d6c7 !important;
+}
+.government-office.council-office .government-advisor .advisor-chat,
+.government-office.council-office .government-advisor .advisor-messages {
+  background: #f8f7ef !important;
+  color: #273f33 !important;
+}
+.government-office.council-office .government-advisor .chat-input-row {
+  background: #edf1e8 !important;
+  border-color: #cad7c9 !important;
+}
+.government-office.council-office .government-advisor .chat-input-row textarea {
+  background: #fffdf7 !important;
+  color: #263e33 !important;
+  -webkit-text-fill-color: #263e33 !important;
+  border-color: #98b79c !important;
+}
+.government-office.council-office .government-advisor .chat-input-row textarea::placeholder {
+  color: #5a7262 !important;
+  -webkit-text-fill-color: #5a7262 !important;
+}
+.government-office.council-office .government-advisor .btn-chat-send {
+  background: #32644e !important;
+  color: #fffdf7 !important;
+  -webkit-text-fill-color: #fffdf7 !important;
+  border-color: #295742 !important;
+}
+.government-office.council-office .government-advisor .btn-chat-send:disabled {
+  background: #dbe4d8 !important;
+  color: #4d6354 !important;
+  -webkit-text-fill-color: #4d6354 !important;
+  border-color: #b9c9b8 !important;
+  opacity: 1 !important;
+}
+.government-office.council-office .order-register {
+  background: #f1f4eb !important;
+  color: #273f33 !important;
+  border-color: #c5d2c1 !important;
+}
+.government-office.council-office .order-register-title {
+  color: #284534 !important;
+}
+.government-office.council-office :is(.order-register-sub, .order-register-empty, .order-register-signature-state, .order-register-signature-date) {
+  color: #536a59 !important;
+}
+.government-office.council-office .order-register-act {
+  background: #fffdf7 !important;
+  border-color: #c4d2c5 !important;
+}
+.government-office.council-office :is(.order-register-text, .order-register-signature-office) {
+  color: #263e33 !important;
+}
+.government-office.council-office .order-register-number {
+  color: #326849 !important;
+}
+.government-office.council-office .order-register-withdraw {
+  color: #8b3c32 !important;
+  border-color: #d1a8a0 !important;
+}
+.government-office.council-office .order-register-signature {
+  border-color: #cad5c8 !important;
+}
+.government-office.council-office :is(.government-office-hint, .government-office-outcome-note) {
+  background: #f1f3e9 !important;
+  color: #3e5c48 !important;
+  border-left-color: #789d7f !important;
+}
+.government-office.council-office :is(.government-office-back, .cabinet-nothing) {
+  background: #e7eee4 !important;
+  border-color: #9fbba4 !important;
+  color: #2c5a40 !important;
+}
+.government-office.council-office .council-issue-inline {
+  background: #f6f5eb !important;
+  border-color: #c2d1bf !important;
+  border-left-color: #9c773f !important;
+  color: #273f33 !important;
+}
+.government-office.council-office .council-issue-open { color: #305f43 !important; }
+
+@media (max-width: 767px) {
+  .government-office.council-office .government-office-bar .council-sub {
+    font-size: 12px !important;
+    line-height: 1.48 !important;
+    letter-spacing: .045em !important;
+  }
+  .government-office.council-office .government-advisor .chat-input-row {
+    gap: 8px;
+    padding: 10px !important;
+  }
+  .government-office.council-office .government-advisor .chat-input-row textarea {
+    min-width: 0;
+  }
+}
