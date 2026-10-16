@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PromptEngine } from '../src/prompt-builder';
-import { fixedJumpEventBudget, isAutoJumpStop } from '../src/core/simulation/EventBudget';
+import { autoJumpEventBudget, fixedJumpEventBudget, isAutoJumpStop } from '../src/core/simulation/EventBudget';
 import { buildNarrativeSituationSources, buildWorldChronicleGuide } from '../src/prompts/simulation/initiative';
 import { buildConstrainedSimulationPrompt } from '../src/prompts/simulation/prompt';
 import type { PromptVariables } from '../src/prompts/types';
@@ -117,11 +117,15 @@ describe('narratore: iniziativa causale nella chiamata del turno', () => {
     expect(llm.generate).not.toHaveBeenCalled();
   });
 
-  it('senza ordini si ferma anche su un fatto interno; con ordini attende la decisione NPC', () => {
-    expect(isAutoJumpStop({ reactions: [] }, 0)).toBe(true);
-    expect(isAutoJumpStop({ reactions: [] }, 1)).toBe(false);
-    expect(isAutoJumpStop({ reactions: [{ role: 'counterparty' }] }, 1)).toBe(true);
-    expect(isAutoJumpStop(null, 0)).toBe(false);
+  it('senza ordini raccoglie tre notizie nello stesso salto, senza cambiare la risposta NPC agli ordini', () => {
+    expect(autoJumpEventBudget(0)).toBe(3);
+    expect(autoJumpEventBudget(1)).toBe(3);
+    expect(isAutoJumpStop({ reactions: [] }, 0, 1)).toBe(false);
+    expect(isAutoJumpStop({ reactions: [] }, 0, 2)).toBe(false);
+    expect(isAutoJumpStop({ reactions: [] }, 0, 3)).toBe(true);
+    expect(isAutoJumpStop({ reactions: [] }, 1, 3)).toBe(false);
+    expect(isAutoJumpStop({ reactions: [{ role: 'counterparty' }] }, 1, 1)).toBe(true);
+    expect(isAutoJumpStop(null, 0, 3)).toBe(false);
   });
 
   it('limita ogni fonte separatamente e conserva i vincoli di copertura nel compatto', () => {
