@@ -23,7 +23,7 @@ let capturedPrompt = '';
 /** Счётчик вызовов механики consolidation */
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
-let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_player_contact' | 'auto_foreign_contact' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'auto_news_batch' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
+let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_player_contact' | 'auto_foreign_contact' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'auto_news_batch' | 'auto_horizon' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
 /** Testo dell'ordine a cui la risposta `move_accepted` attribuisce un esito accettato. */
 let moveOrderText = '';
 /** projectId da copiare nell'outcome di chiusura del fixture F01. */
@@ -94,6 +94,17 @@ function jumpResponse(): any {
         narration: 'Cinque dispacci proposti.',
         voided: [], startChat: [],
         worldChanges: { regionOwners: {}, regionColors: {} }, targetDate: '1951-02-20',
+      };
+    case 'auto_horizon':
+      return {
+        events: [
+          { headline: 'Nuova trattativa regionale', description: 'Le parti aprono un negoziato.', date: '1951-01-20', mapChanges: [] },
+          { headline: 'Un cambiamento di confine molti mesi dopo', description: 'Non appartiene all’orizzonte.',
+            date: '1951-09-01', mapChanges: [{ type: 'transfer', regionName: 'Польша', newOwner: 'ФРГ' }] },
+        ],
+        narration: 'Solo il primo evento ricade nella finestra di ricerca.',
+        voided: [], startChat: [], worldChanges: { regionOwners: {}, regionColors: {} },
+        targetDate: '1951-09-01',
       };
     case 'auto_multi':
       // Auto-jump con più ordini: un evento per ciascun ordine, targetDate
@@ -1062,6 +1073,21 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
       expect(session.getChats()).toHaveLength(0);
       expect(session.getPendingActions()).toHaveLength(0);
       expect(capturedPrompt).toContain('Regole auto-jump senza ordini');
+    } finally {
+      jumpMode = 'normal';
+    }
+  });
+
+  it('auto-jump breve non pubblica eventi futuri né applica la loro mappa', async () => {
+    jumpMode = 'auto_horizon';
+    try {
+      const { session } = createGame();
+      await session.processWorldAdvance(0);
+      expect(session.getCurrentDate()).toBe('1951-01-20');
+      const headlines = session.getResults().flatMap((result: any) => result.events);
+      expect(headlines).toContain('Nuova trattativa regionale');
+      expect(headlines).not.toContain('Un cambiamento di confine molti mesi dopo');
+      expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('POL');
     } finally {
       jumpMode = 'normal';
     }
