@@ -40,7 +40,7 @@ Ignora SOLO il formato JSON finale descritto sopra e serializza invece la rispos
 - Scrivi ogni oggetto JSON su una singola riga, senza array esterno, markdown o testo aggiuntivo.
 - Emetti UN evento completo appena lo hai deciso, prima di elaborare il successivo.
 - Gli eventi devono essere cronologici e ciascuno deve tenere conto degli eventi già emessi.
-- Emetti un evento SOLO se deriva da una causa verificabile: un ordine del giocatore, un fatto della cronaca, una trattativa diplomatica o lo stato strategico/mappa fornito. Non riempire il limite con fatti indipendenti.
+- Emetti un evento SOLO se deriva da una causa verificabile: un ordine del giocatore, un fatto della cronaca, una trattativa diplomatica o lo stato strategico/mappa fornito. Non riempire il limite con fatti privi di una causa documentata: un teatro indipendente dal giocatore è valido quando è sostenuto da un filone o da un precedente del mondo.
 - Ogni evento sviluppa una CAUSA: un ordine, un evento già emesso, un fatto della cronaca o una situazione documentata nello stato e nella premessa nazionale. La causa è nota, lo sviluppo può essere nuovo. NON limitarti a riscrivere l'ordine al passato: la notizia dice cosa è cambiato. Vale [OGNI ORDINE PRODUCE UNA NOTIZIA] qui sotto: ogni ordine ha il proprio evento.
 - Non superare ${maxEvents} eventi significativi.${autoJump && vars.PLAYER_ACTIONS_THIS_ROUND?.trim() ? (maxEvents > 1
   ? `\n- Modalità auto-jump: emetti da 1 a ${maxEvents} eventi in ordine cronologico — un evento per ordine del giocatore, più lo spazio per i fatti di contorno. NON fermarti al primo fatto importante in sé: prosegui finché una nazione non decide concretamente in risposta agli ordini del giocatore. Fermati sull'evento che contiene quella decisione (controparte diretta o misura autonoma con "counterAction"): la sua data è il campo targetDate.`
@@ -53,7 +53,7 @@ Regole obbligatorie per "reactions":
 - Attori e opzioni: vale il solo CONTESTO DI REAZIONE (regola autoritativa qui sotto). Non riselezionare gli attori dal testo dell'evento e non inventare ID.
 - Segui [Personalità, priorità e memoria NPC]. "priority" nomina l'interesse che guida la risposta; "counterAction" descrive solo una misura davvero decisa nel periodo, non un'intenzione vaga.
 - Se un'azione o controazione NPC colpisce un'altra politia che è fra gli attori ammessi dal CONTESTO DI REAZIONE, anche quella decide autonomamente nel medesimo evento o nel successivo evento causale.
-- Iniziativa autonoma: una nazione NPC con una causa documentata adotta una misura concreta, difensiva o offensiva; se è materiale ha la mapChange corrispondente nello stesso evento. In ogni avanzamento con causa documentata compare almeno un'iniziativa NPC autonoma.
+- Iniziativa autonoma: una nazione NPC con una causa documentata adotta una misura concreta, difensiva o offensiva; se è materiale ha la mapChange corrispondente nello stesso evento. Se esistono iniziative NPC plausibili e documentate, mostra almeno una loro svolta: non obbligare misure militari o decisioni inventate per riempire il budget.
 - Reazione interna: se qualcuno mobilita, schiera, spende o impone un embargo, la sua popolazione e le sue istituzioni reagiscono nello stesso evento (consenso o protesta, dibattito o repressione) con il costo economico proporzionato preso dal Dossier nazionale.
 - Un accordo può risultare concluso solo se ogni controparte necessaria risponde "supportive" o "conditional" con condizioni soddisfatte. Altrimenti descrivi proposta, rifiuto, rinvio o controproposta e usa un outcome partial/rejected.
 - La descrizione deve raccontare queste decisioni; non elencare banalmente ciò che il giocatore ha ordinato. Per un fatto esclusivamente interno usa "reactions": [].
@@ -215,7 +215,7 @@ Ogni politia in questa partita ha un colore e un nome propri.
 
 [Causa ed effetto — regola non negoziabile]
 
-La simulazione NON è un generatore di notizie: ogni evento è una conseguenza del mondo già esistente o di un ordine del giocatore. Prima di scrivere ogni evento, individua internamente una catena «causa verificabile → reazione → conseguenza»; se non trovi una causa nelle sezioni qui sotto, NON generare l'evento.
+La simulazione racconta come CRONACA le svolte del mondo, non inventa notizie di riempimento: ogni evento deve nascere da un antefatto del preset, una situazione corrente, un filone NPC o un ordine del giocatore. Ricostruisci la catena «causa verificabile → iniziativa/reazione → conseguenza»; se manca la causa, NON generare l'evento.
 
 Fonti di causa ammesse, in ordine di priorità:
 1. un ordine del giocatore del turno corrente (deve produrre un esito, una reazione o essere inserito in "voided");
@@ -231,7 +231,7 @@ Nell'apertura della descrizione spiega il contesto e il grilletto concreto: una 
 - Le altre politie possono reagire a un incentivo visibile (minaccia al confine, commercio, guerra, trattato, crisi già avviata) oppure prendere un'iniziativa propria SOLO se deriva da un obiettivo già dichiarato, risorse disponibili, un impegno diplomatico o una crisi documentata nello stato strategico. Non far nascere colpi di Stato, invasioni, alleanze o crisi economiche dal nulla.
 - Mantieni proporzione temporale: in 30 giorni predominano decreti, mobilitazioni, negoziati e primi effetti; conquiste, regimi rovesciati e svolte economiche richiedono cause e preparazione nei turni precedenti.
 - Le conseguenze non maturano tutte all'istante: semina nell'evento i presupposti del turno successivo e riprendili nella cronaca.
-- Preferisci pochi eventi collegati in una stessa catena a molti eventi indipendenti. Se nel periodo non segue altro in modo credibile, fermati prima del limite.
+- Nei salti estesi alterna la continuità di una crisi agli sviluppi documentati di altri teatri, mantenendo ogni fatto causalmente autonomo e verificabile. Se nel periodo non segue altro in modo credibile, fermati prima del limite.
 
 [CICLO MONDIALE OBBLIGATORIO]
 Ogni avanzamento temporale simula l'intero mondo, non soltanto la politia del giocatore: valuta le conseguenze del periodo per gli attori elencati nel [Contesto di reazione].
@@ -278,8 +278,8 @@ Nel gioco esiste una mappa dinamica. Curalo con attenzione i trasferimenti di re
 - Il numero di eventi è proporzionale alla durata del salto temporale: più tempo passa, più eventi ci sono, ma MAI più di ${maxEvents} per turno (budget calcolato dal motore). In un salto lungo distribuisci gli eventi uniformemente su tutto il periodo — non interrompere la simulazione a metà
 - Citazioni per il quaderno (notebook): 0-3 eventi
 - NON creare eventi-fantoccio: "Niente è accaduto", "Inizio dell'anno", "Fine dell'anno", "Bilancio dell'anno". Costruisci una cronaca: ogni evento è significativo
-- NON inventare un secondo filone mondiale solo per coprire più paesi: segui prima le conseguenze delle azioni del giocatore e delle crisi già aperte. Un paese lontano entra nella cronaca soltanto se ha un collegamento esplicito con tali cause
-- Copri il mondo tramite catene causali reali: politica, economia e guerra devono restare collegate alla politia del giocatore, alla cronaca o alla diplomazia
+- Dai priorità agli ordini e alle crisi aperte ma racconta anche filoni già documentati di paesi lontani, autonomi dal giocatore. Non servono legami artificiali con la nazione del giocatore: serve una causa verificabile per ciascun teatro.
+- Copri il mondo con catene causali del preset e della cronaca globale, anche quando sono indipendenti dal governo del giocatore. Alterna temi e geografie se lo stato contiene più sviluppi significativi, senza inventare fatti.
 - NON scrivere MAI "(fictional)", "(a-historical)" o "Player Polity" nei titoli e nei testi degli eventi. Chiama la politia del giocatore semplicemente con il suo nome
 
 *Trasferimento di regioni.*
