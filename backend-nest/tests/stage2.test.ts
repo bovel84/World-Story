@@ -72,28 +72,28 @@ function jumpResponse(): any {
     case 'auto_same':
       return {
         events: [
-          { headline: 'Primo evento del giorno', description: 'Prima svolta.', date: '1951-03-10', mapChanges: [] },
-          { headline: 'Secondo evento stesso giorno', description: 'Seconda svolta nella stessa data.', date: '1951-03-10', mapChanges: [] },
+          { headline: 'Primo evento del giorno', description: 'Prima svolta.', date: '1951-01-20', mapChanges: [] },
+          { headline: 'Secondo evento stesso giorno', description: 'Seconda svolta nella stessa data.', date: '1951-01-20', mapChanges: [] },
         ],
         narration: 'Due eventi nella stessa data.',
         voided: [],
         startChat: [],
         worldChanges: { regionOwners: {}, regionColors: {} },
-        targetDate: '1951-03-10',
+        targetDate: '1951-01-20',
       };
     case 'auto_news_batch':
       return {
         events: [
-          { headline: 'Uganda: comunità rurali chiedono provvedimenti', description: 'Nuova pressione interna.', date: '1951-02-10', mapChanges: [] },
-          { headline: 'I commercianti regionali aprono nuove trattative', description: 'Filone esterno documentato.', date: '1951-03-10', mapChanges: [] },
-          { headline: 'Una delegazione presenta una proposta concreta', description: 'Terzo evento ammissibile.', date: '1951-04-01', mapChanges: [] },
-          { headline: 'La Polonia firma un nuovo patto', description: 'Svolta ulteriore del mondo.', date: '1951-06-01',
+          { headline: 'Uganda: comunità rurali chiedono provvedimenti', description: 'Nuova pressione interna.', date: '1951-01-10', mapChanges: [] },
+          { headline: 'I commercianti regionali aprono nuove trattative', description: 'Filone esterno documentato.', date: '1951-01-15', mapChanges: [] },
+          { headline: 'Una delegazione presenta una proposta concreta', description: 'Terzo evento ammissibile.', date: '1951-01-20', mapChanges: [] },
+          { headline: 'La Polonia firma un nuovo patto', description: 'Svolta ulteriore del mondo.', date: '1951-02-01',
             mapChanges: [{ type: 'transfer', regionName: 'Польша', newOwner: 'ФРГ' }] },
-          { headline: 'Una crisi commerciale produce nuove misure', description: 'Quinto fatto documentato.', date: '1951-07-01', mapChanges: [] },
+          { headline: 'Una crisi commerciale produce nuove misure', description: 'Quinto fatto documentato.', date: '1951-02-20', mapChanges: [] },
         ],
         narration: 'Cinque dispacci proposti.',
         voided: [], startChat: [],
-        worldChanges: { regionOwners: {}, regionColors: {} }, targetDate: '1951-07-01',
+        worldChanges: { regionOwners: {}, regionColors: {} }, targetDate: '1951-02-20',
       };
     case 'auto_multi':
       // Auto-jump con più ordini: un evento per ciascun ordine, targetDate
@@ -101,13 +101,13 @@ function jumpResponse(): any {
       return {
         events: [
           { headline: 'Prima svolta dell’ordine', description: 'La prima conseguenza verificabile del primo ordine.', date: '1951-03-10', mapChanges: [] },
-          { headline: 'Seconda svolta dell’ordine', description: 'La conseguenza del secondo ordine, dopo la prima svolta.', date: '1951-04-02', mapChanges: [] },
+          { headline: 'Seconda svolta dell’ordine', description: 'La conseguenza del secondo ordine, dopo la prima svolta.', date: '1951-03-20', mapChanges: [] },
         ],
         narration: 'Un evento per ciascun ordine in coda.',
         voided: [],
         startChat: [],
         worldChanges: { regionOwners: {}, regionColors: {} },
-        targetDate: '1951-04-02',
+        targetDate: '1951-03-20',
       };
     case 'fixed_same':
       return {
@@ -214,26 +214,26 @@ function jumpResponse(): any {
         events: [{
           headline: 'La Polonia chiede garanzie alla ФРГ',
           description: 'La Polonia interpella direttamente la ФРГ e propone una trattativa sulle garanzie di confine.',
-          date: '1951-03-10', mapChanges: [],
+          date: '1951-02-10', mapChanges: [],
         }],
         narration: 'Richiesta diplomatica al governo del giocatore.',
         voided: [],
         startChat: [{ participants: ['Polonia'], topic: 'Chiediamo garanzie sui confini.', kind: 'negotiation', eventHeadline: 'La Polonia chiede garanzie alla ФРГ' }],
         worldChanges: { regionOwners: {}, regionColors: {} },
-        targetDate: '1951-03-10',
+        targetDate: '1951-02-10',
       };
     case 'auto_foreign_contact':
       return {
         events: [{
           headline: 'La Polonia invita la Francia a un vertice',
           description: 'La Polonia interpella soltanto la Francia per i colloqui commerciali regionali.',
-          date: '1951-03-10', mapChanges: [],
+          date: '1951-02-10', mapChanges: [],
         }],
         narration: 'Il vertice riguarda solo le due nazioni NPC.',
         voided: [],
         startChat: [{ participants: ['Polonia'], topic: 'Proponiamo un vertice con la Francia.', kind: 'summit', eventHeadline: 'La Polonia invita la Francia a un vertice' }],
         worldChanges: { regionOwners: {}, regionColors: {} },
-        targetDate: '1951-03-10',
+        targetDate: '1951-02-10',
       };
     case 'auto_future':
       return {
@@ -1057,7 +1057,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
       const headlines = session.getResults().flatMap((result: any) => result.events);
       expect(headlines).toContain('Primo evento del giorno');
       expect(headlines).toContain('Secondo evento stesso giorno');
-      expect(session.getCurrentDate()).toBe('1951-03-10');
+      expect(session.getCurrentDate()).toBe('1951-01-20');
       expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('POL');
       expect(session.getChats()).toHaveLength(0);
       expect(session.getPendingActions()).toHaveLength(0);
@@ -1078,7 +1078,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
       expect(events).toContain('Una delegazione presenta una proposta concreta');
       expect(events).toContain('La Polonia firma un nuovo patto');
       expect(events).toContain('Una crisi commerciale produce nuove misure');
-      expect(session.getCurrentDate()).toBe('1951-07-01');
+      expect(session.getCurrentDate()).toBe('1951-02-20');
       expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('DEU');
       expect(session.getChats()).toHaveLength(0);
       expect(capturedPrompt).toContain('Non imporre limiti numerici agli eventi');
