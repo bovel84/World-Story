@@ -652,3 +652,273 @@
     min-width: 0;
   }
 }
+
+
+/* WS-COUNCIL-LITE — la Tavola è un dossier editoriale e non un dump del motore.
+   CSS nel foglio lazy del Governo: preserva schede esterne e altre modali. */
+.council-room-board {
+  background: #f9f6ee;
+  color: #263b34;
+  font: 400 14px/1.5 system-ui, sans-serif;
+  overflow-wrap: anywhere;
+}
+.council-room-board .council-board-header {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 0 0 12px;
+}
+.council-room-board .council-board-header h2 {
+  font: 700 20px/1.25 Georgia, serif;
+  color: #263b34;
+}
+.council-room-board .council-board-section {
+  padding: 14px 0;
+  border-color: #d3dcd1;
+}
+.council-room-board .council-board-section h3 {
+  margin-bottom: 8px;
+  color: #536d5c;
+  font: 700 11px/1.4 system-ui, sans-serif;
+  letter-spacing: .075em;
+}
+.council-room-board .council-board-question > p {
+  font: 600 18px/1.4 Georgia, serif;
+  color: #273d33;
+}
+.council-room-board .council-board-provenance {
+  color: #617467;
+}
+.council-room-board .council-board-verified-facts {
+  border-top-color: #c9d6ca;
+}
+.council-room-board .council-facts-grid {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+}
+.council-room-board .council-fact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: #fffdf8;
+  border: 1px solid #d1dbd0;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgb(26 60 37 / 4%);
+}
+.council-room-board .council-fact-label {
+  font: 700 11px/1.4 system-ui, sans-serif;
+  color: #56705d;
+  letter-spacing: .02em;
+}
+.council-room-board .council-fact-value {
+  font: 700 18px/1.35 Georgia, serif;
+  color: #243c30;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.council-room-board .council-fact-count {
+  font: 700 13px/1.4 system-ui, sans-serif;
+  color: #315c41;
+}
+.council-room-board .council-fact-items {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 0;
+  padding: 0 0 0 17px;
+  color: #2e4738;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.council-room-board .council-fact-source,
+.council-room-board .council-fact-more,
+.council-room-board .council-facts-more {
+  width: 100%;
+  color: #576f60;
+  font: 400 11px/1.45 system-ui, sans-serif;
+}
+.council-room-board .council-fact-source { margin-top: auto; padding-top: 5px; }
+.council-room-board :is(.council-fact-source, .council-fact-more, .council-facts-more) summary {
+  width: fit-content;
+  padding-block: 4px;
+  color: #35654b;
+  font: 600 11px/1.4 system-ui, sans-serif;
+  cursor: pointer;
+}
+.council-room-board .council-fact-source code {
+  display: inline;
+  overflow-wrap: anywhere;
+  font: 400 10px/1.5 ui-monospace, SFMono-Regular, monospace;
+}
+.council-room-board .council-facts-more {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px dashed #b4c8b4;
+  border-radius: 10px;
+  background: #f1f5ed;
+}
+.council-room-board .council-facts-more > .council-facts-grid { margin-top: 8px; }
+
+/* Bozza: luce, paragrafi e firma con gerarchia chiara; nessun input perso. */
+.council-room-board .act-draft {
+  gap: 10px;
+  padding: 14px;
+  background: #fffdf8;
+  border: 1px solid #d3ddd0;
+  border-radius: 12px;
+  color: #283f33;
+}
+.council-room-board .act-draft[data-state="queued"] { background: #eff7ef; border-color: #8db89c; }
+.council-room-board .act-draft[data-state="failed"] { background: #fff4ee; border-color: #c88f80; }
+.council-room-board .act-draft-title { color: #283c31; font: 700 17px/1.35 Georgia, serif; }
+.council-room-board .act-draft-kicker,
+.council-room-board .act-draft-label { color: #526c5a; }
+.council-room-board .act-draft-note,
+.council-room-board .act-draft-status,
+.council-room-board .act-draft-status-note { color: #536b5c; }
+.council-room-board .act-draft-capability { color: #385c46; border-color: #a9c1aa; }
+.council-room-board .act-draft-capability.capability-engine-order { color: #286342; border-color: #91bba0; }
+.council-room-board .act-draft-capability.capability-text-order { color: #795b1f; border-color: #c9ad72; }
+.council-room-board .act-draft-capability.capability-unsupported { color: #9a4239; border-color: #d5a49b; }
+.council-room-board .act-draft-text-view,
+.council-room-board .act-draft-text {
+  background: #f8f8f1;
+  color: #283d32;
+  border: 1px solid #cbd7ca;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font: 400 14px/1.55 Georgia, serif;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.council-room-board .act-draft-text-view p { margin: 0 0 12px; }
+.council-room-board .act-draft-text-view p:last-child { margin-bottom: 0; }
+.council-room-board .act-draft-edit-toggle,
+.council-room-board .act-draft-cancel {
+  background: #edf2e9;
+  color: #315a43;
+  border: 1px solid #adbfad;
+  border-radius: 8px;
+}
+.council-room-board .act-draft-state { background: #e6ede4; color: #315942; }
+.council-room-board .act-draft-state.state-queued { background: #d8eddd; color: #205d3d; }
+.council-room-board .act-draft-state.state-executed { background: #ddeff3; color: #236075; }
+.council-room-board .act-draft-state.state-failed { background: #f7ded9; color: #91362d; }
+.council-room-board .act-draft-sign {
+  background: #32644e;
+  border-color: #28543d;
+  color: #fffdf8;
+}
+
+/* Conseguenze: gruppi su carta e KPI compatti, stato e provenienza distinguibili. */
+.council-room-board .consequence-board {
+  gap: 9px;
+  padding: 12px;
+  background: #f4f6f0;
+  border: 1px solid #cbd8c9;
+  border-radius: 12px;
+}
+.council-room-board .consequence-board-kicker { color: #315a43; font-size: 11px; }
+.council-room-board .consequence-board-status {
+  color: #2b6044;
+  border-color: #9ebea4;
+  font-size: 10px;
+}
+.council-room-board .consequence-board[data-status="engine-preview"] .consequence-board-status { color: #246345; }
+.council-room-board .consequence-board[data-status="not-estimable"] .consequence-board-status { color: #983f36; }
+.council-room-board .consequence-board-note,
+.council-room-board .consequence-board-footnote { color: #536b5c; font-size: 11px; }
+.council-room-board .consequence-groups {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.council-room-board .consequence-group {
+  padding: 10px;
+  background: #fffdf8;
+  border: 1px solid #d3dcd1;
+  border-radius: 10px;
+}
+.council-room-board .consequence-group-title { color: #526b5a; font-size: 10px; }
+.council-room-board .consequence-group-list { gap: 7px; }
+.council-room-board .consequence-entry {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 3px 8px;
+  padding: 9px 0;
+  border-top-color: #e1e6dc;
+}
+.council-room-board .consequence-entry-icon { color: #6b8575; }
+.council-room-board .consequence-entry-body { min-width: 0; }
+.council-room-board .consequence-entry-label {
+  color: #263e33;
+  font: 700 13px/1.35 Georgia, serif;
+}
+.council-room-board .consequence-entry-detail { color: #466050; font-size: 12px; }
+.council-room-board .consequence-entry-tags {
+  grid-column: 2;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 3px 0 0;
+  min-width: 0;
+}
+.council-room-board .consequence-tag-applied { background: #dcefe1; color: #216142; }
+.council-room-board .consequence-basis-measured { color: #2e6178; }
+.council-room-board .consequence-basis-estimated { color: #805a1e; }
+.council-room-board .consequence-basis-declared { color: #5e587a; }
+.council-room-board .consequence-basis-unavailable { color: #a3473a; }
+.council-room-board .consequence-not-estimable,
+.council-room-board .consequence-board-stale {
+  background: #fff2e8;
+  border-color: #d8b59f;
+  color: #7e4933;
+}
+.council-room-board .consequence-not-estimable :is(.consequence-not-estimable-title, li) { color: #87513f; }
+.council-room-board .consequence-board-loading { color: #315c46; }
+.council-room-board .consequence-board-error { color: #973e34; }
+
+/* Tavola mobile: due uscite sempre visibili, ma nessuna intestazione enorme. */
+@media (max-width: 767px) {
+  .gov-sheet:has(#council-board-sheet-title) .gov-sheet-head {
+    gap: 4px;
+    padding: max(5px, env(safe-area-inset-top)) 8px 6px;
+    background: #edf2ea;
+    border-bottom-color: #cdd8cb;
+  }
+  .gov-sheet:has(#council-board-sheet-title) .gov-sheet-title {
+    font: 700 14px/1.2 Georgia, serif;
+    color: #273f34;
+    white-space: nowrap;
+  }
+  .gov-sheet:has(#council-board-sheet-title) .council-room-sheet-exit {
+    min-height: 40px;
+    padding: 0 7px;
+    font-size: 12px;
+    border-color: #afc4b2;
+    background: #fffdf8;
+    color: #2c4e3c;
+  }
+  .gov-sheet:has(#council-board-sheet-title) .council-room-sheet-close { background: #e2ebe1; }
+  .council-room-board {
+    padding: 12px 14px max(24px, env(safe-area-inset-bottom));
+  }
+  .council-room-board .council-board-header h2 { font-size: 17px; }
+  .council-room-board .council-facts-grid,
+  .council-room-board .consequence-groups { grid-template-columns: minmax(0, 1fr); }
+  .council-room-board .council-fact { padding: 11px 12px; }
+  .council-room-board .council-fact-value { font-size: 17px; }
+  .council-room-board .act-draft { padding: 12px; }
+  .council-room-board .act-draft-text-view,
+  .council-room-board .act-draft-text { padding: 11px; font-size: 14px; }
+  .council-room-board .consequence-board { padding: 10px; }
+}
