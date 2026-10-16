@@ -87,12 +87,13 @@ function jumpResponse(): any {
           { headline: 'Uganda: comunità rurali chiedono provvedimenti', description: 'Nuova pressione interna.', date: '1951-02-10', mapChanges: [] },
           { headline: 'I commercianti regionali aprono nuove trattative', description: 'Filone esterno documentato.', date: '1951-03-10', mapChanges: [] },
           { headline: 'Una delegazione presenta una proposta concreta', description: 'Terzo evento ammissibile.', date: '1951-04-01', mapChanges: [] },
-          { headline: 'Conseguenza futura da non applicare', description: 'Oltre il checkpoint.', date: '1951-06-01',
+          { headline: 'La Polonia firma un nuovo patto', description: 'Svolta ulteriore del mondo.', date: '1951-06-01',
             mapChanges: [{ type: 'transfer', regionName: 'Польша', newOwner: 'ФРГ' }] },
+          { headline: 'Una crisi commerciale produce nuove misure', description: 'Quinto fatto documentato.', date: '1951-07-01', mapChanges: [] },
         ],
-        narration: 'Quattro dispacci proposti.',
+        narration: 'Cinque dispacci proposti.',
         voided: [], startChat: [],
-        worldChanges: { regionOwners: {}, regionColors: {} }, targetDate: '1951-06-01',
+        worldChanges: { regionOwners: {}, regionColors: {} }, targetDate: '1951-07-01',
       };
     case 'auto_multi':
       // Auto-jump con più ordini: un evento per ciascun ordine, targetDate
@@ -1050,7 +1051,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     }
   });
 
-  it('senza ordini applica fino a tre sviluppi datati ma non il quarto futuro', async () => {
+  it('senza ordini applica tutti i cinque dispacci cronologici senza limite numerico', async () => {
     jumpMode = 'auto_news_batch';
     try {
       const { session } = createGame();
@@ -1059,11 +1060,12 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
       expect(events).toContain('Uganda: comunità rurali chiedono provvedimenti');
       expect(events).toContain('I commercianti regionali aprono nuove trattative');
       expect(events).toContain('Una delegazione presenta una proposta concreta');
-      expect(events).not.toContain('Conseguenza futura da non applicare');
-      expect(session.getCurrentDate()).toBe('1951-04-01');
-      expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('POL');
+      expect(events).toContain('La Polonia firma un nuovo patto');
+      expect(events).toContain('Una crisi commerciale produce nuove misure');
+      expect(session.getCurrentDate()).toBe('1951-07-01');
+      expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('FRG');
       expect(session.getChats()).toHaveLength(0);
-      expect(capturedPrompt).toContain('fino a 3 sviluppi distinti e datati');
+      expect(capturedPrompt).toContain('Non imporre limiti numerici agli eventi');
     } finally {
       jumpMode = 'normal';
     }
