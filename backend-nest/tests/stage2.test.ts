@@ -23,7 +23,7 @@ let capturedPrompt = '';
 /** Счётчик вызовов механики consolidation */
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
-let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_player_contact' | 'auto_foreign_contact' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
+let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_player_contact' | 'auto_foreign_contact' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'auto_news_batch' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
 /** Testo dell'ordine a cui la risposta `move_accepted` attribuisce un esito accettato. */
 let moveOrderText = '';
 /** projectId da copiare nell'outcome di chiusura del fixture F01. */
