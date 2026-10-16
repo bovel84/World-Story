@@ -1643,10 +1643,12 @@ describe('NPC WAR-COST RESIDUI — P0-D2: ordini per fronte, capacità struttura
     (planned as any).warFronts.advanceFronts(30, '2026-01-31', { legacyOrdersByFront: orders });
     expect(pressureOf(planned, FRONT_ITA, AUT)).toBeGreaterThan(0);
     expect(pressureOf(planned, FRONT_HUN, AUT)).toBe(0);
-    // Stesso mondo **senza** piano: là AUT combatte (nessuna ritirata gratuita),
-    // quindi lo zero di sopra viene dal piano per-fronte, non dal caso.
+    // Stesso mondo e stesso piano, ma senza forzare la ritirata su HUN:
+    // l'ordine 'defend' del suo fronte produce pressione positiva. Il
+    // confronto isola il singolo ordine invece di cambiare anche percorso
+    // di materializzazione NPC (live senza piano vs tick pianificato).
     const fallback = multiFrontGame();
-    (fallback as any).warFronts.advanceFronts(30, '2026-01-31');
+    (fallback as any).warFronts.advanceFronts(30, '2026-01-31', { legacyOrdersByFront: plan.legacyOrdersByFront });
     expect(pressureOf(fallback, FRONT_HUN, AUT)).toBeGreaterThan(0);
   });
 
