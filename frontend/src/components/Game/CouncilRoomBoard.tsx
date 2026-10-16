@@ -39,6 +39,52 @@ function MeasureRow({ measure, onExclude, busy }: { measure: DecisionMeasure; on
   );
 }
 
+/** Presentazione dei soli fatti certificati dal server. Mai reinterpretare i valori. */
+type VerifiedFact = NonNullable<CouncilRoomState['sourceIssue']>['verifiedFacts'][number];
+
+function factValueWithoutRepeatedLabel(label: string, raw: string): string {
+  const cleanLabel = label.trim().replace(/:\\s*$/, '');
+  const cleanValue = raw.trim();
+  const repeatedPrefix = `${cleanLabel}:`;
+  return cleanValue.toLocaleLowerCase().startsWith(repeatedPrefix.toLocaleLowerCase())
+    ? cleanValue.slice(repeatedPrefix.length).trim()
+    : cleanValue;
+}
+
+function VerifiedFactCard({ fact }: { fact: VerifiedFact }) {
+  const value = factValueWithoutRepeatedLabel(fact.label, fact.value);
+  // Cataloghi già separati dal server da ';': presentali come elenco senza
+  // cambiare né ordinamento né contenuto, e non tagliare le voci nascoste.
+  const catalog = /fabbric|stabiliment|port|mini(e|er)|aeroport|infrastruttur/i.test(fact.label)
+    && value.includes(';');
+  const items = catalog ? value.split(';').map(item => item.trim()).filter(Boolean) : [];
+  return (
+    <li className="council-fact" data-fact-key={fact.key}>
+      <span className="council-fact-label">{fact.label.replace(/:\\s*$/, '')}</span>
+      {items.length > 1 ? (
+        <>
+          <span className="council-fact-count">{items.length} elementi</span>
+          <ul className="council-fact-items">
+            {items.slice(0, 3).map((item, index) => <li key={index}>{item}</li>)}
+          </ul>
+          {items.length > 3 && (
+            <details className="council-fact-more">
+              <summary>Mostra altri {items.length - 3}</summary>
+              <ul className="council-fact-items">
+                {items.slice(3).map((item, index) => <li key={index}>{item}</li>)}
+              </ul>
+            </details>
+          )}
+        </>
+      ) : <strong className="council-fact-value">{value}</strong>}
+      <details className="council-fact-source">
+        <summary>Fonte verificata</summary>
+        <span>{fact.source} · <code>{fact.sourceRef}</code></span>
+      </details>
+    </li>
+  );
+}
+
 /** One question and one live proposal; declarations remain attributed to their speakers. */
 export function CouncilRoomBoard({
   room, busy = false, canPrepare = false, onConfirm, onExclude, onPrepare, onConvene, children,
@@ -133,10 +179,17 @@ export function CouncilRoomBoard({
       {room.sourceIssue && <>
         <section className="council-board-section council-board-verified-facts" aria-label="FATTI VERIFICATI">
           <h3>FATTI VERIFICATI</h3>
-          <ul className="council-board-list">{room.sourceIssue.verifiedFacts.map(fact => <li key={fact.key} data-fact-key={fact.key}>
-            <span>{fact.label}: <strong>{fact.value}</strong></span>
-            <span className="council-board-fact-source">{fact.source} · {fact.sourceRef}</span>
-          </li>)}</ul>
+          <ul className="council-facts-grid">
+            {room.sourceIssue.verifiedFacts.slice(0, 5).map(fact => <VerifiedFactCard key={fact.key} fact={fact} />)}
+          </ul>
+          {room.sourceIssue.verifiedFacts.length > 5 && (
+            <details className="council-facts-more">
+              <summary>Altri {room.sourceIssue.verifiedFacts.length - 5} fatti verificati</summary>
+              <ul className="council-facts-grid">
+                {room.sourceIssue.verifiedFacts.slice(5).map(fact => <VerifiedFactCard key={fact.key} fact={fact} />)}
+              </ul>
+            </details>
+          )}
           <details className="council-board-issue-sources"><summary>Riferimenti verificati</summary>
             <ul>{room.sourceIssue.sourceRefs.map(ref => <li key={ref}>{ref}</li>)}</ul>
           </details>
