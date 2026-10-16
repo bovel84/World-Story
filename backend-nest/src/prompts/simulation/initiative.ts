@@ -21,6 +21,24 @@ export function buildNarrativeInitiative(): string {
 `;
 }
 
+/**
+ * Editorial contract for the existing single simulation call. The format and
+ * validation stay in the canonical engine; these rules only improve coverage,
+ * specificity and continuity of its dated historical dispatches.
+ */
+export function buildWorldChronicleGuide(): string {
+  return `
+[CRONACA STORICA MONDIALE — qualità dei dispacci]
+- Produci una TIMELINE di fatti datati, come un giornale storico: alterna, SE sostenuti dalle fonti del turno, politica interna, crisi sociali, economia straordinaria, diplomazia, conflitti, iniziative degli NPC e catastrofi già documentate. Non ridurre il mondo alle chat e non nominare il governo del giocatore quando è estraneo.
+- Ogni headline è un fatto SPECIFICO (chi compie/subisce che cosa e dove), non "tensioni" o "aggiornamenti". La description sviluppa in 3–5 frasi scorrevoli: antefatto verificabile → svolta del periodo → soggetti e luogo → conseguenza immediata → questione aperta. Alterna gli incipit ed evita la ripetizione del titolo in apertura. Nei casi storicamente decisivi puoi dettagliare di più senza gonfiare tutti gli eventi.
+- Bilancia il primo piano nazionale con almeno un teatro indipendente QUANDO vi sono filoni, agende o fatti aperti documentati per quel teatro. Un solo dispaccio può essere pienamente nazionale; un fatto fra NPC resta tale anche se il giocatore guarda da lontano. Non inserire una nazione o una crisi soltanto per variare la geografia.
+- Non ripetere notizie chiuse o già presenti nella timeline: mostra una fase NUOVA (decisione, mobilitazione, voto, conseguenza, negoziato, tregua), coerente con le date e con l'esito precedente. Lo stesso filone può riapparire solo se si è sviluppato.
+- STORIA ALTERNATIVA: il preset e le baseline danno antefatti e interessi, NON un calendario futuro inevitabile. Dopo la data di divergenza nessun fatto della storia reale è automaticamente avvenuto: deve emergere dalle condizioni attuali. Se non conosci con certezza giorno, cifra, nome o esito, non inventare una precisione: resta sul fatto verificabile e sulla data del periodo simulato.
+- Geografia: nomina luogo e nazione solo se presenti nel contesto verificato. Se un evento modifica davvero territorio, unità o infrastrutture, usa mapChanges canoniche nello stesso evento; per crisi umanitarie, riforme annunciate o fatti puramente narrativi usa mapChanges:[] senza marker inventati.
+- La reaction racconta una scelta NPC nella cronaca, NON è una chat. Crea startChat soltanto se un evento presenta una richiesta diplomatica diretta al governo del giocatore; gli altri eventi restano consultabili nella timeline. Rispetta sempre contratto JSON/NDJSON, opzioni NPC e limite eventi del motore.
+`;
+}
+
 /** Sources previously absent from the compact path and from some preset overrides.
  * Independent caps keep a long government brief from hiding crises/commitments. */
 export function buildNarrativeSituationSources(vars: PromptVariables): string {
@@ -56,12 +74,16 @@ export function buildWorldNarrativeContext(input: {
     .map(thread => `Filone ${thread.id}: ${thread.title}. ${thread.summary} ${thread.trajectory ?? ''}`.slice(0, 450));
   const agendas = (input.causes ?? []).filter(c => c.sourceRef.startsWith('agenda:') && c.polityIds?.some(id => allowed.has(id)))
     .map(c => `${c.sourceRef}: ${c.summary}`.slice(0, 500));
+  // Put recent committed facts alongside the preset's directions, so that
+  // the next dispatch develops a cause rather than replaying a headline.
+  const priorEvents = (input.causes ?? []).filter(c => c.kind === 'prior_event')
+    .slice(0, 2).map(c => `Cronaca già avvenuta, NON ripetere: ${c.summary}`.slice(0, 320));
   const records = (input.situations ?? [])
     .filter(record => allowed.has(record.polityId) && record.startDate === input.startDate && record.startDate <= input.date)
     .slice(0, 9);
   const perNation = Math.min(500, Math.floor(1500 / Math.max(1, records.length)));
   const nations = records.map(record => `${record.countryName} (${record.polityId}), al ${record.startDate}: ${record.situation.slice(0, perNation)}`);
-  if (!threads.length && !nations.length && !agendas.length) return '';
-  return `\n[DIREZIONI DEL MONDO — scenario e interessi, non risultati già accaduti]\n${[...threads, ...agendas, ...nations].join('\n')}
+  if (!threads.length && !nations.length && !agendas.length && !priorEvents.length) return '';
+  return `\n[DIREZIONI DEL MONDO — scenario e interessi, non risultati già accaduti]\n${[...priorEvents, ...threads, ...agendas, ...nations].join('\n')}
 STATO CORRENTE > CRONACA DELLA PARTITA > FILONI DEL PRESET > CONTESTO NAZIONALE. Alla data ${input.date} riprendi solo questioni ancora plausibili: una crisi risolta non riparte perché citata nel contesto iniziale. Le tendenze non sono profezie né effetti materiali. Una nazione può agire per i propri interessi, anche senza una nostra azione; reactions e opzioni restano quelle ammesse dal motore.\n`;
 }
