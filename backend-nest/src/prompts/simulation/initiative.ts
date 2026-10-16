@@ -66,12 +66,15 @@ export function buildWorldNarrativeContext(input: {
   // Use the same selection as the actor whitelist, not the first two threads
   // in the file. A different selection here starved independent theatres.
   const selectedIds = input.causes?.filter(c => c.sourceRef.startsWith('storyline:')).map(c => c.sourceRef.slice(10));
-  const selected = selectedIds ? (input.storylines ?? []).filter(t => selectedIds.includes(t.id))
-    : selectWorldStorylines(input.storylines ?? [], input.playerPolityId, input.date, input.turn);
+  const storylinesById = new Map((input.storylines ?? []).map(t => [t.id, t] as const));
+  const selected = selectedIds ? selectedIds.flatMap(id => {
+    const thread = storylinesById.get(id);
+    return thread ? [thread] : [];
+  }) : selectWorldStorylines(input.storylines ?? [], input.playerPolityId, input.date, input.turn);
   const threads = selected.filter(thread => thread.parties.some(id => allowed.has(id))
     && thread.state !== 'risolto' && thread.state !== 'congelato'
     && (!thread.active_from || thread.active_from <= input.date) && (!thread.active_until || thread.active_until >= input.date))
-    .map(thread => `Filone ${thread.id}: ${thread.title}. ${thread.summary} ${thread.trajectory ?? ''}`.slice(0, 450));
+    .map(thread => `Filone ${thread.id}: ${thread.title}. ${thread.summary} ${thread.trajectory ?? ''}`.slice(0, 360));
   const agendas = (input.causes ?? []).filter(c => c.sourceRef.startsWith('agenda:') && c.polityIds?.some(id => allowed.has(id)))
     .map(c => `${c.sourceRef}: ${c.summary}`.slice(0, 500));
   // Put recent committed facts alongside the preset's directions, so that
