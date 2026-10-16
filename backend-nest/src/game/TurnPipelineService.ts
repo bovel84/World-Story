@@ -170,10 +170,9 @@ export class TurnPipelineService {
 
       // jumpDays <= 0 — auto-jump «к следующему важному событию» (горизонт — год)
       const autoJump = jumpDays <= 0;
-      // In auto-jump ogni ordine in coda ha diritto al proprio evento, ma il
-      // salto non si ferma al primo fatto di cronaca: il budget condiviso col
-      // prompt consente di attraversare i fatti di contorno fino alla decisione
-      // NPC che risponde agli ordini (o al tetto, se nessuno decide).
+      // Senza ordini, raccogli un piccolo lotto di notizie mondiali dalla
+      // stessa generazione; con ordini, interrompi sulla prima risposta
+      // decisiva NPC. Il budget è condiviso con il prompt.
       const autoJumpEventLimit = autoJumpEventBudget(actions.length);
       simulationRunId = shortId();
       this.ctx.coordinator.setActiveRunId(simulationRunId);
@@ -257,9 +256,8 @@ export class TurnPipelineService {
       }>();
       let consumedEvents = 0;
       let intervened = false;
-      // Auto-jump: applicata la decisione NPC che risponde agli ordini, il
-      // salto si ferma lì. Gli eventi successivi (conseguenze oltre la
-      // decisione) restano fuori dal checkpoint e si gestiranno al prossimo salto.
+      // Auto-jump: con ordini ci si ferma alla decisione NPC; senza ordini
+      // ci si ferma dopo un lotto limitato di notizie documentate.
       let autoJumpStopReached = false;
       const acceptEvent = (event: SimulationEvent, index: number, apply: boolean): boolean => {
         consumedEvents = Math.max(consumedEvents, index + 1);
@@ -279,8 +277,8 @@ export class TurnPipelineService {
           proposedEvents.push(canonicalEvent);
           return true;
         }
-        // Con ordini attendiamo la decisione NPC; senza ordini basta il primo
-        // sviluppo canonico, anche interno. Non applicare i record successivi.
+        // Con ordini attendiamo la decisione NPC; senza ordini raccogliamo
+        // più sviluppi documentati (fino al tetto). Non applicare il seguito.
         if (autoJump && autoJumpStopReached) {
           console.log('[GameSession] Auto-jump: event after the stopping checkpoint ignored');
           return false;
@@ -307,7 +305,7 @@ export class TurnPipelineService {
         appliedEvents.push(canonicalEvent);
         // La decisione che chiude il salto entra nel checkpoint; le sue
         // conseguenze successive no (il controllo è DOPO l'applicazione).
-        if (autoJump && isAutoJumpStop(canonicalEvent, actions.length)) {
+        if (autoJump && isAutoJumpStop(canonicalEvent, actions.length, appliedEvents.length)) {
           autoJumpStopReached = true;
         }
         // È una sola anteprima narrativa: nessun delta o data viene ancora
