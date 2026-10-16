@@ -6,8 +6,9 @@ export interface WorldStorylineSource {
   trajectory?: string; active_from?: string; active_until?: string; state?: string;
 }
 
-/** One nearby thread and one independent theatre. Rotation is replayable and
- * changes attention, never creates an event or reopens a resolved storyline. */
+/** Up to three causal threads: one nearby and two independent theatres.
+ * Deterministic rotation changes attention, never invents or reopens facts.
+ * One extra source costs a few hundred characters, no extra LLM calls. */
 export function selectWorldStorylines<T extends WorldStorylineSource>(
   threads: readonly T[], playerId: string, date: string, turn = 1,
 ): T[] {
@@ -21,7 +22,8 @@ export function selectWorldStorylines<T extends WorldStorylineSource>(
   const national = rotate(active.filter(t => t.parties.includes(playerId)));
   const independent = rotate(active.filter(t => !t.parties.includes(playerId)));
   return national.length && independent.length
-    ? [national[0], independent[0]] : [...national, ...independent].slice(0, 2);
+    ? [national[0], ...independent.slice(0, 2)]
+    : [...national, ...independent].slice(0, 3);
 }
 
 interface WorldCauseInput {
