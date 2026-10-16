@@ -212,7 +212,7 @@ function jumpResponse(): any {
       return {
         events: [{
           headline: 'La Polonia invita la Francia a un vertice',
-          description: 'La Polonia interpella soltanto la Francia: la ФРГ non è coinvolta.',
+          description: 'La Polonia interpella soltanto la Francia per i colloqui commerciali regionali.',
           date: '1951-03-10', mapChanges: [],
         }],
         narration: 'Il vertice riguarda solo le due nazioni NPC.',
