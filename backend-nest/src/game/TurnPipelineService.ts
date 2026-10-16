@@ -117,6 +117,7 @@ export class TurnPipelineService {
     const timeJump = jumpDays <= 0
       ? adaptiveAutoHorizon({
           currentDate: this.state.currentDate, hasOrders: actions.length > 0,
+          crisisLevel: gameRepository.getCrisisState(this.ctx.gameId)?.overall,
           pressures: activePressures,
         })
       : jumpHorizon(jumpDays);
