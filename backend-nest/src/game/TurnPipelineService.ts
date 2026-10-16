@@ -14,7 +14,7 @@
 import path from 'path';
 import db, { withCanonicalTransaction } from '../database';
 import { chatRepository, gameRepository, relationshipRepository, worldRepository } from '../repositories';
-import { addDays, dateInPeriod, jumpHorizon, resolvePeriod } from '../core/simulation/calendar';
+import { adaptiveAutoHorizon, addDays, dateInPeriod, jumpHorizon, resolvePeriod } from '../core/simulation/calendar';
 import { applyStagedStrictEffects, assertExecutableStrictEffects } from '../core/simulation/TurnOrchestrator';
 import { isAutoJumpStop } from '../core/simulation/EventBudget';
 import { projectProgress } from '../core/simulation/MilitaryProduction';
@@ -110,7 +110,16 @@ export class TurnPipelineService {
     idempotencyKey?: string,
   ): Promise<PendingAction[] | PausedBatchResult | CompletedBatchResult> {
     // Validate before taking a snapshot or mutating the queue.
-    const timeJump = jumpHorizon(jumpDays);
+    const activePressures = jumpDays <= 0
+      ? gameRepository.listPressures(this.ctx.gameId, 'active')
+        .filter(pressure => pressure.polityId === this.state.playerPolityId)
+      : [];
+    const timeJump = jumpDays <= 0
+      ? adaptiveAutoHorizon({
+          currentDate: this.state.currentDate, hasOrders: actions.length > 0,
+          pressures: activePressures,
+        })
+      : jumpHorizon(jumpDays);
     // Admission is not an execution permit: restored queues and assets lost
     // since signing are checked against the LIVE map, before any side effect.
     this.ctx.orders.assertExecutableOrders(actions, this.state.regions.values());
@@ -168,7 +177,7 @@ export class TurnPipelineService {
         for (const action of actions) rejectDirectMaterialCommand(action.text);
       }
 
-      // jumpDays <= 0 — auto-jump «к следующему важному событию» (горизонт — год)
+      // jumpDays <= 0 — auto-jump fino al prossimo sviluppo nel breve orizzonte adattivo.
       const autoJump = jumpDays <= 0;
       // Il numero di eventi non è limitato per turno: valgono solo la
       // finestra temporale, la causalità e il budget tecnico del provider.
