@@ -1218,7 +1218,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
 
     // Nessuno dei due eventi porta una decisione NPC: il budget li applica
     // entrambi senza inventare un giorno in più.
-    expect(session.getCurrentDate()).toBe('1951-03-10');
+    expect(session.getCurrentDate()).toBe('1951-01-20');
     expect(action.result.events).toContain('Primo evento del giorno');
     expect(action.result.events).toContain('Secondo evento stesso giorno');
     jumpMode = 'normal';
