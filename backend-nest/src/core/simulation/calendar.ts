@@ -26,12 +26,13 @@ export function jumpHorizon(days: number): number {
 export function adaptiveAutoHorizon(input: {
   currentDate: string;
   hasOrders: boolean;
+  crisisLevel?: 'calm' | 'watch' | 'critical' | null;
   pressures?: readonly { severity: number; deadlineDate?: string | null }[];
 }): number {
   const pending = input.pressures || [];
-  const high = pending.some(p => Number(p.severity) >= 3);
-  const elevated = pending.some(p => Number(p.severity) >= 2);
-  const base = input.hasOrders ? 90 : high ? 14 : elevated ? 30 : 60;
+  const high = input.crisisLevel === 'critical' || pending.some(p => Number(p.severity) >= 3);
+  const elevated = input.crisisLevel === 'watch' || pending.some(p => Number(p.severity) >= 2);
+  const base = high ? 14 : elevated ? 30 : input.hasOrders ? 90 : 60;
   const upcoming = pending
     .map(p => p.deadlineDate ? daysBetween(input.currentDate, p.deadlineDate) : 0)
     .filter(days => days > 0);
