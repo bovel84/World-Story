@@ -47,11 +47,11 @@ export function buildOrderCoverageRule(vars: PromptVariables): string {
 
 export function buildAutoJumpInstruction(vars: PromptVariables, eventBudget = 1): string {
   if (!vars.PLAYER_ACTIONS_THIS_ROUND?.trim()) {
-    return `\nRegole auto-jump senza ordini:
-- Fermati al primo sviluppo significativo di una causa documentata entro il ${vars.TARGET_ROUND_DATE}: anche una richiesta interna, un processo o un'opportunità può richiedere l'attenzione del governo.
-- Emetti quell'evento e usa la sua data come targetDate. Non aspettare una risposta straniera a ordini inesistenti e non inventare reactions per fermare il salto. La nazione del giocatore non prende nuove iniziative senza ordine.
-- Se non esiste uno sviluppo plausibile entro l'orizzonte, non emettere eventi e completa con targetDate:null.
-- Questa regola prevale sui preset che chiedono di distribuire eventi sull'intero periodo.`;
+    return `\nRegole auto-jump senza ordini — CRONACA DEL MONDO:
+- Non fermarti automaticamente al primo dispaccio. Cerca fino a 3 sviluppi distinti e datati entro il ${vars.TARGET_ROUND_DATE}: uno nazionale se esiste una pressione concreta e altri da filoni indipendenti degli NPC, oppure fasi nuove di una stessa crisi.
+- Emetti ogni evento verificabile in ordine cronologico nello stesso stream NDJSON e concludi con targetDate pari alla data dell'ULTIMO evento emesso. Se hai soltanto uno o due fatti documentati, emetti solo quelli; non inventare eventi o guerre per arrivare a tre.
+- Eventi interni e fra nazioni terze possono coesistere senza una chat. Non chiedere una risposta straniera a ordini inesistenti né agire per il governo del giocatore. Se nessun fatto è credibile, non emettere righe event e completa con targetDate:null.
+- Questa regola prevale sulle vecchie istruzioni del preset che fermano la cronaca al primo evento.`;
   }
   // L'auto-jump non si ferma al primo fatto di cronaca: prosegue finché una
   // nazione non decide concretamente in risposta agli ordini del giocatore.
