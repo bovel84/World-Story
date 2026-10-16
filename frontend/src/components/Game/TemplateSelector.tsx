@@ -6,11 +6,12 @@
 * esportazione in zip e importazione del preset da archivio zip.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useRef } from 'react';
 import { templatesApi } from '../../services/api';
 import type { TemplateInfo } from '../../services/api';
 import type { WorldTemplate } from '../../types';
-import { PresetEditorModal } from './PresetEditorModal';
+const PresetEditorModal = lazy(() => import('./PresetEditorModal').then(mod => ({ default: mod.PresetEditorModal })));
+
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 interface TemplateSelectorProps {
@@ -282,12 +283,14 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ onSelect, on
       </div>
 
       {editor && (
+        <Suspense fallback={<div className="loading" role="status">Apertura studio preset…</div>}>
         <PresetEditorModal
           templateId={editor.templateId}
           cloneFromTemplateId={editor.cloneFromTemplateId}
           onClose={() => setEditor(null)}
           onSaved={loadTemplates}
         />
+        </Suspense>
       )}
       {showOverwriteConfirm && (
         <ConfirmDialog

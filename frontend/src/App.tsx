@@ -7,8 +7,12 @@ import { Suspense, lazy } from 'react';
 // DISATTIVATO: editor mappe (temporaneo)
 // import { MapEditor, type EditorRegion, type EditorObject } from './components/Editor';
 // import { CreateWorld, type WorldConfig } from './components/WorldBuilder/CreateWorld';
-import { TemplateSelector } from './components/Game/TemplateSelector';
-import { Landing } from './components/Game/Landing';
+// Le schermate sono scaricate quando il giocatore le apre: la landing non
+// paga il costo della mappa, dello studio preset e dei pannelli del Governo.
+const Landing = lazy(() => import('./components/Game/Landing').then(mod => ({ default: mod.Landing })));
+const TemplateSelector = lazy(() => import('./components/Game/TemplateSelector').then(mod => ({ default: mod.TemplateSelector })));
+const CountryStage = lazy(() => import('./components/Game/CountryStage').then(mod => ({ default: mod.CountryStage })));
+const GameScreen = lazy(() => import('./components/Game/GameScreen').then(mod => ({ default: mod.GameScreen })));
 const LLMSettingsModal = lazy(() => import('./components/Game/LLMSettingsModal'));
 import { hasSeenOpening } from './components/Game/openingFlag';
 import { GameLoader, WORLD_GEN_PHASES } from './components/Game/GameLoader';
@@ -24,8 +28,6 @@ import { useWorldAdvance } from './hooks/useWorldAdvance';
 import { useResumeSave } from './hooks/useResumeSave';
 import { useShellState } from './hooks/useShellState';
 import { useAppLifecycle } from './hooks/useAppLifecycle';
-import { CountryStage } from './components/Game/CountryStage';
-import { GameScreen } from './components/Game/GameScreen';
 import { GameModals } from './components/Game/GameModals';
 import { useToast } from './components/ui/ToastProvider';
 
@@ -280,6 +282,7 @@ function App() {
       {loading && currentView === 'menu' && (
         <GameLoader title="Caricamento dati di gioco…" />
       )}
+      <Suspense fallback={<div className="loading" role="status">Caricamento interfaccia…</div>}>
       {currentView === 'menu' && renderMenu()}
       {currentView === 'select-template' && (
         <TemplateSelector
@@ -319,6 +322,7 @@ function App() {
         />
       )}
       {currentView === 'game' && renderGame()}
+      </Suspense>
       {/* Menu di scelta del modello IA (Landing + pannello di gioco) */}
       {showLLMSettings && (
         <Suspense fallback={null}>

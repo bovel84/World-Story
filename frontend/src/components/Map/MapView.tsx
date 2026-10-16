@@ -118,7 +118,13 @@ export const MapView: React.FC<MapViewProps> = ({
   // legacy x/y SVG. Per quelli con solo lat/lng convertiamo nello spazio SVG
   // (proiezione equirettangolare, coerente con il viewBox 2000x1500) così
   // restano ancorati alla mappa e scalano con zoom/schermo.
-  const allObjects = regions.flatMap(r => (r.objects || []).map(o => {
+  // Drag e hover aggiornano spesso il componente: coordinate e centroidi
+  // dipendono dalle geometrie, non dalla posizione del puntatore.
+  const centroids = useMemo(
+    () => new Map(regions.map(region => [region.id, getCentroid(region.svgPath || '')])),
+    [regions],
+  );
+  const allObjects = useMemo(() => regions.flatMap(r => (r.objects || []).map(o => {
     if (o.x !== undefined && o.y !== undefined) return o;
     if (typeof o.lat === 'number' && typeof o.lng === 'number') {
       return {
@@ -128,7 +134,7 @@ export const MapView: React.FC<MapViewProps> = ({
       };
     }
     return null;
-  }).filter((o): o is MapObject => !!o));
+  }).filter((o): o is MapObject => !!o)), [regions, width, height]);
 
   // Render dell'oggetto (always on top)
   const renderObject = (obj: MapObject, regionColor?: string) => {
@@ -323,8 +329,8 @@ export const MapView: React.FC<MapViewProps> = ({
               {/* Region label — solo se la regione "merita" di parlare */}
               {showLabel && (
                 <text
-                  x={getCentroid(region.svgPath || '')?.x || width/2}
-                  y={getCentroid(region.svgPath || '')?.y || height/2}
+                  x={centroids.get(region.id)?.x ?? width / 2}
+                  y={centroids.get(region.id)?.y ?? height / 2}
                   fill="#ffffff"
                   fontSize={18}
                   fontWeight={700}
