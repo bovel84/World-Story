@@ -10,7 +10,7 @@
  * Zustand tutto ciò che è già stato globale (gioco, UI, chat, bozza d'ordine).
  * Nessuna logica di gioco nuova: solo presentazione e selezione.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Region } from '../../types';
 import { selectTotalUnread, useActionsStore, useChatStore, useGameStore, useUIStore } from '../../stores';
 import { useOrderDraftStore } from '../../stores/orderDraftStore';
@@ -23,7 +23,7 @@ import { councilPresence } from './governmentDossier';
 import { deriveWorldPresence } from './worldPresence';
 import { deriveStrategicBriefing } from './strategicBriefing';
 import { deriveGameOpening, type GameOpeningBriefing as GameOpeningData } from './openingBriefing';
-import { GameOpeningBriefing, type OpeningDoor } from './GameOpeningBriefing';
+import type { OpeningDoor } from './GameOpeningBriefing';
 import { markOpeningSeen } from './openingFlag';
 import { useOpeningNarrative } from '../../hooks/useOpeningNarrative';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -42,9 +42,11 @@ import { NewsFlash } from './NewsFlash';
 import { SimulationEventReader } from './SimulationEventReader';
 import { GameMenu } from '../Shell/GameMenu';
 import { CommandRail } from '../Shell/CommandRail';
-import { DeskContent } from '../Shell/DeskContent';
-import { GovernmentOffice } from './GovernmentOffice';
-import { ProvinceInspector } from '../Shell/ProvinceInspector';
+// I pannelli ricchi restano fuori dal bundle della mappa finché non servono.
+const DeskContent = lazy(() => import('../Shell/DeskContent').then(mod => ({ default: mod.DeskContent })));
+const GovernmentOffice = lazy(() => import('./GovernmentOffice').then(mod => ({ default: mod.GovernmentOffice })));
+const ProvinceInspector = lazy(() => import('../Shell/ProvinceInspector').then(mod => ({ default: mod.ProvinceInspector })));
+const GameOpeningBriefing = lazy(() => import('./GameOpeningBriefing').then(mod => ({ default: mod.GameOpeningBriefing })));
 import { GameMap } from './GameMap';
 import { deriveRailItems } from './nationalContext';
 import { countOpenQuestions } from './pressureWindow';
@@ -86,6 +88,12 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   } = useOrderDraftStore();
   const totalUnread = useChatStore(selectTotalUnread);
   const { notify } = useToast();
+  // Manteniamo montato il Governo dopo la prima apertura: le sedute in corso
+  // non devono perdere il loro stato quando il giocatore torna alla mappa.
+  const [governmentVisited, setGovernmentVisited] = useState(false);
+  useEffect(() => {
+    if (activeModule === 'orders') setGovernmentVisited(true);
+  }, [activeModule]);
 
   // Legenda mappa: livello attivo e filtri
   const [mapLegendLayer, setMapLegendLayer] = useState<MapLayer>('political');
@@ -247,9 +255,15 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   }), [nation.worldMapAssetsStatus, nation.worldMapAssets, nation.nationalArms?.objects]);
   const worldFacilities = assetSources.facilities;
   const resourceCandidates = assetSources.resources;
-  const thematicModel = useMemo(() => buildThematicMapModel({
-    regions, relationships: nation.relationships, playerPolityId, resourceCandidates, worldFacilities,
-  }), [regions, nation.relationships, playerPolityId, resourceCandidates, worldFacilities]);
+  // Costruire un modello tematico mondiale a ogni aggiornamento del feed è
+  // superfluo: serve solo all'ispettore di una selezione sulla mappa.
+  const thematicModel = useMemo(() => (
+    mapContext && activeModule === 'none'
+      ? buildThematicMapModel({
+          regions, relationships: nation.relationships, playerPolityId, resourceCandidates, worldFacilities,
+        })
+      : null
+  ), [mapContext, activeModule, regions, nation.relationships, playerPolityId, resourceCandidates, worldFacilities]);
 
   const railItems = deriveRailItems({
     activeModule,
@@ -412,6 +426,8 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
 
   return (
     <>
+      {(activeModule === 'orders' || governmentVisited) && (
+        <Suspense fallback={null}>
       <GovernmentOffice
         open={activeModule === 'orders'}
         onClose={closeModule}
@@ -445,6 +461,8 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
           today: currentGame?.currentDate ?? undefined,
         }}
       />
+        </Suspense>
+      )}
       <GameShell
       hud={
         <>
@@ -553,6 +571,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       map={mapContent}
       desk={
         mapContext && activeModule === 'none' ? (
+          <Suspense fallback={<div className="loading" role="status">Caricamento ispettore…</div>}>
           <ProvinceInspector
             context={mapContext}
             index={mapContextIndex}
@@ -561,7 +580,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             operatingPicture={nation.nationalArms?.objects}
             snapshotKey={snapshotKey}
             activeLayer={mapLegendLayer}
-            thematicModel={thematicModel}
+            thematicModel={thematicModel!}
             relationships={nation.relationships}
             changedRegionIds={changedRegions}
             strategicAgenda={nation.strategicAgenda}
@@ -575,7 +594,9 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             onUnitAction={nation.unitAction}
             onUnitOrder={nation.unitOrder}
           />
-        ) : (
+          </Suspense>
+        ) : activeModule !== 'none' && activeModule !== 'orders' ? (
+          <Suspense fallback={<div className="loading" role="status">Caricamento pannello…</div>}>
           <DeskContent
             activeModule={activeModule}
             closeModule={closeModule}
@@ -637,11 +658,13 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
             playerPolityId={playerPolityId}
             currentGameId={currentGame?.id}
           />
-        )
+          </Suspense>
+        ) : null
       }
       deskOpen={(activeModule !== 'none' && activeModule !== 'orders') || mapContext !== null}
     />
       {openingVisible && (
+        <Suspense fallback={null}>
         <GameOpeningBriefing
           briefing={opening}
           onFinish={finishOpening}
@@ -649,6 +672,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
           mapRegions={regions}
           highlightRegionIds={nationalRegions.map(region => region.id)}
         />
+        </Suspense>
       )}
     </>
   );
