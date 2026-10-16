@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PromptEngine } from '../src/prompt-builder';
 import { fixedJumpEventBudget, isAutoJumpStop } from '../src/core/simulation/EventBudget';
-import { buildNarrativeSituationSources } from '../src/prompts/simulation/initiative';
+import { buildNarrativeSituationSources, buildWorldChronicleGuide } from '../src/prompts/simulation/initiative';
 import { buildConstrainedSimulationPrompt } from '../src/prompts/simulation/prompt';
 import type { PromptVariables } from '../src/prompts/types';
 import { buildReactionContext, renderReactionContext } from '../src/core/simulation/ReactionContext';
@@ -62,6 +62,8 @@ describe('narratore: iniziativa causale nella chiamata del turno', () => {
     const prompt = llm.stream.mock.calls[0][2];
     for (const option of data.reactionContextData.allowedOptionIds) expect(prompt).toContain(option);
     expect(prompt).toContain('eventHeadline ESATTO');
+    expect(prompt).toContain('[CRONACA STORICA MONDIALE');
+    expect(prompt).toContain('TIMELINE di fatti datati');
     expect(llm.stream).toHaveBeenCalledTimes(1);
     expect(llm.generate).not.toHaveBeenCalled();
   });
@@ -81,6 +83,7 @@ describe('narratore: iniziativa causale nella chiamata del turno', () => {
     expect(prompt).toContain('Ricostruzione rurale');
     expect(prompt).toContain('Le comunità rurali cercano accesso ai mercati.');
     expect(prompt.match(/\[MONDO VIVO/g)).toHaveLength(1);
+    expect(prompt.match(/\[CRONACA STORICA MONDIALE/g)).toHaveLength(1);
     expect(prompt).toContain('Regole auto-jump senza ordini');
     expect(prompt).not.toContain('Fermati SOLO sull\'evento');
     expect(prompt).not.toContain('NON fermarti al primo fatto');
@@ -92,6 +95,15 @@ describe('narratore: iniziativa causale nella chiamata del turno', () => {
     expect(result.targetDate).toBe('2000-01-02');
     expect(llm.stream).toHaveBeenCalledTimes(1);
     expect(llm.generate).not.toHaveBeenCalled();
+  });
+
+  it('la guida richiede eventi mondiali datati, non copie del futuro storico', () => {
+    const guide = buildWorldChronicleGuide();
+    expect(guide).toContain('TIMELINE di fatti datati');
+    expect(guide).toContain('Dopo la data di divergenza');
+    expect(guide).toContain('mapChanges:[]');
+    expect(guide).toContain('startChat');
+    expect(guide.length).toBeLessThan(2800);
   });
 
   it('il budget lascia spazio al mondo oltre agli esiti degli ordini', async () => {
