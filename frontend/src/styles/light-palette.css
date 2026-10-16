@@ -296,3 +296,256 @@ html, body, #root, .app {
 @media (prefers-reduced-motion: reduce) {
   .landing .landing-planet, .template-selector .template-card { transition: none !important; }
 }
+
+
+/* WS-LIGHT-02 — Mobile contrast repair.
+ * Legacy styles gave selector subcomponents a higher specificity than the
+ * original light tokens: pale labels on white list items, navy headers and
+ * blocked-out action buttons. Keep these styles scoped to the affected UIs. */
+.template-selector, .country-selector {
+  color: #273d32 !important;
+  background: #f7f3e9 !important;
+}
+.template-selector .selector-header,
+.country-selector > .selector-header {
+  background: rgb(245 244 236 / 97%) !important;
+  border-color: #b5cbb9 !important;
+  color: #273d32 !important;
+  box-shadow: 0 3px 12px rgb(32 56 42 / 7%) !important;
+}
+.template-selector .selector-header h2,
+.country-selector > .selector-header h2 {
+  color: #263e33 !important;
+  -webkit-text-fill-color: #263e33 !important;
+}
+.template-selector .btn-back,
+.country-selector > .selector-header .btn-back {
+  background: #fffdf7 !important;
+  border-color: #96b29d !important;
+  color: #30563f !important;
+  -webkit-text-fill-color: #30563f !important;
+}
+.template-selector .btn-back:hover,
+.country-selector > .selector-header .btn-back:hover {
+  background: #e2ecdf !important;
+  color: #254c37 !important;
+}
+.template-selector .template-search,
+.template-selector .btn-studio-toggle,
+.template-selector .btn-new-preset {
+  background: #fffdf7 !important;
+  color: #284638 !important;
+  -webkit-text-fill-color: #284638 !important;
+  border-color: #98b19c !important;
+}
+.template-selector .btn-studio-toggle.active {
+  background: #dce9dc !important;
+  color: #265238 !important;
+  border-color: #4b8160 !important;
+}
+.template-selector .template-grid .template-card {
+  background: #fffdf7 !important;
+  color: #26382f !important;
+  border-color: #c2cebd !important;
+}
+.template-selector .template-card :is(.template-name, .template-description, .template-meta),
+.template-selector .template-card:hover :is(.template-name, .template-description, .template-meta) {
+  color: #26382f !important;
+  -webkit-text-fill-color: #26382f !important;
+}
+
+/* Country selection: fix actual children, not only the container background. */
+.country-selector .template-info {
+  background: #fffdf7 !important;
+  border-color: #bfd0c0 !important;
+  color: #2c4739 !important;
+}
+.country-selector .start-date,
+.country-selector .template-info .map-completeness,
+.country-selector .template-info .map-completeness strong,
+.country-selector .template-lore summary,
+.country-selector .template-lore p {
+  color: #405b49 !important;
+  -webkit-text-fill-color: #405b49 !important;
+}
+.country-selector .country-selector-layout {
+  background: #f7f3e9 !important;
+  border-color: #c5cfbd !important;
+}
+.country-selector .country-selector-map {
+  background: #e3ede4 !important;
+  border-color: #a8bdad !important;
+  box-shadow: 0 6px 20px rgb(36 68 49 / 9%) !important;
+}
+.country-selector .world-select-map {
+  background: #e4efe8 !important;
+}
+.country-selector .world-select-map path.world-country {
+  fill: #d2dfd3 !important;
+  stroke: #91ad9a !important;
+}
+.country-selector .world-select-map path.world-country.available {
+  fill: #a3c1ac !important;
+  stroke: #698b73 !important;
+  opacity: 1 !important;
+}
+.country-selector .world-select-map path.world-country.available:hover {
+  fill: #76a98b !important;
+  stroke: #2a684b !important;
+}
+.country-selector .world-select-map path.world-country.disabled {
+  fill: #e7e8e0 !important;
+  stroke: #bcc9ba !important;
+}
+.country-selector .world-select-map path.world-country.selected {
+  fill: #2f7152 !important;
+  stroke: #194d35 !important;
+  filter: drop-shadow(0 0 3px rgb(20 65 43 / 30%)) !important;
+}
+.country-selector .country-list {
+  background: #eef2e9 !important;
+  border-color: #bdcfbc !important;
+}
+.country-selector .country-list-item,
+.country-selector .country-card {
+  background: #fffdf7 !important;
+  border-color: #c2d0c1 !important;
+  color: #263d32 !important;
+  box-shadow: none !important;
+}
+.country-selector .country-list-item:hover,
+.country-selector .country-card:hover {
+  background: #edf4e9 !important;
+  border-color: #7aa187 !important;
+}
+.country-selector .country-list-item.selected,
+.country-selector .country-card.selected {
+  background: #d7ebdb !important;
+  border-color: #37704f !important;
+  color: #1e4933 !important;
+}
+.country-selector .country-list-item .country-name,
+.country-selector .country-card .country-name {
+  color: #263d32 !important;
+  -webkit-text-fill-color: #263d32 !important;
+}
+.country-selector .country-list-item .country-code,
+.country-selector .country-card .country-code {
+  color: #51695a !important;
+  -webkit-text-fill-color: #51695a !important;
+}
+.country-selector .country-list-item .country-recommended,
+.country-selector .country-card .country-recommended {
+  color: #94621f !important;
+  -webkit-text-fill-color: #94621f !important;
+}
+.country-selector .country-search {
+  background: #fffdf7 !important;
+  color: #263d32 !important;
+  border-color: #9eb69f !important;
+}
+.country-selector .country-confirm-bar {
+  background: rgb(255 253 247 / 97%) !important;
+  border-color: #b3c7b4 !important;
+  color: #2a4636 !important;
+  box-shadow: 0 6px 18px rgb(36 68 49 / 11%) !important;
+}
+.country-selector .country-confirm-label { color: #2b4938 !important; }
+.country-selector .btn-play:not(:disabled) {
+  background: #32644e !important;
+  color: #fffdf7 !important;
+  border-color: #27563d !important;
+}
+.country-selector .btn-play:disabled {
+  background: #dbe5d9 !important;
+  color: #506557 !important;
+  border-color: #a2b7a5 !important;
+  opacity: 1 !important;
+}
+
+/* First screen: light information strips and reliable contrast on controls. */
+.game-shell .compact-briefing {
+  --cb-accent: #426b54;
+  background: #fff9ea !important;
+  color: #294739 !important;
+  border: 1px solid #d6c49d !important;
+  border-left: 4px solid #b28c4c !important;
+  box-shadow: 0 5px 20px rgb(44 63 44 / 12%) !important;
+}
+.game-shell .compact-briefing.level-critical { --cb-accent: #a64435; border-left-color: #a64435 !important; }
+.game-shell .compact-briefing.level-attention { --cb-accent: #936723; border-left-color: #ad7b29 !important; }
+.game-shell .compact-briefing :is(.compact-briefing-status, .compact-briefing-label),
+.game-shell .compact-briefing-list li,
+.game-shell .compact-briefing.level-critical .compact-briefing-status,
+.game-shell .compact-briefing.level-attention .compact-briefing-status,
+.game-shell .compact-briefing.level-stable .compact-briefing-status {
+  color: #604a23 !important;
+}
+.game-shell .compact-briefing-list li.tone-critical .compact-briefing-label { color: #9d3d30 !important; }
+.game-shell .compact-briefing-list li.tone-warning .compact-briefing-label { color: #79551d !important; }
+.game-shell .compact-briefing-list li.tone-opportunity .compact-briefing-label { color: #246847 !important; }
+.game-shell .compact-briefing-open {
+  background: #fdfbf4 !important;
+  color: #31543e !important;
+  border-color: #aabda8 !important;
+}
+.game-shell .compact-briefing-dismiss { color: #566951 !important; }
+
+/* Saved-games card: legacy mobile descendants were forced back to white ink. */
+.landing.landing .landing-save-card :is(h1, h2, h3, strong, b, .landing-save-name) {
+  color: #26382f !important;
+  -webkit-text-fill-color: #26382f !important;
+}
+.landing.landing .landing-save-card :is(.landing-save-meta, .landing-save-date, small, span, p) {
+  color: #596b62 !important;
+  -webkit-text-fill-color: #596b62 !important;
+}
+.landing.landing .landing-save-card { background: #fffdf7 !important; }
+
+/* HUD buttons: neutral background instead of leftover purple/navy surfaces. */
+.game-shell-hud .hud-dispatch-toggle,
+.game-shell-hud .hud-icon-btn,
+.game-shell-hud .hud-date-nav {
+  background: #fffdf7 !important;
+  color: #305842 !important;
+  -webkit-text-fill-color: #305842 !important;
+  border-color: #bdd0be !important;
+}
+.game-shell-hud .hud-dispatch-toggle .hud-dispatch-icon { color: #426d53 !important; }
+.game-shell-hud .hud-bar .hud-turn-badge {
+  background: #a7473b !important;
+  color: #fffdf7 !important;
+  -webkit-text-fill-color: #fffdf7 !important;
+}
+.game-shell-hud .hud-advance-btn {
+  background: #32644e !important;
+  border-color: #28543d !important;
+  color: #fffdf7 !important;
+  -webkit-text-fill-color: #fffdf7 !important;
+}
+.game-shell-hud .hud-date-nav:hover:not(:disabled) {
+  background: #e0ecdf !important;
+}
+.game-shell-hud .hud-date-nav:disabled { opacity: .55; }
+.game-shell-hud .game-menu-dropdown {
+  background: #fffdf7 !important;
+  border-color: #bfcebf !important;
+  box-shadow: 0 10px 32px rgb(38 57 44 / 18%) !important;
+}
+.game-shell-hud .game-menu-item {
+  color: #263d32 !important;
+}
+.game-shell-hud .game-menu-item:hover,
+.game-shell-hud .game-menu-item:focus-visible {
+  background: #e7f0e5 !important;
+  color: #254735 !important;
+}
+.game-shell-hud .game-menu-sep { background: #d3ddd0 !important; }
+
+@media (max-width: 720px) {
+  .template-selector .selector-header, .country-selector > .selector-header {
+    box-shadow: 0 2px 9px rgb(34 61 42 / 9%) !important;
+  }
+  .country-selector .country-list { max-height: min(42dvh, 410px) !important; }
+  .game-shell .compact-briefing { margin-inline: 8px; }
+}
