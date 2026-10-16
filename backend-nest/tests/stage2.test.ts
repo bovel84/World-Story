@@ -1113,7 +1113,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
     expect(action.result.narration).toContain('La Polonia risponde alla proposta tedesca.');
     expect(action.result.narration).not.toContain('crisi futura');
     expect(capturedPrompt).toContain('Questa modalità PREVALE su qualunque istruzione del preset');
-    expect(capturedPrompt).toContain('Fermati SOLO sull\'evento che contiene quella decisione');
+    expect(capturedPrompt).toContain('Fermati sull\'evento che contiene quella decisione');
     expect(capturedPrompt).toContain('"targetDate":null');
     expect(capturedPrompt).toContain("oppure prendere un'iniziativa propria SOLO se deriva");
     jumpMode = 'normal';
