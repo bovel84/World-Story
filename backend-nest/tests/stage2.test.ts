@@ -939,9 +939,15 @@ describe('Этап 2: rewind', () => {
     const { gameId, session } = createGame();
     const dateBefore = session.getCurrentDate();
     const turnBefore = session.getCurrentTurn();
+    const sse: Array<{ type: string; data: any }> = [];
+    session.setSSEBroadcaster((type: string, data: any) => sse.push({ type, data }));
 
     session.queueAction('Атаковать Польшу');
     await session.processNextAction(30);
+    const oldRun = db.prepare('SELECT id FROM simulation_runs WHERE game_id = ? ORDER BY rowid DESC LIMIT 1')
+      .get(gameId) as { id: string };
+    expect((db.prepare('SELECT COUNT(*) AS n FROM simulation_events WHERE run_id = ?')
+      .get(oldRun.id) as any).n).toBeGreaterThan(0);
 
     // Ход применился
     expect(session.getRegion(`${WORLD_ID}_POL`).owner).toBe('DEU');
@@ -961,6 +967,16 @@ describe('Этап 2: rewind', () => {
     const results = db.prepare('SELECT COUNT(*) AS n FROM turn_results WHERE game_id = ?').get(gameId);
     expect(actions.n).toBe(0);
     expect(results.n).toBe(0);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM simulation_events WHERE run_id = ?')
+      .get(oldRun.id) as any).n).toBe(0);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM simulation_checkpoints WHERE run_id = ?')
+      .get(oldRun.id) as any).n).toBe(0);
+    expect((db.prepare('SELECT status FROM simulation_runs WHERE id = ?')
+      .get(oldRun.id) as any).status).toBe('interrupted');
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM simulation_outbox
+      WHERE run_id = ? AND delivery_state = 'pending'`).get(oldRun.id) as any).n).toBe(0);
+    const reset = sse.filter(event => event.type === 'turn_complete').at(-1)?.data;
+    expect(reset).toMatchObject({ rewound: true, resetTimeline: true, events: [], eventDetails: [], newDate: dateBefore });
 
     // Снапшот потреблён — второй откат подряд невозможен
     expect(session.canRewind()).toBe(false);
