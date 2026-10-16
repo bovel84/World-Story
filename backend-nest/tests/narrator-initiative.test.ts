@@ -110,6 +110,17 @@ describe('narratore: iniziativa causale nella chiamata del turno', () => {
     expect(llm.generate).not.toHaveBeenCalled();
   });
 
+  it('anche il salto fisso non tronca gli eventi oltre la vecchia stima', async () => {
+    const llm = router('glm-5.3-flash', 8);
+    const result = await new PromptEngine(llm as any).runSimulation(game(false), [], 30);
+    expect(fixedJumpEventBudget(30, 0)).toBe(3);
+    expect(result.events).toHaveLength(8);
+    expect(result.events.at(-1)?.date).toBe('2000-01-09');
+    const prompt = llm.stream.mock.calls[0][2];
+    expect(prompt).not.toContain('Genera massimo 3 eventi');
+    expect(llm.stream).toHaveBeenCalledTimes(1);
+  });
+
   it('la guida richiede eventi mondiali datati, non copie del futuro storico', () => {
     const guide = buildWorldChronicleGuide();
     expect(guide).toContain('TIMELINE di fatti datati');
