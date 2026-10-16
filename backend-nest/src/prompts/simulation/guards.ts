@@ -56,8 +56,9 @@ export function buildAutoJumpInstruction(vars: PromptVariables, _eventBudget = 1
   return `\nRegole auto-jump:
 - Il giocatore ha chiesto di avanzare nel tempo FINO ALLA PROSSIMA DECISIONE NPC IMPORTANTE (entro il ${vars.TARGET_ROUND_DATE}).
 - Ogni ordine ha il suo dispaccio, con gli eventi di contorno necessari, senza un limite numerico arbitrario.
-- Fermati sulla decisione NPC che risponde agli ordini: controparte diretta o "counterAction" concreta. La sua data è il campo "targetDate". Non inventare reazioni per interrompere il salto.
-- Se non esiste una risposta verificabile nell'orizzonte, completa con targetDate:null, preservando solo gli eventi che hanno una causa documentata.`;
+- Fermati sull'evento che contiene quella decisione NPC: la risposta di una controparte diretta o una "counterAction" concreta. La data dell'evento è il campo "targetDate". Non inventare reazioni per interrompere il salto.
+- Se non esiste una risposta verificabile nell'orizzonte, completa con targetDate:null, preservando solo gli eventi che hanno una causa documentata.
+- Questa modalità PREVALE su qualunque istruzione del preset che chieda di procedere oltre la decisione NPC.`;
 }
 
 /**
