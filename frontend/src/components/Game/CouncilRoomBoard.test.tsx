@@ -6,6 +6,7 @@ import {
 } from './councilRoom';
 import { applyDecisionBatch } from './decisionWorkspace';
 import { seatSpeaker } from './councilMeeting';
+import type { CouncilIssue } from '../../services/api';
 
 function roomWithProposal(): CouncilRoomState {
   const room = createCouncilRoom({ id: 'council-1', scopeKey: 'turn-1', initiatorMinister: 'lavori' });
@@ -67,6 +68,39 @@ describe('CouncilRoomBoard — Tavola del Consiglio', () => {
     expect(html).not.toContain('Conferma proposta');
     expect(button(html, 'Prepara bozza comune')).toContain('disabled');
     expect(html).toContain('Nessuna misura definita');
+  });
+
+  it('formats server facts without losing sources, catalog entries or overflow facts', () => {
+    const verifiedFacts: CouncilIssue['verifiedFacts'] = [
+      { key: 'cash', label: 'Tesoreria', value: '8,3 mld USD', source: 'national_economy', sourceRef: 'worldState.resources.stock.money' },
+      { key: 'balance', label: 'Saldo mensile', value: '1,38 mld USD/mese', source: 'national_economy', sourceRef: 'worldState.accounts.AUS.monthlyBalance' },
+      { key: 'gdp', label: 'PIL nominale', value: '415 mld USD', source: 'national_economy', sourceRef: 'GDP' },
+      { key: 'debt', label: 'Debito su PIL', value: '22%', source: 'national_economy', sourceRef: 'debtRatio' },
+      { key: 'factories', label: 'Fabbriche possedute', value: 'Fabbriche possedute: Victoria; Tasmania; Queensland; Western Australia', source: 'world_map', sourceRef: 'infrastructure.factories' },
+      { key: 'ports', label: 'Porti posseduti', value: 'Porti posseduti: Sydney; Melbourne', source: 'world_map', sourceRef: 'infrastructure.ports' },
+    ];
+    const issue: CouncilIssue = {
+      id: 'issue-facts', title: 'Uso del margine fiscale', question: 'Come investire?',
+      origin: 'advisor', createdDate: '2000-01-01', verifiedFacts,
+      suggestedMinisters: ['tesoro'], sourceRefs: ['national_economy'],
+    };
+    const room = createCouncilRoom({ id: 'facts', scopeKey: 'turn-1', initiatorMinister: 'tesoro', sourceIssue: issue });
+    const html = renderToStaticMarkup(<CouncilRoomBoard room={room} />);
+    const facts = section(html, 'FATTI VERIFICATI');
+
+    expect(facts).toContain('class="council-facts-grid"');
+    expect(facts).toContain('8,3 mld USD');
+    expect(facts).not.toContain('Fabbriche possedute: Fabbriche possedute');
+    expect(facts).toContain('4 elementi');
+    expect(facts).toContain('Mostra altri 1');
+    expect(facts).toContain('Western Australia');
+    expect(facts).toContain('Altri 1 fatti verificati');
+    expect(facts).toContain('Sydney');
+    expect(facts).toContain('Melbourne');
+    expect(facts).toContain('Fonte verificata');
+    expect(facts).toContain('worldState.resources.stock.money');
+    expect(facts).toContain('infrastructure.factories');
+    expect(room.sourceIssue?.verifiedFacts).toEqual(verifiedFacts);
   });
 
   it('renders only the live active shared proposal, including amounts, values, shares and provenance', () => {

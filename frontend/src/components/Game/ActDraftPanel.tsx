@@ -85,7 +85,11 @@ export function ActDraftPanel({ draft, status, busy = false, signDisabled = fals
 
       <label className="act-draft-label" htmlFor={textId}>Testo dell’atto (modificabile dal Presidente)</label>
       {mobile && !editing ? (
-        <p className="act-draft-text-view" data-testid="act-draft-text-view">{draft.text}</p>
+        <div className="act-draft-text-view" data-testid="act-draft-text-view">
+          {draft.text.split(/\n\s*\n/).filter(Boolean).map((paragraph, index) => (
+            <p key={index}>{paragraph.trim()}</p>
+          ))}
+        </div>
       ) : (
         <textarea
           id={textId}
