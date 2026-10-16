@@ -970,6 +970,47 @@ export const gameRepository = {
     })();
   },
 
+  /**
+   * Rewind canonico: invalidate the run and discard its committed future
+   * events/checkpoints. turn_results alone is insufficient: simulation_events
+   * and replayable outbox entries otherwise leave ghost dispatches behind.
+   * Keep the run audit row, but prevent stale idempotency keys from recycling
+   * the discarded result. The restored snapshot is already in place.
+   */
+  discardSimulationFuture: (gameId: string, restoredTurn: number, restoredDate: string): number => {
+    return db.transaction(() => {
+      const rows = db.prepare(`
+        SELECT id FROM simulation_runs
+        WHERE game_id = ? AND
+          (turn >= ? OR (turn IS NULL AND start_date >= ?))
+      `).all(gameId, restoredTurn, restoredDate) as Array<{ id: string }>;
+      if (!rows.length) return 0;
+      const dropEvents = db.prepare('DELETE FROM simulation_events WHERE game_id = ? AND run_id = ?');
+      const dropCheckpoints = db.prepare('DELETE FROM simulation_checkpoints WHERE game_id = ? AND run_id = ?');
+      const dropOutcomes = db.prepare('DELETE FROM simulation_action_outcomes WHERE game_id = ? AND run_id = ?');
+      const silenceOutbox = db.prepare(`
+        UPDATE simulation_outbox SET delivery_state = 'published',
+          published_at = COALESCE(published_at, ?)
+        WHERE game_id = ? AND run_id = ?
+      `);
+      const markRun = db.prepare(`
+        UPDATE simulation_runs SET status = 'interrupted', pending_state = NULL,
+          checkpoint_id = NULL, idempotency_key = NULL, idempotency_hash = NULL,
+          completed_at = COALESCE(completed_at, ?)
+        WHERE game_id = ? AND id = ?
+      `);
+      const at = new Date().toISOString();
+      for (const { id } of rows) {
+        silenceOutbox.run(at, gameId, id);
+        dropEvents.run(gameId, id);
+        dropOutcomes.run(gameId, id);
+        dropCheckpoints.run(gameId, id);
+        markRun.run(at, gameId, id);
+      }
+      return rows.length;
+    })();
+  },
+
   /** Этап 2 (rewind): удалить действия и результаты ходов новее указанного. */
   deleteAfterTurn: (gameId: string, turn: number) => {
     db.prepare('DELETE FROM actions WHERE game_id = ? AND turn > ?').run(gameId, turn);
