@@ -16,7 +16,7 @@ describe('fonti autonome del mondo: cronaca commessa e filoni attivi', () => {
     const thread = (id: string, parties: string[]) => ({ id, title: id, summary: 'S'.repeat(1000), parties });
     const causes = buildWorldReactionCauses({ date: '2000-06-01', playerPolityId: 'KHM', results: [],
       storylines: [thread('distant', ['MYS']), thread('other', ['USA']), thread('national', ['KHM', 'THA'])] });
-    expect(causes.map(cause => cause.sourceRef)).toEqual(['storyline:national', 'storyline:distant']);
+    expect(causes.map(cause => cause.sourceRef)).toEqual(['storyline:national', 'storyline:distant', 'storyline:other']);
     expect(causes.every(cause => cause.summary.length <= 500)).toBe(true);
   });
 
