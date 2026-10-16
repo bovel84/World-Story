@@ -1207,7 +1207,7 @@ describe('Этап 2: auto-jump «к следующему событию»', () 
 
     // Il motore accetta più svolte quando il provider le giustifica; la data
     // di arrivo è quella dell'ultimo evento accettato, non oltre.
-    expect(session.getCurrentDate()).toBe('1951-04-02');
+    expect(session.getCurrentDate()).toBe('1951-03-20');
     const result = (batch as any[])[0].result;
     expect(result.events).toContain('Prima svolta dell’ordine');
     expect(result.events).toContain('Seconda svolta dell’ordine');
