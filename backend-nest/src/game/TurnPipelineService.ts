@@ -525,7 +525,6 @@ export class TurnPipelineService {
       // letto fuori (broadcast/return): callback intera o errore propagato.
       let turnResult!: TurnResultRecord;
       const chatBroadcasts: Array<Record<string, unknown>> = [];
-      let openedChatPolityIds = new Set<string>();
       const polityResolver = this.ctx.buildResolvers().polities;
       for (const change of applyCompletionEffects ? promptResult.relationshipChanges || [] : []) {
         const from = polityResolver.resolve(change.from);
@@ -547,15 +546,15 @@ export class TurnPipelineService {
       if (this.ctx.isStrictGame() && applyCompletionEffects) applyStagedStrictEffects(this.ctx.gameId, gameRepository.getHeadBranch(this.ctx.gameId)!, gameRepository.getWorldRevision(this.ctx.gameId), promptResult.effects || []);
       relationshipRepository.upsertForGame(this.ctx.gameId, persistedRelationshipChanges);
 
-      // Le nazioni possono aprire autonomamente un canale dopo un evento.
-      // In auto-jump entra soltanto una chat legata per titolo a un dispaccio
-      // realmente applicato; nei salti fissi conclusi è valida anche la forma
-      // legacy senza collegamento esplicito.
+      // Le chat sono conseguenze eccezionali di contatti rivolti al giocatore,
+      // non il prodotto automatico di tutte le reazioni internazionali.
       const chatTimelineEvents: TimelineEventRecord[] = [];
       const explicitChatStarts = applyCompletionEffects || (autoJump && !intervened)
         ? promptResult.startChat || []
         : [];
-      const chatStarts = [...explicitChatStarts, ...this.ctx.reactionChatStarts(appliedEvents)];
+      const acceptedHeadlines = new Set(appliedEvents.map(event => event.headline.trim().toLocaleLowerCase('it')));
+      const chatStarts = explicitChatStarts.filter(start =>
+        Boolean(start.eventHeadline?.trim()) && acceptedHeadlines.has(start.eventHeadline!.trim().toLocaleLowerCase('it')));
       const chatEffects = this.ctx.diplomacy.openSimulationChats(
         chatStarts,
         {
@@ -563,7 +562,7 @@ export class TurnPipelineService {
           fallbackDate: period.end,
           simulationId: simulationRunId || undefined,
           events: appliedEvents,
-          requireEventLink: autoJump,
+          requireEventLink: true,
         },
       );
       // GAMEPLAY-LONG: gli impegni nati nel turno entrano nel registro
@@ -579,7 +578,6 @@ export class TurnPipelineService {
       }
       chatTimelineEvents.push(...chatEffects.timelineEvents);
       chatBroadcasts.push(...chatEffects.broadcasts);
-      openedChatPolityIds = chatEffects.participantPolityIds;
 
       // An intention (even a rejected order containing "build") is not a
       // completed construction. Objects are applied only via event mapChanges.
@@ -1064,55 +1062,10 @@ export class TurnPipelineService {
         intervened,
       });
 
-      // Reazioni NPC agli ordini: non solo notizie, ma anche prese di
-      // posizione diplomatiche. Fire-and-forget (turno già committato).
-      if (actions.length > 0) {
-        const reactionCandidates = new Set<string>();
-        for (const change of persistedRelationshipChanges) {
-          if (change.from === this.state.playerPolityId) reactionCandidates.add(change.to);
-          if (change.to === this.state.playerPolityId) reactionCandidates.add(change.from);
-        }
-        if (applyCompletionEffects && promptResult.worldChanges?.regionOwners) {
-          for (const newOwner of Object.values(promptResult.worldChanges.regionOwners)) {
-            const resolved = polityResolver.resolve(String(newOwner || ''));
-            if (resolved && !resolved.isNew) reactionCandidates.add(resolved.polityId);
-          }
-        }
-        // Fallback deterministico per provider che omettono `reactions`:
-        // solo le controparti che il giocatore ha davvero interpellato con
-        // i suoi ordini aprono un canale. Un nome citato di sfondo in un
-        // dispaccio non basta: evitiamo note di comodo da nazioni incoerenti.
-        for (const polityId of this.ctx.mentionedNpcPolityIds(actions.map(action => action.text))) {
-          reactionCandidates.add(polityId);
-        }
-        const hadDirectlyInvolvedPolity = reactionCandidates.size > 0 || openedChatPolityIds.size > 0;
-        // Le politie che hanno già aperto un canale o partecipano a una
-        // riunione generata dall'evento hanno già reagito: non duplicare note.
-        for (const polityId of openedChatPolityIds) reactionCandidates.delete(polityId);
-        // Fallback: soltanto se nessuna controparte diretta è stata rilevata,
-        // un vicino ostile può reagire alla mossa (deterrenza/protesta).
-        if (reactionCandidates.size === 0 && !hadDirectlyInvolvedPolity) {
-          const playerRegions = Array.from(this.state.regions.values()).filter(r => r.owner === this.state.playerPolityId);
-          const frontierOwners = new Set<string>();
-          for (const region of playerRegions) {
-            for (const borderId of region.borders || []) {
-              const neighbour = this.state.regions.get(borderId);
-              if (neighbour && neighbour.owner !== this.state.playerPolityId && neighbour.owner !== 'neutral') {
-                frontierOwners.add(neighbour.owner);
-              }
-            }
-          }
-          const hostile = [...frontierOwners].find(owner => this.ctx.diplomacy.matrix().get(owner, this.state.playerPolityId) === 'hostile');
-          if (hostile) reactionCandidates.add(hostile);
-        }
-        void this.ctx.diplomacy.generateNpcReactions({
-          actionTexts: actions.map(item => item.text),
-          eventHeadlines: turnResult.events.filter((headline: string) => !headline.startsWith('⊘')),
-          candidatePolityIds: [...reactionCandidates],
-          turn: turnResult.turn,
-          date: turnResult.date || this.state.currentDate,
-        }).catch(e => console.warn('[GameSession] NPC reactions failed:', e));
-      }
+      // Le decisioni NPC sono già nel dispaccio strutturato della stessa
+      // chiamata di turno. Nessun secondo LLM per generare chat automatiche.
+      // I contatti diplomatici espliciti passano soltanto da startChat
+      // validato rispetto agli eventi effettivamente applicati.
 
       // Этап 3: проактивный советник — короткий комментарий итогов периода.
       // Fire-and-forget: ход уже успешен, советник не должен его задерживать
