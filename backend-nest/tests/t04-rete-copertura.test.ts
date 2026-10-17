@@ -93,7 +93,7 @@ describe('Advisor questions and contextual alternatives', () => {
     expect(prompt).not.toMatch(/2-5 mosse|\[OPZIONI\]|ordine PRONTO|prudente\/diplomatica/i);
     expect(prompt).toContain('DEVI emettere');
     expect(prompt).toContain('suggestedMinisters');
-    expect(prompt).toContain('2 alternative realmente distinte');
+    expect(prompt).toContain('3-5 azioni realmente distinte');
     expect(prompt).toContain('un costo politico, vincolo o rischio specifico');
     expect(prompt).not.toContain('Le soluzioni devono emergere SOLO nel Consiglio');
     expect(prompt).toContain('"options"');
@@ -113,7 +113,7 @@ describe('Advisor questions and contextual alternatives', () => {
     const result = briefing(undefined, { options: legacyOptions });
     const prompt = buildAdvisorBriefingRepairPrompt(world(), result.situations);
     expect(ADVISOR_BRIEFING_REPAIR_SYSTEM + prompt).not.toMatch(/2-5|\[OPZIONI\]|ordine PRONTO/i);
-    expect(ADVISOR_BRIEFING_REPAIR_SYSTEM).toContain('2 alternative realmente distinte');
+    expect(ADVISOR_BRIEFING_REPAIR_SYSTEM).toContain('3-5 azioni realmente distinte');
     for (const key of ['options', 'situationId', 'signalKeys', 'anchorKeys', 'suggestedMinisters']) expect(ADVISOR_BRIEFING_REPAIR_SYSTEM).toContain(key);
     expect(prompt).not.toContain(legacyOptions[0].content);
     const context = buildRealityAdvisorContext(world()).advisorContext;

@@ -315,6 +315,7 @@
 .advisor-situation-severity[data-importance="3"] { border-color: #817153; background: #3a3222; color: #f0e2c0; }
 .advisor-situation-severity[data-importance="1"] { border-color: #3f6152; background: #223a30; color: #d7e4dc; }
 .advisor-situation-title { margin: 0; font: 600 16px/1.3 Georgia, serif; }
+.advisor-situation-choice-count { display: inline-block; margin-top: 6px; font: 600 12px/1.4 system-ui, sans-serif; color: #89ad9b; }
 .advisor-situation-details { width: 100%; }
 .advisor-situation-toggle { position: relative; min-height: 44px; padding-right: 26px; cursor: pointer; list-style: none; }
 .advisor-situation-toggle::-webkit-details-marker { display: none; }

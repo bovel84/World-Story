@@ -54,6 +54,23 @@ describe('Consulente: situazioni e azioni possibili', () => {
     for (const option of options) { expect(html).toContain(option.title); expect(html).toContain(option.content); }
   });
 
+  it('espone fino a cinque azioni distinte senza troncarle o eseguirle', () => {
+    const five = Array.from({ length: 5 }, (_, index) => ({
+      title: `Strategia ${index + 1}`,
+      content: `Impieghiamo lo strumento politico ${index + 1} per ottenere un risultato distinto, con un compromesso esplicito.`,
+    }));
+    const expandedIssue = { ...issue, options: five };
+    const html = renderToStaticMarkup(<AdvisorSituationsPanel situations={[situation]} issues={[expandedIssue]} onDeepen={() => {}} onOpenIssue={() => {}} />);
+    expect(html).toContain('5 azioni');
+    for (const option of five) expect(html.split(option.content)).toHaveLength(2);
+    const onOpenIssue = vi.fn();
+    const controls = buttons(AdvisorActionOptions({ issue: expandedIssue, onOpenIssue }));
+    expect(controls).toHaveLength(5);
+    controls[4].props.onClick();
+    expect(onOpenIssue).toHaveBeenCalledExactlyOnceWith(expandedIssue, 4);
+    expect(councilActionMessage(expandedIssue, 4)).toContain(five[4].content);
+  });
+
   it('seleziona esattamente una proposta e conserva fonti e questione', () => {
     const onOpenIssue = vi.fn();
     const tree = AdvisorActionOptions({ issue, onOpenIssue });
