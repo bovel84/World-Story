@@ -204,17 +204,17 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
       {loading && <p className="advisor-loading" role="status">{ADVISOR_LOADING_TEXT}</p>}
       {opening && openingMessage && <article className="advisor-entry assistant advisor-opening">
         <div className="entry-meta">Consulente · {opening.date}</div>
-        <GovernmentMessageVisuals message={openingMessage} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap}
-          renderText={hasVisual => <div className="entry-text"><RichText text={safeGovernmentVisualText(openingMessage.content ?? '', hasVisual)} chartData={chartData} /></div>} />
-        <AdvisorQuestionCards situations={opening.situations ?? []} issues={opening.issues ?? []} allSituations={allSituations} allIssues={allIssues}
-          onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming || loading} />
+        <GovernmentMessageVisuals message={openingMessage} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap} compactVisuals
+          renderText={hasVisual => <div className="entry-text"><RichText text={safeGovernmentVisualText(openingMessage.content ?? '', hasVisual)} chartData={chartData} /></div>}
+          belowText={<AdvisorQuestionCards situations={opening.situations ?? []} issues={opening.issues ?? []} allSituations={allSituations} allIssues={allIssues}
+            onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming || loading} />} />
       </article>}
       {activeMessages.map((message, index) => <article key={index} className={`advisor-entry ${message.role}`}>
         <div className="entry-meta">{message.role === 'user' ? 'Presidente' : message.proactive ? 'Bollettino' : 'Consulente'}</div>
-        <GovernmentMessageVisuals message={message} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap}
-          renderText={hasVisual => <div className="entry-text">{message.role === 'assistant' ? <RichText text={safeGovernmentVisualText(message.content, hasVisual)} chartData={chartData} /> : message.content}</div>} />
-        <AdvisorQuestionCards situations={message.situations ?? []} issues={message.issues ?? []} allSituations={allSituations} allIssues={allIssues}
-          onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming} />
+        <GovernmentMessageVisuals message={message} snapshot={visualBucket === bucket ? visualSnapshot : undefined} onFocusMap={onFocusMap} compactVisuals={message.role === 'assistant'}
+          renderText={hasVisual => <div className="entry-text">{message.role === 'assistant' ? <RichText text={safeGovernmentVisualText(message.content, hasVisual)} chartData={chartData} /> : message.content}</div>}
+          belowText={<AdvisorQuestionCards situations={message.situations ?? []} issues={message.issues ?? []} allSituations={allSituations} allIssues={allIssues}
+            onDeepen={deepen} onDeepenIssue={deepenIssue} onOpenIssue={onOpenIssue} activeId={situationFocus?.id} disabled={advisorStreaming} />} />
       </article>)}
       {advisorStreaming && <p className="advisor-typing" role="status" aria-label={ADVISOR_THINKING_TEXT}>
         <span className="advisor-thinking-text">{ADVISOR_THINKING_TEXT}</span><i /><i /><i />
