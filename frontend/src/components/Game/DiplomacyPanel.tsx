@@ -5,16 +5,17 @@
  */
 
 import React, { useEffect, useState } from 'react';
-// DISATTIVATO: trattative (temporaneo) — chatsApi/useChatStore/useUIStore servivano solo per aprire la chat
-import { gameApi } from '../../services/api';
-// import { chatsApi } from '../../services/api';
-// import { useChatStore, useUIStore } from '../../stores';
+import { chatsApi, gameApi } from '../../services/api';
+import { useChatStore, useUIStore } from '../../stores';
+import { useSimulationStore } from '../../stores/simulationRuntime';
+import { findActiveBilateralChat } from './diplomaticChatNavigation';
 import type { Region } from '../../types';
 import { deriveDiplomacyPresence, type DiplomacyEntry } from './diplomacyPresence';
 
 interface DiplomacyPanelProps {
   gameId: string;
-  selectedRegionId: string;
+  selectedRegionId?: string;
+  playerPolityId: string;
   regions: Region[];
 /** Cambia dopo ogni turno (currentTurn) — innesca il ricaricamento della matrice */
   refreshKey?: number | string;
@@ -61,7 +62,7 @@ const FLAG_EMOJI: Record<string, string> = {
 
 export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   gameId,
-  selectedRegionId,
+  playerPolityId,
   regions,
   refreshKey,
 }) => {
@@ -72,6 +73,8 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   const [polityNames, setPolityNames] = useState<Record<string, string> | null>(null);
   const [loading, setLoading] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [openingPolityId, setOpeningPolityId] = useState<string | null>(null);
+  const [negotiationError, setNegotiationError] = useState<string | null>(null);
 
   const fetchRelationships = React.useCallback(async () => {
     try {
@@ -97,30 +100,46 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
     fetchRelationships();
   }, [fetchRelationships, refreshKey]);
 
-  // DISATTIVATO: trattative (temporaneo) — apertura della chat diplomatica con una politia
-  // // Fase 3: aprire le trattative con una politia — creare la chat e spostare il pannello sulla scheda «Diplomazia»
-  // const handleOpenChat = async (polityName: string) => {
-  //   try {
-  //     const { chat } = await chatsApi.create(gameId, polityName);
-  //     const chatStore = useChatStore.getState();
-  //     chatStore.upsertChat(chat);
-  //     chatStore.setActiveChat(chat.id);
-  //     chatStore.setPanelTab('chats');
-  //     useUIStore.getState().setShowActions(true);
-  //     // Carica i messaggi (il backend segna la chat come letta)
-  //     const data = await chatsApi.messages(gameId, chat.id);
-  //     chatStore.setMessages(chat.id, data.messages || []);
-  //     chatStore.markRead(chat.id);
-  //   } catch (e) {
-  //     console.error('[DiplomacyPanel] Impossibile aprire le negoziazioni:', e);
-  //   }
-  // };
+  // The national dossier always represents the player's state, independently
+  // of the last selected province (which may be foreign or absent).
+  const regionOwner = playerPolityId;
+  if (!regionOwner || regionOwner === 'neutral') return null;
 
-  // regionOwner è il polityId del proprietario della regione selezionata
-  const regionOwner = regions.find(r => r.id === selectedRegionId)?.owner;
-  if (!regionOwner || regionOwner === 'neutral') {
-    return null;
-  }
+  const handleOpenChat = async (entry: RelationshipEntry) => {
+    if (openingPolityId || entry.id === playerPolityId || gameId.startsWith('local_')) return;
+    setOpeningPolityId(entry.id);
+    setNegotiationError(null);
+    const commandGeneration = useSimulationStore.getState().commandGeneration;
+    try {
+      // Reopen the ACTIVE bilateral exchange rather than archiving it on every
+      // dossier click. Only a deliberate new thread may archive an old one.
+      const live = await chatsApi.list(gameId);
+      const existing = findActiveBilateralChat(live.chats ?? [], playerPolityId, entry.id);
+      const authoritativeName = polityNames?.[entry.id]?.trim()
+        || regions.find(region => region.owner === entry.id)?.polityName?.trim()
+        || entry.id;
+      const chat = existing ?? (await chatsApi.create(gameId, [authoritativeName])).chat;
+      const { messages } = await chatsApi.messages(gameId, chat.id);
+      // Network replies from a previous game/rewind must not open an old nation's
+      // thread in the new game, nor replace a new active discussion.
+      if (useChatStore.getState().gameId !== gameId
+          || useSimulationStore.getState().commandGeneration !== commandGeneration) return;
+      const store = useChatStore.getState();
+      store.upsertChat(chat);
+      store.setMessages(chat.id, messages ?? []);
+      store.markRead(chat.id);
+      store.setActiveChat(chat.id);
+      store.setPanelTab('chats');
+      useUIStore.getState().openModule('diplomacy');
+      void store.refreshChats();
+    } catch (error) {
+      if (useChatStore.getState().gameId !== gameId
+          || useSimulationStore.getState().commandGeneration !== commandGeneration) return;
+      setNegotiationError(error instanceof Error ? error.message : 'Impossibile aprire le trattative.');
+    } finally {
+      setOpeningPolityId(null);
+    }
+  };
 
   if (!relationships) {
     return (
@@ -140,17 +159,6 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   const allies = entries.filter(e => e.relationship === 'ally');
   const hostiles = entries.filter(e => e.relationship === 'hostile');
 
-  if (entries.length === 0 && presence.neutrals === 0) {
-    return (
-      <div className="diplomacy-panel">
-        <div className="diplomacy-header">
-          <span>Relazioni estere</span>
-        </div>
-        <div style={{ padding: 8, fontSize: 12, color: '#888' }}>Nessun alleato o nemico</div>
-      </div>
-    );
-  }
-
   const closeSelf = () => {
     // Chiude il modulo diplomazia tramite l'evento globale ascoltato da App
     window.dispatchEvent(new CustomEvent('ws:close-module', { detail: 'diplomacy' }));
@@ -167,6 +175,9 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
 
       {!collapsed && (
         <div className="diplomacy-content">
+          <button type="button" className="btn-negotiate" onClick={() => useUIStore.getState().openModule('diplomacy')}
+            aria-label="Apri le chat diplomatiche con tutte le nazioni">Apri le trattative diplomatiche →</button>
+          {negotiationError && <p role="alert">{negotiationError}</p>}
           {allies.length === 0 && hostiles.length === 0 && (
             <div className="diplomacy-section">
               <div className="diplomacy-section-title" style={{ color: REL_COLOR.neutral }}>Nessuna alleanza o ostilità aperta</div>
@@ -188,15 +199,12 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
                   <span className="diplomacy-status-dot" style={{ backgroundColor: REL_COLOR.ally }} />
                   <span className="diplomacy-code">{FLAG_EMOJI[e.id] ? `${FLAG_EMOJI[e.id]} ` : ''}{e.id}</span>
                   <span>{e.name}</span>
-                  {/* DISATTIVATO: trattative (temporaneo)
-                  <button
-                    className="btn-negotiate"
-                    onClick={() => handleOpenChat(e.name)}
-                    title={`Trattative con ${e.name}`}
-                  >
-                    💬 Trattative
+                  <button type="button" className="btn-negotiate"
+                    onClick={() => void handleOpenChat(e)}
+                    disabled={!!openingPolityId || gameId.startsWith('local_')}
+                    aria-label={`Apri trattative con ${e.name}`}>
+                    {openingPolityId === e.id ? 'Apertura…' : '💬 Trattative'}
                   </button>
-                  */}
                 </div>
               ))}
             </div>
