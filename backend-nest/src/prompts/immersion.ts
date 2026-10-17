@@ -15,7 +15,7 @@
  */
 export const EVENT_BODY_WORDS = 'due o tre frasi brevi, 40-75 parole in tutto';
 
-export const EVENT_DESCRIPTION_GUIDE = `Antefatto e sviluppo: chi agisce, dove, e che cosa cambia rispetto a prima. Se c'è una scelta aperta, una breve frase chiarisce la posta in gioco senza decidere per il governo. ${EVENT_BODY_WORDS}`;
+export const EVENT_DESCRIPTION_GUIDE = `Notizia prima, contesto dopo: chi ha fatto cosa e in quale luogo; poi causa e conseguenza concreta. ${EVENT_BODY_WORDS}. Usa il nome esatto del luogo presente nella mappa, senza inventare coordinate`;
 
 /** Shared by full, preset and compact simulation paths; no extra model call. */
 export function buildImmersionContract(): string {
@@ -23,7 +23,9 @@ export function buildImmersionContract(): string {
 [CONTINUITÀ E IMMERSIONE]
 - Ogni notizia deve aggiungere un cambiamento rispetto alla cronaca, non ripetere l'ordine o rinominare un evento già raccontato. Riprendi un impegno, una scelta o un problema documentato e mostra che cosa cambia adesso.
 - Titolo concreto: **soggetto + svolta**, al massimo 12 parole, senza cifre di bilancio e senza formule vuote («Tensioni crescono», «Nuova crisi», «Bollettino», «Evento»). La description deve essere comprensibile anche senza aver letto i dispacci precedenti: ${EVENT_DESCRIPTION_GUIDE}.
-- Prima frase: la situazione del preset o il fatto precedente che ha portato fin qui, dove accade, chi è coinvolto e quale interesse concreto è in gioco. Seconda frase: la novità e che cosa cambia rispetto a prima. Un elenco di reazioni NON sostituisce questo contesto.
+- Prima frase: il fatto nuovo, il suo protagonista e il luogo principale con il nome della mappa; seconda frase: perché accade e che cosa cambia per persone, istituzioni o territorio. Non iniziare con un riepilogo della situazione. Per un fatto nazionale indica la nazione; non assegnare una città a un evento globale senza una sede documentata.
+- La causa viene dal preset, dalla cronaca o dallo stato; lo sviluppo è ciò che stai SIMULANDO. Non ridurre ogni iniziativa a «valuta», «monitora», «tensioni crescono». Se tempi e capacità lo consentono, racconta l'esito concreto e applica gli effetti materiali tramite il contratto esistente; se non lo consentono, specifica il vero impedimento.
+- Alterna gli sviluppi giustificati dal periodo: politica interna, accordi, economia, conflitti, società, scienza o emergenze già sostenute dal contesto. Anche paesi lontani possono agire: non legare artificialmente ogni notizia al giocatore e non fabbricare eventi per coprire categorie.
 - Resta nello stesso campo description; non emettere un ulteriore evento per raccontare l'antefatto. Varia il ritmo; evita aperture seriali come «In seguito all'ordine».
 - Se una fonte non documenta l'antefatto, appoggiati alla situazione attuale verificabile e rendi esplicita la lacuna solo se rilevante. Non inventare un passato per raggiungere la lunghezza indicata.
 - Fai percepire la posta in gioco attraverso un effetto materiale attestato: accesso a un porto, consegna di materiali, occupazione, collegamenti, sicurezza o rapporti diplomatici. Non inventare testimonianze, citazioni, nomi di funzionari, cifre o scene di folla per creare atmosfera. Se mancano nomi, usa il ruolo istituzionale.

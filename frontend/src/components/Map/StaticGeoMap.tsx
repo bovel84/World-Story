@@ -14,7 +14,7 @@ import React, { useMemo, useState } from 'react';
 import type { Region } from '../../types';
 import { buildStaticMap } from './staticMapModel';
 import { webglUnavailableNotice, type WebGLSupport } from './webglSupport';
-import { regionIdsForFocus, type MapRegionFocusRequest } from './mapFocus';
+import { eventCameraViewBox, regionIdsForFocus, type MapRegionFocusRequest } from './mapFocus';
 import { focusViewBox } from '../Game/regionFocus';
 
 export interface StaticGeoMapProps {
@@ -40,7 +40,7 @@ export const StaticGeoMap: React.FC<StaticGeoMapProps> = ({
   const changed = useMemo(() => new Set(changedRegionIds ?? []), [changedRegionIds]);
   const focus = useMemo(() => regionIdsForFocus(focusRegionRequest, new Map(model.paths.map(path => [path.id, path]))), [focusRegionRequest, model]);
   const focused = useMemo(() => new Set(focus), [focus]);
-  const viewBox = useMemo(() => focus.length ? focusViewBox(model.paths.map(path => ({ id: path.id, svgPath: path.path })), focus, 20) : `0 0 ${model.width} ${model.height}`, [focus, model]);
+  const viewBox = useMemo(() => focus.length ? eventCameraViewBox(focusViewBox(model.paths.map(path => ({ id: path.id, svgPath: path.path })), focus, 20), focusRegionRequest) : `0 0 ${model.width} ${model.height}`, [focus, model, focusRegionRequest]);
 
   if (model.paths.length === 0) {
     return (

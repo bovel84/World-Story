@@ -11,6 +11,7 @@ interface NewsFlashProps {
   onNext: () => void;
   onOpenArchive: () => void;
   playerPolityName?: string;
+  locationLabel?: string;
 }
 
 const SECTION: Record<FeedItem['kind'], string> = {
@@ -23,7 +24,7 @@ const SECTION: Record<FeedItem['kind'], string> = {
  * Presenta solo un dispaccio appena arrivato: non legge la timeline e non può
  * quindi anticipare eventi futuri. L'archivio completo resta nella HUD.
  */
-export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive, playerPolityName }: NewsFlashProps) {
+export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive, playerPolityName, locationLabel }: NewsFlashProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   if (!item) return null;
   const category = classifyDispatch(item.text, item.detail);
@@ -42,6 +43,7 @@ export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive, 
           <span className="news-flash-kicker">{SECTION[item.kind]}</span>
           <span className={`feed-item-badge cat-${category.key}`}>{category.label}</span>
           <span className="news-flash-date">{item.date || 'Ora'}</span>
+          {locationLabel && <span className="simulation-reader-location">{locationLabel}</span>}
         </header>
         <div className="news-flash-body">
           <span className="news-flash-mark" aria-hidden="true">▤</span>

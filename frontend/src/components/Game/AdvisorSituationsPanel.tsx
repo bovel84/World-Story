@@ -57,7 +57,8 @@ export function AdvisorSituationsPanel({ situations, issues = [], onDeepen, onOp
           <span className="advisor-situation-severity" data-importance={situation.importance}>{importanceLabel(situation.importance ?? 1)}</span>
           <h5 className="advisor-situation-title">{situation.title}</h5>
           <p className="advisor-situation-summary">{situation.summary}</p>
-          {issue?.suggestedMinisters.length ? <p className="advisor-question-ministers">{issue.suggestedMinisters.map(seatSpeaker).join(' · ')}</p> : null}
+          {issue?.question && <p className="advisor-situation-decision"><strong>Da decidere</strong> {issue.question}</p>}
+          {issue?.suggestedMinisters.length ? <details className="advisor-question-ministers"><summary>Ministri coinvolti</summary>{issue.suggestedMinisters.map(seatSpeaker).join(' · ')}</details> : null}
           <div className="advisor-question-actions">
             <button type="button" className="advisor-situation-deepen" disabled={disabled}
               aria-label={`Approfondisci: ${situation.title}`}

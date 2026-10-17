@@ -2,7 +2,14 @@
 export type MapRegionFocusRequest = (
   | { regionId: string; regionIds?: never }
   | { regionIds: readonly string[]; regionId?: never }
-) & { requestId: number; scopeKey?: string };
+) & { requestId: number; scopeKey?: string; presentation?: 'event'; center?: [number, number] };
+
+/** Leave the lower half for the event sheet in SVG fallbacks, too. */
+export function eventCameraViewBox(viewBox: string, request?: MapRegionFocusRequest | null): string {
+  if (request?.presentation !== 'event') return viewBox;
+  const [x, y, width, height] = viewBox.split(' ').map(Number);
+  return `${x} ${y - height * .3} ${width} ${height * 2.4}`;
+}
 
 /** All-or-nothing canonical validation: never focus a silently reduced territory. */
 export function regionIdsForFocus(

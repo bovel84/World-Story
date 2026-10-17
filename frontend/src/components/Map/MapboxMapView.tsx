@@ -591,14 +591,20 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     map.current?.fitBounds(getBounds(), { padding: 50, duration: 500 });
   }, [getBounds]);
 
-  const focusRegions = useCallback((ids: string[], duration = 500) => {
+  const focusRegions = useCallback((ids: string[], duration = 500, request?: MapRegionFocusRequest) => {
     const bounds = new maplibregl.LngLatBounds();
-    ids.forEach(id => {
+    if (request?.center) bounds.extend(clampLngLat(request.center));
+    else ids.forEach(id => {
       const feature = featuresRef.current.get(id);
       if (feature) eachPosition(feature.geometry, position => bounds.extend(clampLngLat([position[0], position[1]])));
     });
+    const height = map.current?.getContainer().clientHeight ?? 600;
+    const eventReading = request?.presentation === 'event';
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (!bounds.isEmpty()) map.current?.fitBounds(bounds, {
-      padding: { top: 110, bottom: 70, left: 50, right: 50 }, maxZoom: 6, duration,
+      padding: eventReading ? { top: Math.min(110, height * .15), bottom: height * .54, left: 35, right: 35 }
+        : { top: 110, bottom: 70, left: 50, right: 50 },
+      maxZoom: 6, duration: reducedMotion ? 0 : duration,
     });
   }, []);
 
@@ -833,7 +839,7 @@ export const MapboxMapView: React.FC<MapboxMapViewProps> = ({
     if (!mapLoaded || !focusRegionRequest || appliedFocusRequest.current === focusRegionRequest) return;
     const ids = regionIdsForFocus(focusRegionRequest, featuresRef.current);
     if (!ids.length) return; // Retry once canonical geometries reach the source.
-    focusRegions(ids);
+    focusRegions(ids, focusRegionRequest.presentation === 'event' ? 700 : 500, focusRegionRequest);
     appliedFocusRequest.current = focusRegionRequest;
   }, [focusRegionRequest, mapLoaded, focusRegions, sourceRevision]);
 

@@ -4,6 +4,7 @@ import { publicNarrativeText } from '../../services/publicNarrative';
 import type { CheckpointImpact } from './checkpointImpact';
 import { DecisionImpactBlock } from './DecisionImpactBlock';
 import type { DecisionRecord } from './decisionImpact';
+import './simulationEventReader.css';
 
 /** L'ancora canonica della pagina in lettura (§9.3/G22). */
 export interface PlaybackReaderState {
@@ -25,6 +26,7 @@ interface SimulationEventReaderProps {
   onContinue: () => void;
   onIntervene: () => void;
   playerPolityName?: string;
+  locationLabel?: string;
   /**
    * LW06.1 / MIGLIORIA 2 — variazioni REALI del periodo del checkpoint,
    * derivate dallo storico del motore. Solo presentazione: la semantica del
@@ -54,28 +56,21 @@ export function SimulationEventReader({
   onContinue,
   onIntervene,
   playerPolityName,
+  locationLabel,
   impact = null,
   decisions = [],
 }: SimulationEventReaderProps) {
   const continueButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Quando arriva una nuova pagina, rendiamo disponibile al lettore di
-  // tastiera il punto decisionale senza spostare la mappa o la cronaca.
+  // Keep the keyboard action available on each newly disclosed event.
   useEffect(() => {
     continueButtonRef.current?.focus({ preventScroll: true });
+    document.getElementById('simulation-event-reader')?.scrollTo(0, 0);
   }, [playback.event.id, playback.revision]);
 
-  const checkpointLabel = playback.revision != null
-    ? `Revisione ${playback.revision}`
-    : 'Checkpoint registrato';
-
-  // Il lettore conserva solo le pagine già autorizzate. In particolare non
-  // riceve né rende inferibile il contenuto di `remainingEvents` nel run.
-  const disclosed = (playback.disclosedEvents?.length
-    ? playback.disclosedEvents
-    : [playback.event]).filter((event, index, all) =>
-      all.findIndex(candidate => candidate.id === event.id) === index,
-    );
+  // Read only the current disclosed checkpoint, never the future queue.
+  const event = playback.event;
+  const firstEventDate = playback.disclosedEvents?.[0]?.date ?? event.date;
 
   return (
     <AccessibleDialog
@@ -93,43 +88,23 @@ export function SimulationEventReader({
         <header className="simulation-reader-header">
           <div className="simulation-reader-heading">
             <span className="simulation-reader-kicker">Timeline del salto</span>
-            <strong>dal {disclosed[0]?.date || playback.event.date}</strong>
+            <strong>dal {firstEventDate}</strong>
           </div>
-          <div className="simulation-reader-anchor" title={playback.checkpointId ? `Checkpoint ${playback.checkpointId}` : undefined}>
-            {checkpointLabel}
-          </div>
+          {locationLabel && <span className="simulation-reader-location">{locationLabel}</span>}
         </header>
 
-        <div className="simulation-reader-progress" aria-label="Stato del playback">
-          <span className="simulation-reader-live-dot" aria-hidden="true" />
-          <span>Puoi intervenire su questa notizia</span>
-          <span className="simulation-reader-sealed">
-            {playback.remaining > 0
-              ? `${playback.remaining} ${playback.remaining === 1 ? 'notizia da leggere' : 'notizie da leggere'}`
-              : 'Chiusura del periodo disponibile'}
-          </span>
-        </div>
-
-        <ol className="simulation-reader-events">
-          {disclosed.map((event, index) => {
-            const current = event.id === playback.event.id;
-            return (
-              <li key={event.id} className={`simulation-reader-event${current ? ' is-current' : ''}`}>
-                <div className="simulation-reader-event-rail" aria-hidden="true">
-                  <span>{String(index + 1).padStart(2, '0')}</span>
-                  <i />
-                </div>
-                <article>
-                  <time>{event.date}</time>
-                  <h3>{publicNarrativeText(event.headline, playerPolityName)}</h3>
-                  {event.detail && <p>{publicNarrativeText(event.detail, playerPolityName)}</p>}
-                  {current && <small>Checkpoint attivo</small>}
-                </article>
-              </li>
-            );
-          })}
+        <ol className="simulation-reader-events" data-checkpoint-id={playback.checkpointId}>
+          <li key={event.id} className="simulation-reader-event is-current">
+            <article>
+              <time>{event.date}</time>
+              <h3>{publicNarrativeText(event.headline, playerPolityName)}</h3>
+              {event.detail && <p>{publicNarrativeText(event.detail, playerPolityName)}</p>}
+            </article>
+          </li>
         </ol>
 
+        {(impact?.hasChanges || decisions.length > 0) && <details key={event.id} className="simulation-reader-effects">
+          <summary>Conseguenze registrate</summary>
         {impact && impact.hasChanges && (
           // Dicitura NON causale: il motore conosce il delta del periodo, non
           // l'attribuzione al singolo evento. Nessuna frase di causalità forte.
@@ -151,6 +126,8 @@ export function SimulationEventReader({
             l'effetto attribuito dal motore al momento dell'esecuzione. */}
         <DecisionImpactBlock decisions={decisions} turnImpact={impact} className="simulation-reader-decision-impact" />
 
+        </details>}
+
         <footer className="simulation-reader-actions">
           <button ref={continueButtonRef} type="button" className="btn-continue-next" onClick={onContinue} disabled={loading}>
             {playback.remaining > 0
@@ -167,9 +144,6 @@ export function SimulationEventReader({
             Intervieni nel governo
           </button>
         </footer>
-        <p className="simulation-reader-note">
-          Puoi continuare a seguire gli eventi oppure fermarti qui e preparare una risposta con il governo.
-        </p>
     </AccessibleDialog>
   );
 }
