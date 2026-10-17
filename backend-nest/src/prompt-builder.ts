@@ -1886,7 +1886,11 @@ export class PromptEngine {
     context: RealityAdvisorContext, discoveredText: string, message: string,
     legacyCompletion: () => Promise<string>, signal?: AbortSignal,
   ): Promise<string> {
-    const discovered = parseAdvisorResponse(context.verifiedWorldSnapshot, discoveredText, 'president', {
+    // The first pass may ignore the agenda-only instruction and produce
+    // premature actions. Discard them: only the second, evidence-grounded pass
+    // can build council proposals. This also keeps the two phases measurable.
+    const agendaText = discoveredText.replace(/```council_issue\\b[^]*?(?:```|$)/gi, '');
+    const discovered = parseAdvisorResponse(context.verifiedWorldSnapshot, agendaText, 'president', {
       strategicContext: context,
       includeDeterministicSituations: false,
     });
@@ -1896,7 +1900,7 @@ export class PromptEngine {
       const fallback = await legacyCompletion();
       return validatedAdvisorText(context, fallback, undefined, message);
     }
-    return validatedAdvisorText(context, discoveredText,
+    return validatedAdvisorText(context, agendaText,
       prompt => this.repairAdvisorBriefing(prompt, signal), message);
   }
 
