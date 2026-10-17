@@ -387,7 +387,15 @@ export class DiplomacyService {
       opened.add(duplicateKey);
 
       try {
-        const chat = this.ensureChat(validPolityIds, {
+        // A narrated NPC reaction should FEED the existing live negotiation
+        // with the same participants rather than archive it and start over.
+        // New explicit invitations remain separate topics/conferences.
+        const liveThread = start.alreadyNarrated
+          ? chatRepository.getActiveChatByParticipantIds(
+            this.ctx.gameId, [this.ctx.playerPolityId(), ...validPolityIds],
+          )
+          : null;
+        const chat = liveThread || this.ensureChat(validPolityIds, {
           dedupeKey: simulationThreadKey({
             simulationId: options.simulationId,
             turn: options.turn,
@@ -403,6 +411,17 @@ export class DiplomacyService {
         if (!sender) continue;
         const gameDate = linkedEvent?.date || options.fallbackDate;
         const topic = this.ctx.publicText(start.topic) || 'Desideriamo discutere gli ultimi sviluppi.';
+        // Replayed SSE/checkpoints must not deliver the same dispatch twice
+        // even when the reaction appended to a pre-existing bilateral thread.
+        const alreadyDelivered = chatRepository.getMessages(chat.id).some(message =>
+          message.role === 'polity' && message.turn === options.turn
+          && message.gameDate === gameDate && message.senderName === sender.name
+          && message.content === topic
+        );
+        if (alreadyDelivered) {
+          if (eventKey) openedEvents.add(eventKey);
+          continue;
+        }
         const firstMessage = chatRepository.addMessage(
           chat.id, 'polity', topic, options.turn, sender.name, gameDate,
         );

@@ -174,3 +174,23 @@ describe('DIPLOMACY — accepted world reactions feed chats', () => {
     expect(body).toContain('alreadyNarrated: true');
   });
 });
+
+describe('DIPLOMACY — keep feeding the live bilateral conversation', () => {
+  it('reuses an active participant-key thread for reactions instead of archiving it', () => {
+    const diplomacy = read('src/game/DiplomacyService.ts');
+    const repository = read('src/repositories/chat.repository.ts');
+    expect(diplomacy).toContain('start.alreadyNarrated');
+    expect(diplomacy).toContain('getActiveChatByParticipantIds(');
+    expect(diplomacy).toContain('const chat = liveThread || this.ensureChat(');
+    expect(repository).toContain('getActiveChatByParticipantIds(gameId: string, ids: string[])');
+    expect(repository).toContain('participant_key = ? AND archived = 0');
+  });
+
+  it('guards repeated deliveries of the same dated message in a reused conversation', () => {
+    const src = read('src/game/DiplomacyService.ts');
+    expect(src).toContain('const alreadyDelivered = chatRepository.getMessages(chat.id).some(');
+    expect(src).toContain('message.gameDate === gameDate');
+    expect(src).toContain('message.senderName === sender.name');
+    expect(src).toContain('message.content === topic');
+  });
+});
