@@ -15,6 +15,18 @@ const situation = (n: number, importance = 2): AdvisorSituation => ({
 });
 
 describe('AdvisorSituationsPanel', () => {
+  it('keeps raw alerts available under a separate disclosure without presenting them as political stories', () => {
+    const html = renderToStaticMarkup(<AdvisorSituationsPanel situations={[situation(1), { ...situation(2, 3), basis: 'signal' }]} onDeepen={() => {}} />);
+    const split = html.indexOf('<details class="advisor-signal-register">');
+    expect(split).toBeGreaterThan(0);
+    expect(html.slice(0, split)).toContain('Titolo 1');
+    expect(html.slice(0, split)).not.toContain('Titolo 2');
+    expect(html.slice(split)).toContain('Titolo 2');
+    expect(html.slice(split)).toContain('priorità urgenti');
+    const fallback = renderToStaticMarkup(<AdvisorSituationsPanel situations={[{ ...situation(2), basis: 'signal' }]} onDeepen={() => {}} />);
+    expect(fallback).toContain('<details class="advisor-signal-register" open="">');
+  });
+
   it('mostra TUTTE le situazioni, senza troncamento a 3', () => {
     const list = [1, 2, 3, 4, 5].map(situation);
     const html = renderToStaticMarkup(<AdvisorSituationsPanel situations={list} onDeepen={() => {}} />);

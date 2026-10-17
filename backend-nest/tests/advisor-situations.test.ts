@@ -59,6 +59,21 @@ const multi = () => world({
 });
 
 describe('Country X — strategic focus and historical continuity', () => {
+  it('keeps independent national issues beyond the old 1800-character / 8-sentence cutoff', () => {
+    const snapshot = world({ date: '2000-01-01', turn: 1 });
+    const lateIssue = 'Le cooperative del caffè di WEST negoziano accesso ai mercati con DELTA.';
+    const nationSituation = Array.from({ length: 12 }, (_, i) => `La questione regionale ${i} coinvolge le istituzioni di NORTH e i rappresentanti dei produttori, con una disputa sulle competenze amministrative e sulle priorità delle comunità locali.`).join(' ') + ' ' + lateIssue;
+    const context = { ...buildRealityAdvisorContext(snapshot, undefined, undefined, undefined, 'briefing').advisorContext,
+      nationSituation, temporalScope: { initialDate: '2000-01-01', currentDate: snapshot.date } };
+    const evidence = buildStrategicThreadEvidence(snapshot, context).find(item => item.text === lateIssue)!;
+    expect(evidence).toBeDefined();
+    expect(resolveAdvisorSituation(snapshot, { id: 'export', title: 'Accesso ai mercati di DELTA', summary: lateIssue,
+      signalKeys: [], evidenceKeys: [evidence.key], kind: 'opportunity' }, context).evidenceKeys).toEqual([evidence.key]);
+    const prompt = buildRealityAdvisorPrompt(context, 'Quadro generale');
+    expect(prompt.split(lateIssue)).toHaveLength(2);
+    expect(prompt.indexOf('[STRATEGIC THREAD EVIDENCE')).toBeLessThan(prompt.indexOf('[CURRENT STRATEGIC SIGNALS'));
+  });
+
   const context = {
     historicalBaseline: 'Alla data di divergenza il movimento ALPHA era attivo nella regione NORTH e riceveva sostegno politico oltre il confine con Y.',
     temporalScope: { initialDate: '2000-01-01', currentDate: '2000-01-01' },
@@ -204,7 +219,7 @@ describe('Strategic threads grounded in server evidence', () => {
     const evidence = buildStrategicThreadEvidence(snapshot, context).find(item => item.kind === 'historical')!;
     const result = parseAdvisorResponse(snapshot, thread([evidence.key]), 'advisor', { strategicContext: context, includeDeterministicSituations: true });
     expect(result.situations.find(item => item.title.includes('LRA'))?.signalKeys).toEqual([]);
-    const again = parseAdvisorResponse(snapshot, serializeAdvisorResponse(result), 'advisor', { strategicContext: context });
+    const again = parseAdvisorResponse(snapshot, serializeAdvisorResponse(result), 'advisor', { strategicContext: context, includeDeterministicSituations: true });
     expect(again.situations).toEqual(result.situations);
   });
 
@@ -239,7 +254,7 @@ describe('Strategic threads grounded in server evidence', () => {
       advisorContext: { ...buildRealityAdvisorContext(snapshot).advisorContext, ...strategicContext } } as never, 'fammi il quadro');
     const parsed = parseAdvisorResponse(snapshot, serialized, 'advisor', { strategicContext });
     // One existing opportunity remains valid; the advisor may seek another.
-    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate).toHaveBeenCalledTimes(1);
     expect(parsed.situations[0].kind).toBe('opportunity');
     expect(parsed.situations[0].importance).toBe(1);
     expect(parsed.issues[0].situationId).toBe('integrazione');
@@ -527,9 +542,8 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
       playerPolityId: 'UGA', actions: [], results: [],
       advisorContext: buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing').advisorContext,
     } as never, 'Apriamo.');
-    // A fully covered crisis agenda can still lack opportunity proposals.
-    // One targeted repair is allowed; the ten existing decisions survive.
-    expect(generate).toHaveBeenCalledTimes(2);
+    // No second completion merely to fill a quota of opportunities.
+    expect(generate).toHaveBeenCalledTimes(1);
     expect(parseAdvisorResponse(snapshot, text, 'advisor', { includeDeterministicSituations: true }).issues).toHaveLength(10);
   });
 
@@ -600,6 +614,7 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     const baseline = 'Dalla fine degli anni Ottanta l\'insurrezione dell\'LRA insanguinava il nord del paese; Gulu divenne il centro della crisi e Khartoum sostenne gruppi armati.';
     const context = buildRealityAdvisorContext(snapshot, undefined, baseline, undefined, 'briefing').advisorContext;
     const prompt = buildRealityAdvisorPrompt(context, 'Apriamo il Governo.');
+    expect(prompt).toContain('[STRATEGIC THREAD EVIDENCE');
     expect(prompt).toContain('[HISTORICAL BASELINE');
     expect(prompt).toContain('LRA');
     // La baseline è materiale di contesto: il modello è autorizzato a usare attori reali...
@@ -728,24 +743,24 @@ describe('WS-CONSULENTE-PROPOSTE — repair mirato di un briefing incompleto', (
     polityNames: { SDN: 'Sudan' },
   });
 
-  it('con 2 situazioni e 0 proposte chiede UNA sola completion, solo per le schede scoperte', async () => {
+  it('i soli segnali numerici non provocano una completion di proposte generiche', async () => {
     const snapshot = twoSituations();
     const parsed = parseAdvisorResponse(snapshot, 'Quadro senza proposte.', 'advisor', { includeDeterministicSituations: true });
-    expect(parsed.issues).toEqual([]);
     expect(parsed.situations).toHaveLength(2);
-    const prompts: string[] = [];
-    const outcome = await repairAdvisorBriefing(snapshot, parsed, { complete: async prompt => { prompts.push(prompt); return ''; } });
-    expect(prompts).toHaveLength(1);
-    for (const situation of parsed.situations) expect(prompts[0]).toContain(situation.id);
-    expect(prompts[0]).toContain('situationId');
-    expect(outcome.response.issues).toEqual([]);
+    expect(parsed.situations.every(situation => situation.basis === 'signal')).toBe(true);
+    const complete = vi.fn();
+    const outcome = await repairAdvisorBriefing(snapshot, parsed, { complete });
+    expect(complete).not.toHaveBeenCalled();
+    expect(outcome.response).toBe(parsed);
     expect(outcome.response.briefingCoverage?.complete).toBe(false);
-    expect(outcome.discarded.length).toBeGreaterThanOrEqual(2);
+    const reparsed = parseAdvisorResponse(snapshot, serializeAdvisorResponse(parsed), 'advisor', { includeDeterministicSituations: true });
+    expect(reparsed.situations).toEqual(parsed.situations);
   });
 
   it('collega due proposte alle due situazioni tramite situationId e completa la copertura', async () => {
     const snapshot = twoSituations();
     const parsed = parseAdvisorResponse(snapshot, 'Quadro.', 'advisor', { includeDeterministicSituations: true });
+    parsed.situations = parsed.situations.map(({ basis, ...thread }) => thread);
     const [first, second] = parsed.situations;
     const outcome = await repairAdvisorBriefing(snapshot, parsed, { complete: async () => [
       block('council_issue', { title: 'Risposta uno', question: 'Autorizzare un piano straordinario di scorte con mandato a Guerra e Tesoro?', situationId: first.id, signalKeys: first.signalKeys, suggestedMinisters: ['guerra', 'tesoro'] }),
@@ -762,6 +777,7 @@ describe('WS-CONSULENTE-PROPOSTE — repair mirato di un briefing incompleto', (
   it('scarta una proposta istruttoria o con chiave invalida senza fabbricarne altre', async () => {
     const snapshot = twoSituations();
     const parsed = parseAdvisorResponse(snapshot, 'Quadro.', 'advisor', { includeDeterministicSituations: true });
+    parsed.situations = parsed.situations.map(({ basis, ...thread }) => thread);
     const [first] = parsed.situations;
     const reasons: string[] = [];
     const outcome = await repairAdvisorBriefing(snapshot, parsed, {
@@ -791,7 +807,7 @@ describe('WS-CONSULENTE-PROPOSTE — repair mirato di un briefing incompleto', (
     expect(outcome.response).toBe(complete);
   });
 
-  it('a ogni richiesta considera opportunità del preset e ripara anche una conversazione senza proposte', async () => {
+  it('considera il preset senza una seconda completion imposta dalle capacità disponibili', async () => {
     const { PromptEngine } = await import('../src/prompt-builder');
     const canonical = twoSituations();
     const prompts: string[] = [];
@@ -813,12 +829,10 @@ describe('WS-CONSULENTE-PROPOSTE — repair mirato di un briefing incompleto', (
     expect(prompts[0]).toContain('A ogni richiesta');
     const parsed = parseAdvisorResponse(canonical, text);
     expect(parsed.reply).toBe('Presidente, possiamo aprire nuove prospettive.');
-    expect(parsed.issues).toHaveLength(2);
-    expect(advisorReplyWithProposals(parsed)).toContain('Riserva alimentare');
-    expect(advisorReplyWithProposals(parsed)).toContain('Politica del credito');
+    expect(parsed.issues).toEqual([]);
     expect(advisorReplyWithProposals(parsed)).not.toContain('```');
     expect(parsed.situations).toEqual([]); // Chat, non refresh dell'agenda.
-    expect(generate).toHaveBeenCalledTimes(2); // Una generazione + al massimo un repair.
+    expect(generate).toHaveBeenCalledTimes(1); // Nessuna quota automatica di opportunità.
   });
 
   it('stream e focus restano propositivi, senza repair quando una proposta pertinente è già presente', async () => {
@@ -853,7 +867,7 @@ describe('WS-CONSULENTE-PROPOSTE — repair mirato di un briefing incompleto', (
     }) });
     const unrelated = await engine.getAdvisorStream(game as never, 'Approfondisci le scorte', [], () => {});
     expect(parseAdvisorResponse(canonical, unrelated).issues).toEqual([]);
-    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate).not.toHaveBeenCalled();
   });
 
   it('il prompt di repair è compatto: situazioni scoperte, anchor e atti firmati, nessuna prosa', () => {

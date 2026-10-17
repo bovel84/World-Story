@@ -49,8 +49,10 @@ function historicalEvidence(context: StrategicThreadContext): StrategicThreadEvi
     (body ?? '').split(/\n+|(?<=[.!?])\s+/).map(text => text.trim()).filter(Boolean).slice(0, limit)
       .map(text => ({ key: evidenceKey('historical', sourceRef, text), kind: 'historical', text, sourceRef }));
   return [
+    // The country context already has a 6000-character storage budget. Cutting
+    // it again erased independent crises/exports mentioned after the opening.
+    ...passages('nationSituation', context.nationSituation, 64),
     ...passages('historicalBaseline', context.historicalBaseline, 24),
-    ...passages('nationSituation', context.nationSituation?.slice(0, 1800), 8),
     ...passages('presetContext.premise', context.presetContext?.startDate === context.temporalScope.initialDate
       ? context.presetContext.premise.slice(0, 800) : undefined, 4),
   ];
@@ -132,9 +134,15 @@ export function resolveStrategicThreadEvidence(snapshot: VerifiedWorldSnapshot, 
 }
 
 export function renderStrategicThreadEvidence(snapshot: VerifiedWorldSnapshot, context: StrategicThreadContext): string {
+  // Facts are already in VERIFIED FACT REGISTRY; keep their keys resolvable but
+  // do not repeat every indicator among the stories that should set the agenda.
+  const evidence = buildStrategicThreadEvidence(snapshot, context);
+  const narrative = evidence.filter(item => !item.sourceRef.startsWith('facts.'));
+  const constraints = evidence.filter(item => item.sourceRef.startsWith('facts.'));
   return [
     '[STRATEGIC THREAD EVIDENCE — riferimenti server-side per problemi e opportunità]',
-    JSON.stringify(buildStrategicThreadEvidence(snapshot, context)),
+    JSON.stringify({ narratives: narrative, constraints: constraints.map(({ key, sourceRef }) => ({ key, factKey: sourceRef.slice(6) })) }),
+    'Costruisci l’agenda prima dalle vicende documentate: attori con interessi diversi, luoghi, conflitti, negoziati, prodotti di esportazione e processi politici. Poi usa constraints, segnali e inventari per giudicare le risposte possibili. Un saldo, una scorta o un conteggio di alleati non costituiscono da soli una vicenda politica.',
     'Prima interpreta un STRATEGIC THREAD: cosa accade, attori/luoghi documentati, posta politica, vincoli e alternative. Poi rendilo advisor_situation nella STESSA risposta; non emettere un secondo elenco o una seconda chiamata. Chat e card devono raccontare lo stesso mondo.',
     'Le evidenceKeys citano SOLO questo registro. I segnali pertinenti vanno comunque collegati: sono prove e vincoli, NON il nome o l’identità del problema. Non inventare chiavi, fatti, attori o capacità.',
     'All’apertura una prova historical pertinente può sostenere la continuità politica immediata se CURRENT STATE non la contraddice, anche senza signalKeys. Non trasforma guerre storiche in guerre registrate, né crea forze, territori, accordi, infrastrutture o risorse. Un evento remoto o concluso non è una crisi attuale.',

@@ -2086,6 +2086,8 @@ export interface CouncilIssue {
  * `CouncilIssue` può essere portata al Consiglio.
  */
 export interface AdvisorSituation {
+  /** A server-derived alert awaiting the advisor’s political interpretation. */
+  basis?: 'signal';
   id: string;
   title: string;
   summary: string;

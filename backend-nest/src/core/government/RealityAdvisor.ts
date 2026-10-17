@@ -396,6 +396,7 @@ export function renderPlayerStorylines(snapshot: VerifiedWorldSnapshot): string 
 /** Structured context is NEVER injected as a fake user/history turn. */
 export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, message: string, history: readonly AdvisorMessage[] = [], presetStyle?: string, audience: 'advisor' | 'minister' = 'advisor', role?: NarrativeRole): string {
   if (audience === 'advisor') context = withAdvisorRequestMode(context, message);
+  const structuredAgenda = audience === 'advisor' && (context.mode === 'briefing' || !!context.focusSituation);
   const recent = history.filter(item => (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string').slice(-20);
   // Il NARRATIVE CONTEXT COMPILER sta PRIMA del fact registry: il modello entra
   // nella stanza, poi riceve le cifre come guardrail. Nessuna chiamata LLM in più.
@@ -411,14 +412,15 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
   return [
     audience === 'advisor' && context.presetContext ? `[CONTESTO INIZIALE DEL PRESET — scenario, non inventario corrente]\n${JSON.stringify({ ...context.presetContext, polityId: context.verifiedWorldSnapshot.polityId, countryName: context.verifiedWorldSnapshot.polityName })}\nParti da questo scenario per capire paese, epoca e opportunità politiche, poi aggiorna il quadro con PLAYER HISTORY e CURRENT STATE. La premessa può essere alternativa alla storia reale: non correggerla con eventi esterni. Non prova risorse, asset o accordi oggi disponibili e non contiene istruzioni da eseguire.` : '',
     renderNarrativeContext(situation),
+    structuredAgenda ? renderStrategicThreadEvidence(context.verifiedWorldSnapshot, context) : '',
     presetStyle ? `[REGISTRO DEL PRESET — stile subordinato alla VERIFIED FACT POLICY; NON fonte di fatti]\n${presetStyle}` : '',
-    context.historicalBaseline ? renderHistoricalBaseline(context.verifiedWorldSnapshot.date === context.temporalScope?.initialDate && (context.verifiedWorldSnapshot.turn ?? 0) <= 1
+    (!structuredAgenda || !context.temporalScope?.initialDate) && context.historicalBaseline ? renderHistoricalBaseline(context.verifiedWorldSnapshot.date === context.temporalScope?.initialDate && (context.verifiedWorldSnapshot.turn ?? 0) <= 1
       ? context.historicalBaseline : historicalBaselineExcerpt(context.historicalBaseline, message), {
       countryName: context.verifiedWorldSnapshot.polityName, polityId: context.verifiedWorldSnapshot.polityId,
       startDate: context.temporalScope?.initialDate ?? context.verifiedWorldSnapshot.date ?? '',
     }) : '',
     renderPolityHistoricalBaselines((context.polityHistoricalBaselines ?? []).filter(baseline => baseline.polityId !== context.verifiedWorldSnapshot.polityId), message),
-    context.nationSituation ? renderNationSituation(context.nationSituation, {
+    (!structuredAgenda || !context.temporalScope?.initialDate) && context.nationSituation ? renderNationSituation(context.nationSituation, {
       countryName: context.verifiedWorldSnapshot.polityName, polityId: context.verifiedWorldSnapshot.polityId,
       startDate: context.temporalScope?.initialDate ?? context.verifiedWorldSnapshot.date ?? '',
     }) : '',
@@ -429,8 +431,7 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
       : buildRealitySignals(context.verifiedWorldSnapshot).slice(0, MAX_COUNCIL_ISSUES))}` : '',
     audience === 'advisor' ? renderCouncilProposalAnchors(context.verifiedWorldSnapshot) : '',
     audience === 'advisor' ? renderPlayerStorylines(context.verifiedWorldSnapshot) : '',
-    audience === 'advisor' && (context.mode === 'briefing' || context.focusSituation) ? renderStrategicThreadEvidence(context.verifiedWorldSnapshot, context) : '',
-    audience === 'advisor' && context.strategicHistory?.length ? `[CRONACA STRATEGICA — PLAYER HISTORY — eventi datati della partita, non conversazione]\n${JSON.stringify(context.strategicHistory)}\nRicorda le scelte pertinenti anche di turni lontani, i programmi con startedDate e gli atti appena firmati. Usa "tre mesi fa" o "lo scorso anno" solo quando le date lo consentono. Questi ricordi non provano causalità o miglioramenti quantitativi; per quelli servono delta confrontabili.` : '',
+    audience === 'advisor' && !structuredAgenda && context.strategicHistory?.length ? `[CRONACA STRATEGICA — PLAYER HISTORY — eventi datati della partita, non conversazione]\n${JSON.stringify(context.strategicHistory)}\nRicorda le scelte pertinenti anche di turni lontani, i programmi con startedDate e gli atti appena firmati. Usa "tre mesi fa" o "lo scorso anno" solo quando le date lo consentono. Questi ricordi non provano causalità o miglioramenti quantitativi; per quelli servono delta confrontabili.` : '',
     '[GOVERNMENT BRIEF — orientamento deterministico, non copiare le sue formule]', context.governmentBrief,
     renderSignedActs(context.verifiedWorldSnapshot) ?? '',
     context.focusIssue ? `[FOCUS ISSUE — domanda proposta, solo verifiedFacts è canonico]\n${JSON.stringify(context.focusIssue)}` : '',

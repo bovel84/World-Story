@@ -249,10 +249,10 @@ describe('advisorMemory', () => {
     const storage = fakeStorage();
     (globalThis as { localStorage?: Storage }).localStorage = storage;
     const key = advisorOpeningKey('g1', 'main', 'g1|main|3');
-    expect(key).toContain('ws.advisor.opening.v7::');
+    expect(key).toContain('ws.advisor.opening.v8::');
     // Le aperture v4, v3, v2 o del protocollo precedente non contano più: si rigenerano.
-    for (const legacy of ['ws.advisor.opening.v6::', 'ws.advisor.opening.v5::', 'ws.advisor.opening.v4::', 'ws.advisor.opening.v3::', 'ws.advisor.opening.v2::', 'ws.advisor.opening::']) {
-      storage.setItem(key.replace('ws.advisor.opening.v7::', legacy), JSON.stringify({ reply: 'Primo intervento del mandato', issues: [], date: '2000-01-01' }));
+    for (const legacy of ['ws.advisor.opening.v7::', 'ws.advisor.opening.v6::', 'ws.advisor.opening.v5::', 'ws.advisor.opening.v4::', 'ws.advisor.opening.v3::', 'ws.advisor.opening.v2::', 'ws.advisor.opening::']) {
+      storage.setItem(key.replace('ws.advisor.opening.v8::', legacy), JSON.stringify({ reply: 'Primo intervento del mandato', issues: [], date: '2000-01-01' }));
     }
     expect(loadAdvisorOpening(key)).toBeNull();
   });
@@ -306,11 +306,12 @@ describe('T02 — le mosse della situazione nella persistenza', () => {
     const storage = fakeStorage();
     (globalThis as any).localStorage = storage;
     const key = advisorBucketKey('g2', 'b1', 'scope');
-    const senza = { id: 's1', title: 'Scorte fragili', summary: 'Margine sottile.', signalKeys: ['food-coverage'] };
+    const senza = { basis: 'signal' as const, id: 's1', title: 'Scorte fragili', summary: 'Margine sottile.', signalKeys: ['food-coverage'] };
     saveAdvisorMessages(key, [{ role: 'assistant', content: 'Quadro.', turn: 1, situations: [senza] } as AdvisorMessage]);
     const loaded = loadAdvisorMessages(key);
     expect(loaded[0].situations?.[0].options).toBeUndefined();
     expect(loaded[0].situations?.[0]).not.toHaveProperty('options');
+    expect(loaded[0].situations?.[0].basis).toBe('signal');
   });
 
   it('una mossa senza titolo o senza contenuto si scarta; le altre restano', () => {

@@ -73,6 +73,7 @@ export function buildNationSituationPrompt(request: NationSituationRequest): str
     `Nazione: ${request.countryName?.trim() || request.polityId} (${request.polityId}). Mondo: ${request.worldName || 'non indicato'}. Data di partenza: ${request.startDate}.`,
     request.premise ? `Premessa del mondo (informa, non è fonte di fatti): ${request.premise.slice(0, 1200)}` : '',
     'Descrivi la SITUAZIONE della nazione a questa data: situazione politica interna, questioni economiche o sociali aperte, tensioni regionali, crisi o conflitti in corso, e verso dove la nazione punta ad andare. NON raccontare il passato: quello è già noto. Descrivi il PRESENTE e la DIREZIONE.',
+    'Ogni voce descrive una sola questione aperta alla data iniziale: attori o istituzioni coinvolti, luogo/settore, interessi in contrasto e posta politica. Distingui conflitti esterni, ribellioni su fronti diversi e contese tra alleati. Considera anche esportazioni e dipendenze commerciali, negoziati sul debito, riforme ed elezioni quando documentati; non ridurre tutto a sicurezza e bilancio e non compilare categorie vuote.',
     'Usa fatti concreti e identificabili: nomi di capi di Stato o di governo, partiti, regioni, crisi realmente in corso a quella data. Una frase che potrebbe descrivere quasi qualsiasi nazione NON è accettata.',
     storylines
       ? `\n[FILONI DEL PRESET CHE TOCCHIAMO — NON contraddirli]\n${storylines}\nSui nodi qui elencati la situazione deve SEGUIRE il filone, non riscriverlo. Fuori da questi nodi sei libero.`
