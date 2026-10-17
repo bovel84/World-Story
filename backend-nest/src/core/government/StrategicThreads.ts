@@ -46,7 +46,7 @@ function evidenceKey(kind: StrategicThreadEvidence['kind'], sourceRef: string, t
 function historicalEvidence(context: StrategicThreadContext): StrategicThreadEvidence[] {
   if (!context.temporalScope?.initialDate) return [];
   const passages = (sourceRef: string, body: string | undefined, limit: number): StrategicThreadEvidence[] =>
-    (body ?? '').split(/\n+|(?<=[.!?])\s+/).map(text => text.trim()).filter(Boolean).slice(0, limit)
+    (body ?? '').split(/\n+|(?<=[.!?;])\s+/).map(text => text.trim()).filter(Boolean).slice(0, limit)
       .map(text => ({ key: evidenceKey('historical', sourceRef, text), kind: 'historical', text, sourceRef }));
   return [
     // The country context already has a 6000-character storage budget. Cutting
@@ -137,6 +137,8 @@ export function renderStrategicThreadEvidence(snapshot: VerifiedWorldSnapshot, c
   // Facts are already in VERIFIED FACT REGISTRY; keep their keys resolvable but
   // do not repeat every indicator among the stories that should set the agenda.
   const evidence = buildStrategicThreadEvidence(snapshot, context);
+  const atOpening = !!context.temporalScope?.initialDate && snapshot.date === context.temporalScope.initialDate
+    && snapshot.turn !== null && snapshot.turn <= 1;
   const narrative = evidence.filter(item => !item.sourceRef.startsWith('facts.'));
   const constraints = evidence.filter(item => item.sourceRef.startsWith('facts.'));
   return [
@@ -146,6 +148,7 @@ export function renderStrategicThreadEvidence(snapshot: VerifiedWorldSnapshot, c
     'Prima interpreta un STRATEGIC THREAD: cosa accade, attori/luoghi documentati, posta politica, vincoli e alternative. Poi rendilo advisor_situation nella STESSA risposta; non emettere un secondo elenco o una seconda chiamata. Chat e card devono raccontare lo stesso mondo.',
     'Le evidenceKeys citano SOLO questo registro. I segnali pertinenti vanno comunque collegati: sono prove e vincoli, NON il nome o l’identità del problema. Non inventare chiavi, fatti, attori o capacità.',
     'All’apertura una prova historical pertinente può sostenere la continuità politica immediata se CURRENT STATE non la contraddice, anche senza signalKeys. Non trasforma guerre storiche in guerre registrate, né crea forze, territori, accordi, infrastrutture o risorse. Un evento remoto o concluso non è una crisi attuale.',
+    atOpening ? 'AGENDA ALLA DATA DI DIVERGENZA: "era attivo alla vigilia", "restava aperta", "era in corso" indicano una questione in essere allo startDate anche se scritte all’imperfetto. Non scartarla come fatto già concluso. Tieni separati fronti, negoziati e interessi diversi se le prove li distinguono; crea una scheda per ciascuna decisione politica realmente aperta, senza quota numerica. Semplici origini passate, progetti futuri ed eventi esplicitamente conclusi NON provano attività presente.' : '',
     'Le prove nationSituation e presetContext.premise descrivono il punto di partenza del paese e dello scenario. Usa luoghi, attori e interessi pertinenti per formulare situazioni specifiche della nazione e dell’epoca, anche opportunità; non trasformare traiettorie o possibilità in eventi avvenuti. Dopo l’apertura richiedono la stessa continuità attuale delle altre prove historical.',
     'CURRENT STATE > PLAYER HISTORY > HISTORICAL BASELINE. Se una crisi è risolta, un programma concluso o un’alleanza cambiata, NON riproporre la vecchia situazione: descrivi semmai conseguenze o opportunità attuali provate. Gli atti firmati non sono effetti eseguiti.',
     HISTORICAL_CONTINUITY_RULE,
