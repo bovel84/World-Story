@@ -71,14 +71,20 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   // il codice non è un nome. Prima il client lo risolveva con la provincia
   // capitale, e «ITA» diventava «Aosta».
   const [polityNames, setPolityNames] = useState<Record<string, string> | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [relationshipError, setRelationshipError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [openingChatId, setOpeningChatId] = useState<string | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
 
   const fetchRelationships = React.useCallback(async () => {
+    setLoading(true);
+    setRelationshipError(null);
     try {
       const data = await gameApi.getRelationships(gameId);
+      if (!data || typeof data !== 'object' || !('relationships' in data)) {
+        throw new Error('Risposta del server priva delle relazioni diplomatiche.');
+      }
       // Il motore risponde `{ relationships, names }`; un server precedente
       // rispondeva con la sola matrice — in quel caso i nomi restano assenti e
       // il read model ripiega sul codice polity, mai sul nome di una città.
@@ -86,10 +92,14 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
         relationships?: RelationshipData | null;
         names?: Record<string, string> | null;
       };
-      setRelationships(wrapped.relationships ?? null);
+      setRelationships(wrapped.relationships ?? {});
       setPolityNames(wrapped.names ?? null);
     } catch (e) {
       console.error('[DiplomacyPanel] Failed to load relationships:', e);
+      setRelationships(null);
+      setRelationshipError(e instanceof Error ? e.message : 'Impossibile caricare le relazioni diplomatiche.');
+    } finally {
+      setLoading(false);
     }
   }, [gameId]);
 
@@ -138,10 +148,30 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
     }
   };
 
+  const openDiplomaticWorkspace = () => {
+    // The diplomatic desk must remain reachable even if the relations
+    // read-model cannot be loaded (e.g. a temporarily unavailable endpoint).
+    useChatStore.getState().setChatPanelVisible(true);
+    useUIStore.getState().openModule('diplomacy');
+  };
+
   if (!relationships) {
     return (
-      <div className="diplomacy-panel" style={{ opacity: 0.6 }}>
-        <div style={{ padding: 8, fontSize: 12, color: '#888' }}>Caricamento diplomazia...</div>
+      <div className="diplomacy-panel">
+        <div role="status" style={{ padding: 8 }}>
+          {loading ? 'Caricamento diplomazia…' : 'Relazioni diplomatiche non disponibili.'}
+        </div>
+        {relationshipError && <p className="diplomacy-chat-error" role="alert">{relationshipError}</p>}
+        {relationshipError && (
+          <button type="button" className="btn-negotiate" onClick={() => void fetchRelationships()}>
+            Riprova il caricamento
+          </button>
+        )}
+        <button type="button" className="btn-negotiate"
+          disabled={gameId.startsWith('local_')}
+          onClick={openDiplomaticWorkspace}>
+          Apri comunque le trattative diplomatiche →
+        </button>
       </div>
     );
   }
@@ -174,10 +204,7 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
         <div className="diplomacy-content">
           <button type="button" className="btn-negotiate"
             disabled={gameId.startsWith('local_')}
-            onClick={() => {
-              useChatStore.getState().setChatPanelVisible(true);
-              useUIStore.getState().openModule('diplomacy');
-            }}
+            onClick={openDiplomaticWorkspace}
             aria-label="Apri le chat diplomatiche con tutte le nazioni">
             Apri le trattative diplomatiche →
           </button>

@@ -51,6 +51,7 @@ interface ChatState {
 
   // Chat diplomatiche
   chats: ChatSummary[];
+  chatLoadError: string | null;
   activeChatId: string | null;
   messagesByChat: Record<string, ChatMessage[]>;
 
@@ -114,6 +115,7 @@ interface ChatState {
 const initialState = {
   gameId: null as string | null,
   chats: [] as ChatSummary[],
+  chatLoadError: null as string | null,
   activeChatId: null as string | null,
   messagesByChat: {} as Record<string, ChatMessage[]>,
   advisorMessages: [] as AdvisorMessage[],
@@ -143,9 +145,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Anche le archiviate: la UI le mostra in una sezione separata e il
       // totale non letti deve escluderle, non ignorarle del tutto.
       const data = await chatsApi.list(gameId, true);
-      if (get().gameId === gameId) set({ chats: data.chats || [] });
+      if (get().gameId === gameId) set({ chats: data.chats || [], chatLoadError: null });
     } catch (e) {
       console.warn('[ChatStore] Impossibile caricare le chat:', e);
+      if (get().gameId === gameId) set({
+        chatLoadError: e instanceof Error ? e.message : 'Connessione alle chat non disponibile.',
+      });
     }
   },
 

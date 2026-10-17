@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatSummaryData } from '../../services/api';
-import { findActiveBilateralChat } from './diplomaticChatNavigation';
+import { findActiveBilateralChat, pickDiplomaticTargetIds } from './diplomaticChatNavigation';
 
 const chat = (id: string, others: string[], archived = false): ChatSummaryData => ({
   id, polityId: others[0] || 'RWA', polityName: others[0] || 'RWA',
@@ -27,5 +27,16 @@ describe('DIPLOMACY — reuse the right live bilateral conversation', () => {
         { id: 'RWA', role: 'polity' as const, name: 'Rwanda', color: '#fff' }] };
     expect(findActiveBilateralChat([wrong], 'UGA', 'RWA')).toBeUndefined();
     expect(findActiveBilateralChat([chat('a', ['UGA'])], 'UGA', 'UGA')).toBeUndefined();
+  });
+});
+describe('DIPLOMACY — canonical targets for new chats', () => {
+  it('sends polity IDs, never province or display names', () => {
+    const targets = [
+      { id: 'RWA', name: 'Kigali' },
+      { id: 'COD', name: 'Kigali' },
+      { id: 'KEN', name: 'Kenya' },
+    ];
+    expect(pickDiplomaticTargetIds(targets, new Set(['COD', 'KEN']))).toEqual(['COD', 'KEN']);
+    expect(pickDiplomaticTargetIds(targets, new Set<string>())).toEqual([]);
   });
 });

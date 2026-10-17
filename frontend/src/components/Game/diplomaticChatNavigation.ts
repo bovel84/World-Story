@@ -14,3 +14,12 @@ export function findActiveBilateralChat(
     return player?.id === playerPolityId && other?.id === targetPolityId;
   });
 }
+
+/** Preserve canonical polity identity across the country picker and backend.
+ * Display labels may be province names, translated names or duplicates. */
+export function pickDiplomaticTargetIds(
+  polities: readonly { id: string }[],
+  selectedIds: ReadonlySet<string>,
+): string[] {
+  return polities.filter(polity => selectedIds.has(polity.id)).map(polity => polity.id);
+}

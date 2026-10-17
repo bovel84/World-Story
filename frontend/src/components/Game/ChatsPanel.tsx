@@ -16,6 +16,7 @@ import { useSimulationStore } from '../../stores/simulationRuntime';
 import type { Region } from '../../types';
 import { publicNarrativeText } from '../../services/publicNarrative';
 import { formatGameDate, formatChatStamp, orderChatsByLatest } from './chatTimeline';
+import { pickDiplomaticTargetIds } from './diplomaticChatNavigation';
 
 interface ChatsPanelProps {
   gameId: string;
@@ -59,7 +60,7 @@ function reactionForMessage(content?: string): { icon: string; label: string } {
 
 export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerPolityId, uniqueMeeting }) => {
   const {
-    chats, activeChatId, messagesByChat,
+    chats, activeChatId, messagesByChat, chatLoadError,
     refreshChats, upsertChat, setActiveChat, setMessages, appendMessage, markRead,
     archiveChat, unarchiveChat,
   } = useChatStore();
@@ -403,6 +404,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
         </div>
 
         {error && <div className="chat-error" role="alert">{error}</div>}
+        {sending && <div className="chat-loading" role="status" aria-live="polite">Messaggio inviato al modello: attendo la risposta diplomatica…</div>}
         <div className="chat-input-row">
           <textarea
             value={inputText}
@@ -468,7 +470,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
             <button
               className="btn-create-group-chat"
               onClick={() => handleCreateChat(
-                polities.filter(p => selectedPolityIds.has(p.id)).map(p => p.name)
+                pickDiplomaticTargetIds(polities, selectedPolityIds)
               )}
             >
               {selectedPolityIds.size === 1
@@ -480,6 +482,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
       )}
 
       {error && <div className="chat-error" role="alert">{error}</div>}
+      {chatLoadError && <div className="chat-error" role="alert">Impossibile aggiornare le chat: {chatLoadError}</div>}
       <div className="chats-list">
         {activeChats.length === 0 && archivedChats.length === 0 ? (
           <div className="chats-empty">
