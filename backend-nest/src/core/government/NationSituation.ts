@@ -75,6 +75,7 @@ export function buildNationSituationPrompt(request: NationSituationRequest): str
     'Descrivi la SITUAZIONE della nazione a questa data: situazione politica interna, questioni economiche o sociali aperte, tensioni regionali, crisi o conflitti in corso, e verso dove la nazione punta ad andare. NON raccontare il passato: quello è già noto. Descrivi il PRESENTE e la DIREZIONE.',
     'Ogni voce descrive una sola questione aperta alla data iniziale: attori o istituzioni coinvolti, luogo/settore, interessi in contrasto e posta politica. Distingui conflitti esterni, ribellioni su fronti diversi e contese tra alleati. Considera anche esportazioni e dipendenze commerciali, negoziati sul debito, riforme ed elezioni quando documentati; non ridurre tutto a sicurezza e bilancio e non compilare categorie vuote.',
     'Usa fatti concreti e identificabili: nomi di capi di Stato o di governo, partiti, regioni, crisi realmente in corso a quella data. Una frase che potrebbe descrivere quasi qualsiasi nazione NON è accettata.',
+    'Scrivi esplicitamente quali questioni sono ANCORA APERTE alla data iniziale, anche se iniziate anni prima; distingui ciò che è già terminato da ciò che continua. Riporta i fatti al presente di quella data, non al presente di oggi, senza dedurre continuità da un semplice antefatto.',
     storylines
       ? `\n[FILONI DEL PRESET CHE TOCCHIAMO — NON contraddirli]\n${storylines}\nSui nodi qui elencati la situazione deve SEGUIRE il filone, non riscriverlo. Fuori da questi nodi sei libero.`
       : '',
