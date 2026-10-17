@@ -374,6 +374,26 @@ describe('Chat diplomatiche', () => {
     expect(capturedChatPrompt).toBe('');
   });
 
+
+  it('continua a scrivere nella stessa chat anche senza note nelle reazioni successive', async () => {
+    const { session } = createGame();
+    const existing = session.ensureChat(['Polonia']);
+    stubEventReactions = [{
+      actorId: 'POL', optionId: 'POL:mobilize', polityName: 'Polonia',
+      role: 'counterparty', stance: 'opposed',
+      response: 'Varsavia si oppone al dispositivo e chiede una verifica comune.',
+    }];
+    session.queueAction('Imporre un dispositivo di frontiera alla Polonia');
+    await session.processNextAction(0);
+
+    const threads = session.getChats();
+    expect(threads).toHaveLength(1);
+    expect(threads[0].id).toBe(existing.id);
+    expect(session.getChatMessages(existing.id)).toHaveLength(1);
+    expect(session.getChatMessages(existing.id)[0].content).toContain('Varsavia si oppone');
+    expect(capturedChatPrompt).toBe('');
+  });
+
   it('senza reactions non effettua un secondo LLM per generare chat di fallback', async () => {
     const { session } = createGame();
     session.queueAction('Inviare un ultimatum alla Polonia');

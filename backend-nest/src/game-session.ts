@@ -2631,10 +2631,14 @@ export class GameSession {
         const resolved = resolver?.resolve(reaction.actorId || reaction.polityName);
         if (relevant && (!resolved || resolved.isNew || !relevant.has(resolved.polityId))) return [];
         const polityId = resolved?.polityId || reaction.actorId || reaction.polityName;
-        // An NPC policy response is a dispatch, not automatically a private
-        // letter. Only a direct note to the player feeds diplomatic chat.
-        // The persistence layer reuses an existing bilateral conversation.
-        if (!reaction.note?.trim()) return [];
+        // A new diplomatic thread requires an explicit note. A previously
+        // opened bilateral negotiation may also receive a validated NPC
+        // response on later turns, even if a compact LLM omits the note.
+        // GameSession stores the canonical game ID in `this.id` (not gameId).
+        const liveNegotiation = chatRepository.getActiveChatByParticipantIds(
+          this.id, [this.playerPolityId, polityId],
+        );
+        if (!reaction.note?.trim() && !liveNegotiation) return [];
         return [{
           polityName: polityId,
           participants: [polityId],

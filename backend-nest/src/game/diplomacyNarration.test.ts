@@ -171,7 +171,8 @@ describe('DIPLOMACY — accepted world reactions feed chats', () => {
     expect(body).toContain("reaction.role === 'observer' && !reaction.note?.trim()");
     expect(body).toContain('contractActors');
     expect(body).toContain('reaction.actorId || reaction.polityName');
-    expect(body).toContain('if (!reaction.note?.trim()) return [];');
+    expect(body).toContain('this.id, [this.playerPolityId, polityId]');
+    expect(body).toContain('!reaction.note?.trim() && !liveNegotiation');
     expect(body).toContain('alreadyNarrated: true');
   });
 });
