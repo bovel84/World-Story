@@ -215,7 +215,7 @@ describe('Opening agenda: separate ongoing historical issues without inventing c
     expect(prompt).toContain('AGENDA ALLA DATA DI DIVERGENZA');
     expect(prompt).toContain(evidence[0].key);
     expect(prompt).toContain(evidence[1].key);
-    expect(prompt).toContain('non è già concluso solo perché');
+    expect(prompt).toContain('Non scartarla come fatto già concluso');
     // Once the game advances, a historical passage alone is not current evidence.
     const later = world({ date: '2000-02-01', turn: 2 });
     expect(() => resolveAdvisorSituation(later, {
