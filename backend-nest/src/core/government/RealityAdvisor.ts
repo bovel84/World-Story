@@ -394,9 +394,10 @@ export function renderPlayerStorylines(snapshot: VerifiedWorldSnapshot): string 
 }
 
 /** Structured context is NEVER injected as a fake user/history turn. */
-export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, message: string, history: readonly AdvisorMessage[] = [], presetStyle?: string, audience: 'advisor' | 'minister' = 'advisor', role?: NarrativeRole): string {
+export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, message: string, history: readonly AdvisorMessage[] = [], presetStyle?: string, audience: 'advisor' | 'minister' = 'advisor', role?: NarrativeRole, phase: 'full' | 'agenda' = 'full'): string {
   if (audience === 'advisor') context = withAdvisorRequestMode(context, message);
   const structuredAgenda = audience === 'advisor' && (context.mode === 'briefing' || !!context.focusSituation);
+  const agendaOnly = audience === 'advisor' && context.mode === 'briefing' && phase === 'agenda';
   const recent = history.filter(item => (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string').slice(-20);
   // Il NARRATIVE CONTEXT COMPILER sta PRIMA del fact registry: il modello entra
   // nella stanza, poi riceve le cifre come guardrail. Nessuna chiamata LLM in più.
@@ -444,15 +445,19 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
     JSON.stringify(audience === 'minister'
       ? { date: context.verifiedWorldSnapshot.date, polityId: context.verifiedWorldSnapshot.polityId, facts: context.verifiedWorldSnapshot.facts, unavailable: context.verifiedWorldSnapshot.unavailable }
       : advisorFactRegistry(context.verifiedWorldSnapshot)),
-    audience === 'advisor'
+    agendaOnly ? 'PRIMA FASE: prosa introduttiva non oltre 240 caratteri e soli blocchi advisor_situation. Non generare council_issue, options, atti o decisioni già prese. Le alternative saranno elaborate in una seconda chiamata sulle sole situazioni validate.' : audience === 'advisor'
       ? 'Rispondi naturalmente in italiano: prosa breve, non oltre 1000 caratteri; il limite riguarda SOLO la prosa e NON i blocchi JSON advisor_situation/council_issue, che devono includere tutte le situazioni fondate e 3-5 alternative per questione quando giustificate. Le proposte restano ipotesi da verificare. Non generare missioni per riempire il silenzio.'
       : 'Rispondi naturalmente in italiano, in brevi paragrafi, massimo 3000 caratteri. Le proposte restano ipotesi da verificare. Non generare missioni per riempire il silenzio.',
-    audience === 'advisor' && context.mode === 'briefing' ? 'Interpreta problemi e opportunità attuali e formula le decisioni ancora aperte. PROSA DEL BRIEFING: al massimo due frasi, 240 caratteri, senza saluti né riepilogo delle schede. La sostanza sta nei blocchi advisor_situation e council_issue, esclusi da questo limite: non ripetere titolo, sintesi e domanda nella prosa. Il Presidente sceglie se approfondire o portare la questione al Consiglio; nessuna misura è approvata.' : '',
+    audience === 'advisor' && context.mode === 'briefing' && !agendaOnly ? 'Interpreta problemi e opportunità attuali e formula le decisioni ancora aperte. PROSA DEL BRIEFING: al massimo due frasi, 240 caratteri, senza saluti né riepilogo delle schede. La sostanza sta nei blocchi advisor_situation e council_issue, esclusi da questo limite: non ripetere titolo, sintesi e domanda nella prosa. Il Presidente sceglie se approfondire o portare la questione al Consiglio; nessuna misura è approvata.' : '',
     audience === 'advisor' && context.mode !== 'briefing' ? 'FORMA LIBERA: valuta la situazione in poche frasi; proponi le questioni che richiedono davvero una decisione — nessun numero fisso, dipende dallo stato reale del paese — concrete e specifiche del paese, spiegando vantaggi, rischi e possibili reazioni come ipotesi. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Se emerge una decisione politica concreta ancora aperta, emetti la relativa questione nel blocco council_issue, senza prescrivere un atto o una soluzione; una situazione può restare senza proposta. Concludi con un giudizio motivato sulla forza o fragilità della posizione e su cosa evitare. Per una domanda puntuale rispondi al punto: niente rituale in quattro sezioni, niente formule fisse o saluti ripetuti. I numeri solo se aiutano una decisione, mai dump di economia/infrastrutture/forze. Se domina la sicurezza concentrati su quella; se domina il bilancio privilegia quello. Non limitarti alle crisi: cerca anche opportunità concrete agganciate ai COUNCIL PROPOSAL ANCHORS, anche quando i segnali indicano urgenze. Se nessuna decisione è verificabile, spiega il limite; non inventare una crisi o una proposta. Nessuna quota di schede. Non aprire il Consiglio, non firmare, non avanzare il tempo.' : '',
-    audience === 'advisor' ? ADVISOR_COUNCIL_ISSUE_PROTOCOL : COUNCIL_ISSUE_PROTOCOL,
-    audience === 'advisor' ? COUNCIL_ANCHOR_PROTOCOL : '',
+    agendaOnly ? '' : audience === 'advisor' ? ADVISOR_COUNCIL_ISSUE_PROTOCOL : COUNCIL_ISSUE_PROTOCOL,
+    agendaOnly ? '' : audience === 'advisor' ? COUNCIL_ANCHOR_PROTOCOL : '',
     audience === 'advisor' ? SITUATION_BASE_PROTOCOL : '',
-    audience === 'advisor' && context.mode === 'briefing' ? ADVISOR_BRIEFING_SITUATION_PROTOCOL : '',
+    agendaOnly ? [
+      'FASE 1 DI 2 — AGENDA POLITICA. Interpreta l’intero contesto, seleziona solo questioni autonome e documentate (interni, fronti, diplomazia, economia, riforme quando pertinenti), senza quota fissa e senza inventare fatti.',
+      'Emetti un blocco fenced ```advisor_situation per ciascun tema: JSON {"id":"tema-univoco","title":"...","summary":"...","kind":"problem","signalKeys":["..."],"evidenceKeys":["..."]}. Usa solo chiavi presenti nei registri; per vicende storiche usa evidenceKeys, per segnali correnti anche signalKeys. Una prova storica dopo la divergenza richiede continuità corrente verificata.',
+      'Distingui attori, luogo, interesse, scelta aperta e vincoli. Non trasformare indicatori isolati in vicende, non accorpare teatri distinti e non replicare atti già firmati. Titoli specifici (massimo 10 parole), sintesi in due frasi (massimo 280 caratteri). Nessuna council_issue o options: la seconda fase costruirà strategie verificabili a partire da queste situazioni.',
+    ].join('\n') : audience === 'advisor' && context.mode === 'briefing' ? ADVISOR_BRIEFING_SITUATION_PROTOCOL : '',
     audience === 'advisor' && context.mode !== 'briefing' ? ADVISOR_CONVERSATION_PROTOCOL : '',
     audience === 'advisor' ? ADVISOR_MAP_PROTOCOL : '',
     audience === 'advisor' ? ADVISOR_FIGURE_PROTOCOL : '',
