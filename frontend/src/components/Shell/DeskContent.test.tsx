@@ -41,7 +41,7 @@ vi.mock('../Game/NationDock/widgets', () => ({
 
 vi.mock('../Game/DiplomacyPanel', () => ({
   DiplomacyPanel: (props: any) => (
-    <div className="diplomacy-panel">{`RELAZIONI:${props.selectedRegionId}`}</div>
+    <div className="diplomacy-panel">{`RELAZIONI:${props.playerPolityId}`}</div>
   ),
 }));
 
@@ -96,6 +96,7 @@ describe('BUG dossier nazionale — il dossier è della nazione del giocatore', 
     expect(html).toContain('Dossier nazionale');
     expect(html).toContain('nation-dock');
     expect(html).toContain('DOSSIER:PSE');
+    expect(html).toContain('RELAZIONI:PSE');
   });
 
   it('provincia esterna selezionata → il dossier del giocatore resta presente', () => {
@@ -104,14 +105,15 @@ describe('BUG dossier nazionale — il dossier è della nazione del giocatore', 
     expect(html).toContain('nation-dock');
     // I dati passati sono quelli del giocatore, non della provincia toccata.
     expect(html).toContain('DOSSIER:PSE');
-    // Mantiene il comportamento preesistente della diplomazia sulle regioni esterne.
-    expect(html).not.toContain('diplomacy-panel');
+    // Anche una provincia estera non deve nascondere la diplomazia nazionale.
+    expect(html).toContain('diplomacy-panel');
+    expect(html).toContain('RELAZIONI:PSE');
   });
 
   it('provincia propria selezionata → invariato (dossier + diplomazia)', () => {
     const html = render({ selectedRegion: 'OWN', externalRegionSelected: false });
     expect(html).toContain('DOSSIER:PSE');
-    expect(html).toContain('RELAZIONI:OWN');
+    expect(html).toContain('RELAZIONI:PSE');
   });
 
   it('mai un modulo nation senza contenuto né EmptyState', () => {
