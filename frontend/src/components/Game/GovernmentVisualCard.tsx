@@ -63,6 +63,10 @@ export function GovernmentVisualCard({ card, snapshot, onFocusMap }: GovernmentV
     maxLabels: zones?.primary.length ? MAX_PREVIEW_LABELS : 4,
   });
   const primaryNames = zones ? model.regions.filter(region => primary.has(region.id)).map(region => region.name) : [];
+  // An atlas card is an illustration, not an inventory of dozens of provinces.
+  // The full names and coordinates remain accessible on the principal map.
+  const shortNames = (names: readonly string[]) =>
+    `${names.slice(0, 4).join(' · ')}${names.length > 4 ? ` · +${names.length - 4} territori` : ''}`;
   // MAP09 — I segni: le capitali, i porti e gli stabilimenti dove il motore li ha
   // registrati, e le città delle zone in evidenza. Proiettati con la **stessa**
   // proiezione dei poligoni (niente seconde coordinate, niente pallini stimati),
@@ -75,7 +79,7 @@ export function GovernmentVisualCard({ card, snapshot, onFocusMap }: GovernmentV
   const borderWidth = frameWidth / 200;
   return <section className="government-visual-card" aria-label={`Contesto geografico: ${card.title}`}>
     <header><span className="government-visual-kind">CONTESTO GEOGRAFICO</span><h4>{card.title}</h4></header>
-    {model.preview ? <svg className="government-visual-preview" viewBox={model.preview.viewBox} preserveAspectRatio="xMidYMid meet" role="img" aria-label={model.regions.map(region => region.name).join(', ')}>
+    {model.preview ? <svg className="government-visual-preview" viewBox={model.preview.viewBox} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Anteprima geografica di ${model.regions.length} territori: ${shortNames(primaryNames.length ? primaryNames : model.regions.map(region => region.name))}`}>
       {model.preview.paths.map(path => {
         const role = roleOf(path.id);
         const style = zones ? zoneStyle(role) : { fillOpacity: 1, stroke: '#dceaf3', strokeWidth: 1.25 };
@@ -94,8 +98,8 @@ export function GovernmentVisualCard({ card, snapshot, onFocusMap }: GovernmentV
     </svg> : <p className="government-visual-fallback" role="status">{model.regions.length > MAX_MAP_PREVIEW_REGIONS ? 'Contesto territoriale esteso: apri la mappa principale per tutti i territori.' : 'Geometria non disponibile per una rappresentazione completa e affidabile.'}</p>}
     {/* Le primarie si nominano; il resto è contesto e non ha bisogno di un elenco. */}
     <p className="government-visual-regions">{zones?.primary.length
-      ? `In evidenza: ${primaryNames.join(' · ')}${model.regions.length > zones.primary.length ? ` — sulle ${model.regions.length} del contesto` : ''}`
-      : model.regions.length <= MAX_MAP_PREVIEW_REGIONS ? model.regions.map(region => region.name).join(' · ') : `${model.regions.length} territori canonici`}</p>
+      ? `In evidenza: ${shortNames(primaryNames)}${model.regions.length > zones.primary.length ? ` — su ${model.regions.length} territori del contesto` : ''}`
+      : model.regions.length <= MAX_MAP_PREVIEW_REGIONS ? shortNames(model.regions.map(region => region.name)) : `${model.regions.length} territori canonici`}</p>
     {/* MAP04 — con una metrica la legenda dichiara la scala, non i proprietari. */}
     <ul className="government-visual-legend" aria-label={model.metricLabel ? `Scala: ${model.metricLabel}` : 'Proprietà attuale dei territori'}>
       {model.metricLabel && <li className="government-visual-legend-title">{model.metricLabel}{model.metricMeasured !== undefined ? ` — ${model.metricMeasured} province con dato` : ''}</li>}

@@ -27,3 +27,12 @@
 .government-visual-open:focus-visible { outline: 2px solid #dceaf3; outline-offset: 3px; }
 .government-visual-open:disabled { opacity: .5; cursor: default; }
 @media (max-width: 480px) { .government-visual-card { padding: 10px; } .government-visual-card h4 { font-size: 18px; } }
+
+/* Advisor atlas: background context belongs after the decision cards, folded on mobile. */
+.government-visual-appendix { margin: 18px 0 6px; border: 1px solid #c7d6cd; border-radius: 10px; background: #f1f4ed; overflow: hidden; }
+.government-visual-appendix > summary { cursor: pointer; padding: 15px 16px; color: #2b493c; font: 600 15px/1.4 Georgia, serif; list-style-position: inside; }
+.government-visual-appendix > summary:focus-visible { outline: 2px solid #517660; outline-offset: -3px; }
+.government-visual-appendix > summary span { float: right; }
+.government-visual-appendix[open] > summary span { transform: rotate(180deg); }
+.government-visual-appendix .government-visual-card { margin: 0 12px 12px; width: calc(100% - 24px); max-width: none; }
+@media (max-width: 480px) { .government-visual-appendix > summary { padding: 14px; } }
