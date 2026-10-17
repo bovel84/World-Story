@@ -353,13 +353,14 @@ describe('Chat diplomatiche', () => {
   });
 
 
-  it('alimenta la chat bilaterale esistente anche quando un modello omette note', async () => {
+  it('alimenta la chat bilaterale esistente con una nuova nota diplomatica', async () => {
     const { session } = createGame();
     const existing = session.ensureChat(['Polonia']);
     stubEventReactions = [{
       actorId: 'POL', optionId: 'POL:mobilize', polityName: 'Polonia',
       role: 'counterparty', stance: 'opposed',
       response: 'Varsavia si oppone al dispositivo e chiede una verifica comune.',
+      note: 'Non possiamo accettare questo dispositivo. Chiediamo un incontro per definire nuove garanzie.',
     }];
     const broadcasts: any[] = [];
     session.setSSEBroadcaster((type: any, data: any) => broadcasts.push({ type, data }));
@@ -368,7 +369,7 @@ describe('Chat diplomatiche', () => {
     expect(session.getChats()).toHaveLength(1);
     expect(session.getChats()[0].id).toBe(existing.id);
     expect(session.getChatMessages(existing.id)).toHaveLength(1);
-    expect(session.getChatMessages(existing.id)[0].content).toContain('Varsavia si oppone');
+    expect(session.getChatMessages(existing.id)[0].content).toContain('Chiediamo un incontro');
     expect(broadcasts.filter(item => item.type === 'chat_message')).toHaveLength(1);
     expect(capturedChatPrompt).toBe('');
   });

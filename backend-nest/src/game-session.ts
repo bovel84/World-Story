@@ -2631,14 +2631,10 @@ export class GameSession {
         const resolved = resolver?.resolve(reaction.actorId || reaction.polityName);
         if (relevant && (!resolved || resolved.isNew || !relevant.has(resolved.polityId))) return [];
         const polityId = resolved?.polityId || reaction.actorId || reaction.polityName;
-        // An ordinary NPC policy decision is NOT automatically a private
-        // letter. New bilateral channels require an actual direct "note".
-        // Existing active negotiations can receive subsequent validated policy
-        // positions even when a small LLM omits the optional note field.
-        const liveNegotiation = chatRepository.getActiveChatByParticipantIds(
-          this.gameId, [this.playerPolityId, polityId],
-        );
-        if (!reaction.note?.trim() && !liveNegotiation) return [];
+        // An NPC policy response is a dispatch, not automatically a private
+        // letter. Only a direct note to the player feeds diplomatic chat.
+        // The persistence layer reuses an existing bilateral conversation.
+        if (!reaction.note?.trim()) return [];
         return [{
           polityName: polityId,
           participants: [polityId],
