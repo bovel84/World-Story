@@ -133,43 +133,6 @@ export function resolveStrategicThreadEvidence(snapshot: VerifiedWorldSnapshot, 
   return resolved;
 }
 
-/**
- * A lightweight, deterministic reading index over the SAME verified evidence.
- * Positions refer to the 'narratives' array (zero-based), never to invented
- * events. The classifier is editorial only; it must not validate or reject a
- * situation, and unrecognised passages remain visible.
- */
-const EDITORIAL_LANES = [
-  { theme: 'sicurezza interna e insurrezioni', pattern: /(?:ribell|insorrez|insorgen|guerrigl|miliz|gruppo armato|terror|rapiment|repression|sicurezza interna)/i },
-  { theme: 'guerre e fronti esterni', pattern: /(?:guerra|fronte|offensiv|invas|truppe|esercit|militar|occupazion|battagl|brigat|intervent|combattiment)/i },
-  { theme: 'diplomazia e rapporti regionali', pattern: /(?:diplomaz|negoziat|trattat|alleanz|relazion|rapporti? con|vertic|mediazion|sanzion|confine|governo vicin|riconosciment)/i },
-  { theme: 'economia reale e commercio', pattern: /(?:caff[eè]|esport|import|prezz|mercat|debito|produzion|commerc|agricol|aliment|finanz|fiscal|inflaz|imprese|investiment|industr|riforma economica)/i },
-  { theme: 'istituzioni e società', pattern: /(?:elezion|riform|parlament|partit|istituz|comunit|scioper|protest|istruzion|sanit|diritti|governance|corruzion)/i },
-] as const;
-
-export interface EditorialAgendaLane {
-  theme: string;
-  /** Zero-based positions in the existing narratives array. */
-  evidenceIndexes: number[];
-}
-
-export function buildEditorialAgendaIndex(narratives: readonly StrategicThreadEvidence[]): EditorialAgendaLane[] {
-  const groups = new Map<string, number[]>();
-  narratives.forEach((item, index) => {
-    // Quantitative facts and signed decisions are constraints, not candidate news.
-    if (item.sourceRef.startsWith('facts.') || item.sourceRef.startsWith('signedActs.')) return;
-    const lane = EDITORIAL_LANES.find(candidate => candidate.pattern.test(item.text));
-    const theme = lane?.theme ?? 'altre vicende documentate';
-    const indexes = groups.get(theme) ?? [];
-    indexes.push(index);
-    groups.set(theme, indexes);
-  });
-  // Keep every narrative, without arbitrary quotas, truncation or duplicated text.
-  return [...EDITORIAL_LANES.map(lane => lane.theme), 'altre vicende documentate']
-    .filter(theme => groups.has(theme))
-    .map(theme => ({ theme, evidenceIndexes: groups.get(theme)! }));
-}
-
 export function renderStrategicThreadEvidence(snapshot: VerifiedWorldSnapshot, context: StrategicThreadContext): string {
   // Facts are already in VERIFIED FACT REGISTRY; keep their keys resolvable but
   // do not repeat every indicator among the stories that should set the agenda.
@@ -181,9 +144,6 @@ export function renderStrategicThreadEvidence(snapshot: VerifiedWorldSnapshot, c
   return [
     '[STRATEGIC THREAD EVIDENCE — riferimenti server-side per problemi e opportunità]',
     JSON.stringify({ narratives: narrative, constraints: constraints.map(({ key, sourceRef }) => ({ key, factKey: sourceRef.slice(6) })) }),
-    '[AGENDA EDITORIALE — indice tematico delle narratives, posizioni da 0; non è fonte di fatti]',
-    JSON.stringify(buildEditorialAgendaIndex(narrative)),
-    'L’indice è solo lessicale: può classificare male. Esamina TUTTE le prove, incluse quelle fuori categoria, e verifica se descrivono decisioni politiche indipendenti. Prima distingui gli interessi, i contendenti, il teatro e ciò che il Presidente può scegliere; non confondere il vincolo finanziario di una guerra con una seconda vicenda economica. Una crisi diplomatica, una ribellione locale e un problema di esportazioni rimangono distinti soltanto quando ciascuno è documentato. Non inventare fatti per riempire categorie.',
     'Costruisci l’agenda prima dalle vicende documentate: attori con interessi diversi, luoghi, conflitti, negoziati, prodotti di esportazione e processi politici. Poi usa constraints, segnali e inventari per giudicare le risposte possibili. Un saldo, una scorta o un conteggio di alleati non costituiscono da soli una vicenda politica.',
     'Prima interpreta un STRATEGIC THREAD: cosa accade, attori/luoghi documentati, posta politica, vincoli e alternative. Poi rendilo advisor_situation nella STESSA risposta; non emettere un secondo elenco o una seconda chiamata. Chat e card devono raccontare lo stesso mondo.',
     'Le evidenceKeys citano SOLO questo registro. I segnali pertinenti vanno comunque collegati: sono prove e vincoli, NON il nome o l’identità del problema. Non inventare chiavi, fatti, attori o capacità.',
