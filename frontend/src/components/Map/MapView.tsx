@@ -7,7 +7,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { Region, MapObject } from '../../types';
 import type { MapLayer } from './mapModel';
-import { regionIdsForFocus, type MapRegionFocusRequest } from './mapFocus';
+import { eventCameraViewBox, regionIdsForFocus, type MapRegionFocusRequest } from './mapFocus';
 import { focusViewBox } from '../Game/regionFocus';
 
 interface MapViewProps {
@@ -62,7 +62,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const focusIds = useMemo(() => regionIdsForFocus(focusRegionRequest, new Map(regions.filter(region => region.svgPath).map(region => [region.id, region]))), [regions, focusRegionRequest]);
   const focused = useMemo(() => new Set(focusIds), [focusIds]);
   const viewBox = useMemo(() => focusIds.length && focusRegionRequest !== dismissedFocus
-    ? focusViewBox(regions, focusIds, 40) : `0 0 ${width} ${height}`, [regions, focusIds, focusRegionRequest, dismissedFocus, width, height]);
+    ? eventCameraViewBox(focusViewBox(regions, focusIds, 40), focusRegionRequest) : `0 0 ${width} ${height}`, [regions, focusIds, focusRegionRequest, dismissedFocus, width, height]);
   useEffect(() => { if (focusRegionRequest) { setZoom(1); setPan({ x: 0, y: 0 }); } }, [focusRegionRequest]);
 
   // Gestore zoom con la rotella del mouse

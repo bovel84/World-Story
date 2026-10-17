@@ -40,6 +40,7 @@ import { GameShell } from '../Shell/GameShell';
 import { HudBar } from './HudBar';
 import { NewsFlash } from './NewsFlash';
 import { SimulationEventReader } from './SimulationEventReader';
+import { buildEventLocationIndex, resolveEventLocation } from './eventLocation';
 import { GameMenu } from '../Shell/GameMenu';
 import { CommandRail } from '../Shell/CommandRail';
 // I pannelli ricchi restano fuori dal bundle della mappa finché non servono.
@@ -134,6 +135,17 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
   const visualRuntimeKey = useSimulationStore(governmentVisualEpoch);
   const visualRuntimeMatches = useSimulationStore(({ state }) => governmentVisualRuntimeMatches(currentGame, state));
   const visualScopeKey = `${snapshotKey}|${currentWorld?.id ?? ''}|${visualRuntimeKey}`;
+  const eventLocationIndex = useMemo(() => buildEventLocationIndex(regions), [regions]);
+  const currentNews = feed.newsOpen ? feed.newsQueue[0] : undefined;
+  const activeEvent = useMemo(() => playback.pausedReader?.event ?? (currentNews ? {
+    id: currentNews.id, headline: currentNews.text, detail: currentNews.detail,
+  } : undefined), [playback.pausedReader?.event, currentNews]);
+  const eventLocation = useMemo(() => resolveEventLocation(activeEvent, eventLocationIndex), [activeEvent, eventLocationIndex]);
+  const eventMapFocus: MapRegionFocusRequest | null = useMemo(() => activeEvent && eventLocation ? {
+    regionIds: eventLocation.regionIds, center: eventLocation.center, presentation: 'event',
+    requestId: playback.pausedReader?.revision ?? 0,
+    scopeKey: visualScopeKey,
+  } : null, [activeEvent?.id, eventLocation, playback.pausedReader?.revision, visualScopeKey]);
   const visualSnapshot = useMemo(() => buildGovernmentVisualSnapshot({
     scopeKey: visualScopeKey, canonicalSnapshotKey: snapshotKey, militarySnapshotKey: nation.militarySnapshotKey,
     index: mapContextIndex, unavailable: !visualRuntimeMatches || loading,
@@ -153,6 +165,13 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
     setMapContextSelection(null);
     setMapFocusRequest(null);
   }, [currentGame?.id, currentWorld?.id]);
+  useEffect(() => {
+    if (!activeEvent?.id) return;
+    setMapContextSelection(null);
+    setSelectedRegion(null);
+    setShowOpening(false);
+    closeModule();
+  }, [activeEvent?.id, closeModule, setSelectedRegion, setShowOpening]);
   // Rewind/restore/refresh: durante il pending conserviamo soltanto l'ID; alla
   // risposta, un oggetto davvero assente/chiuso fa chiudere il contesto.
   useEffect(() => {
@@ -400,7 +419,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
       onRegionClick={selectRegionContext}
       onUnitClick={selectUnitContext}
       onFrontClick={selectFrontContext}
-      focusRegionRequest={mapFocusRequest?.scopeKey === visualScopeKey ? mapFocusRequest : null}
+      focusRegionRequest={activeEvent ? eventMapFocus : mapFocusRequest?.scopeKey === visualScopeKey ? mapFocusRequest : null}
       changedRegionIds={changedRegions}
       temporalScars={playback.temporalScars}
       events={feed.feedItems}
@@ -519,7 +538,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
               />
             )}
           />
-          {feed.newsOpen && (
+          {feed.newsOpen && !playback.pausedReader && (
             <NewsFlash
               item={feed.newsQueue[0] || null}
               pendingCount={feed.newsQueue.length}
@@ -530,6 +549,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
                 openModule('news');
               }}
               playerPolityName={nationalName}
+              locationLabel={eventLocation?.label}
             />
           )}
           <CompactBriefing briefing={briefing} onOpenDossier={() => openModule('nation')} />
@@ -555,6 +575,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
               impact={checkpointImpact}
               decisions={readerDecisions}
               playerPolityName={nationalName}
+              locationLabel={eventLocation?.label}
             />
           )}
         </>
