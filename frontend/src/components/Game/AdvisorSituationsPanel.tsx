@@ -59,6 +59,7 @@ export function AdvisorSituationsPanel({ situations, issues = [], onDeepen, onOp
             <summary className="advisor-situation-toggle">
               <span className="advisor-situation-severity" data-importance={situation.importance}>{importanceLabel(situation.importance ?? 1)}</span>
               <h5 className="advisor-situation-title">{situation.title}</h5>
+              {issue?.options?.length ? <span className="advisor-situation-choice-count">{issue.options.length} azioni</span> : null}
             </summary>
             <p className="advisor-situation-summary">{situation.summary}</p>
             {issue?.options?.length ? <AdvisorActionOptions issue={issue} onOpenIssue={onOpenIssue} disabled={disabled} />

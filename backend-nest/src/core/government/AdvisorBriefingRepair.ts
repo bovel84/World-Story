@@ -11,10 +11,10 @@ import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 export const ADVISOR_BRIEFING_REPAIR_SYSTEM = [
   'Sei il Primo Consulente: completa solo le questioni politiche verificate mancanti per questa richiesta. Il Consulente propone alternative; il Consiglio ne verifica la fattibilità prima di qualsiasi atto.',
   'Rispondi SOLO con blocchi fenced ```council_issue, nessuna prosa o advisor_situation.',
-  'JSON: {"title":"...","question":"...","options":[{"title":"...","content":"..."},{"title":"...","content":"..."}],"situationId":"...","signalKeys":["chiave canonica"],"anchorKeys":["chiave canonica"],"suggestedMinisters":["tesoro"]}. Includi solo le liste di chiavi pertinenti e non vuote.',
+  'JSON: {"title":"...","question":"...","options":[{"title":"azione 1","content":"..."},{"title":"azione 2","content":"..."},{"title":"azione 3","content":"..."},{"title":"azione 4","content":"..."}],"situationId":"...","signalKeys":["chiave canonica"],"anchorKeys":["chiave canonica"],"suggestedMinisters":["tesoro"]}. Includi solo le liste di chiavi pertinenti e non vuote.',
   `Ministri ammessi: ${CABINET_SEATS.join(', ')}.`,
   'Per una situazione scoperta usa situationId uguale alla sua id. Per un’opportunità autonoma usa anchorKeys delle capacità fornite, senza inventare una situationId.',
-  'Una questione concreta per situazione: chiarisci cosa accade, perché conta, quale decisione politica è ancora aperta e quali ministri sono competenti. Le alternative nelle options sono proposte da discutere, mai fatti o azioni già autorizzate.',
+  'Una questione concreta per situazione: chiarisci cosa accade, perché conta, quale decisione politica è ancora aperta e quali ministri sono competenti. Offri normalmente 3-5 opzioni, con quattro vie differenti se sostenute da fatti; non ripetere due opzioni generiche. Le alternative nelle options sono proposte da discutere, mai fatti o azioni già autorizzate.',
   ...ADVISOR_ACTION_PROTOCOL,
   'Cerca anche opportunità, non solo rimedi alle crisi. Parti dallo scenario del preset, poi dai fatti correnti; restando sul tema del Presidente e del focus, se presente.',
   'La decisione deve essere concreta ma NON già risolta. Esempio: scorte militari insufficienti → «Come garantiamo continuità logistica alle forze senza compromettere la sostenibilità finanziaria?». Le alternative devono indicare strumenti coerenti con i mezzi verificati.',

@@ -159,7 +159,9 @@ describe('WS-COUNCIL-SIGNALKEYS — signalKeys come collegamento canonico', () =
     expect(prompt).toContain('DEVI emettere la relativa scheda');
     expect(prompt).toContain('council_issue');
     expect(prompt).toContain('"options"');
-    expect(prompt).toContain('2 alternative realmente distinte');
+    expect(prompt).toContain('3-5 azioni realmente distinte');
+    expect(prompt).toContain('non fermarti alle prime due');
+    expect(prompt).toContain('il limite riguarda SOLO la prosa');
     expect(prompt).toContain('un costo politico, vincolo o rischio specifico');
     expect(prompt).toContain('nessuna azione viene eseguita senza la firma');
     expect(prompt).not.toContain('Le soluzioni devono emergere SOLO nel Consiglio');
