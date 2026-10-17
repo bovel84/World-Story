@@ -34,7 +34,9 @@ describe('CouncilIssue optional variety protocol', () => {
     expect(SITUATION_BASE_PROTOCOL).toMatch(/numero fisso/);
     expect(SITUATION_BASE_PROTOCOL).toMatch(/SITUAZIONE da QUESTIONE POLITICA/);
     expect(SITUATION_BASE_PROTOCOL).toContain('ogni situazione deve avere una questione verificata collegata');
-    expect(ADVISOR_BRIEFING_SITUATION_PROTOCOL).toMatch(/titoli devono essere concreti/i);
+    expect(ADVISOR_BRIEFING_SITUATION_PROTOCOL).toContain('Titolo: massimo 10 parole');
+    expect(ADVISOR_BRIEFING_SITUATION_PROTOCOL).toContain('attore o luogo documentato');
+    expect(ADVISOR_BRIEFING_SITUATION_PROTOCOL).toContain('solo se attestati dalle evidenceKeys');
   });
 
   it('keeps proposals optional and accepts a single issue', () => {
