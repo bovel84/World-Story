@@ -914,5 +914,10 @@ describe('WS-CONSULENTE-PROPOSTE — repair mirato di un briefing incompleto', (
     expect(payload.situations).toHaveLength(parsed.situations.length);
     expect(payload.signedActs[0].text).toContain('negoziati con il Sudan');
     expect(payload).toHaveProperty('anchors');
+    // The strategy pass receives precisely resolvable links, not only the
+    // historical headline: the model can name the policy it is empowered to propose.
+    expect(payload.situations.some((item: { verifiedSignals: unknown[] }) => item.verifiedSignals.length > 0)).toBe(true);
+    expect(payload.situations.every((item: { verifiedSignals: { key: string }[]; signalKeys: string[] }) =>
+      item.verifiedSignals.every(link => item.signalKeys.includes(link.key)))).toBe(true);
   });
 });
