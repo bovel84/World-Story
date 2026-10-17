@@ -249,10 +249,10 @@ describe('advisorMemory', () => {
     const storage = fakeStorage();
     (globalThis as { localStorage?: Storage }).localStorage = storage;
     const key = advisorOpeningKey('g1', 'main', 'g1|main|3');
-    expect(key).toContain('ws.advisor.opening.v5::');
+    expect(key).toContain('ws.advisor.opening.v6::');
     // Le aperture v4, v3, v2 o del protocollo precedente non contano più: si rigenerano.
-    for (const legacy of ['ws.advisor.opening.v4::', 'ws.advisor.opening.v3::', 'ws.advisor.opening.v2::', 'ws.advisor.opening::']) {
-      storage.setItem(key.replace('ws.advisor.opening.v5::', legacy), JSON.stringify({ reply: 'Primo intervento del mandato', issues: [], date: '2000-01-01' }));
+    for (const legacy of ['ws.advisor.opening.v5::', 'ws.advisor.opening.v4::', 'ws.advisor.opening.v3::', 'ws.advisor.opening.v2::', 'ws.advisor.opening::']) {
+      storage.setItem(key.replace('ws.advisor.opening.v6::', legacy), JSON.stringify({ reply: 'Primo intervento del mandato', issues: [], date: '2000-01-01' }));
     }
     expect(loadAdvisorOpening(key)).toBeNull();
   });

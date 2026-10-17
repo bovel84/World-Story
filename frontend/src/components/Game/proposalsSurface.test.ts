@@ -4,7 +4,7 @@
  * Test-contratto sul sorgente (convenzione del progetto). Difende il percorso
  * completo della questione, dal Consulente all'atto:
  *
- *   AdvisorChat → CouncilIssueInline (questione senza soluzioni) → openIssue(issue) →
+ *   AdvisorChat → CouncilIssueInline (questione e azioni) → openIssue(issue, optionIndex?) →
  *   orderDraftStore/`drafts` → ActDraftPanel (la bozza, modificabile) → firma.
  *
  * La misura dice che **non c'è una seconda superficie da costruire**: il
@@ -26,7 +26,8 @@ describe('P07 — il percorso della mossa, dal Consulente all’atto', () => {
   });
 
   it('la stanza del Governo collega il clic alla bozza', () => {
-    expect(office).toContain('const openIssue = (issue: CouncilIssue): void =>');
+    expect(office).toContain('const openIssue = (issue: CouncilIssue, optionIndex?: number): void =>');
+    expect(office).toContain('councilActionMessage(issue, optionIndex)');
     expect(office).toContain('const room = startRoom(rapporteur, discussionIssue)');
     expect(office).toContain('councilDraft(room, currentTurn ?? 0)');
     expect(office).not.toContain('seedChosenRoad');

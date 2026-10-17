@@ -6,8 +6,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AdvisorSituation, CouncilIssue } from '../../services/api';
 import { AdvisorSituationsPanel } from './AdvisorSituationsPanel';
 import { AdvisorQuestionCards } from './AdvisorChat';
+import { AdvisorActionOptions } from './AdvisorActionOptions';
 import { CouncilIssueInline } from './CouncilIssueInline';
-import { councilContext, councilDraft, createCouncilRoom } from './councilRoom';
+import { councilActionMessage, councilContext, councilDraft, councilDiscussionIssue, createCouncilRoom } from './councilRoom';
 import { CouncilRoomView } from './CouncilRoomView';
 
 const options = [
@@ -40,17 +41,46 @@ function cards(situations = [situation], issues = [issue]) {
   return renderToStaticMarkup(<AdvisorQuestionCards situations={situations} issues={issues} onDeepen={() => {}} onOpenIssue={() => {}} />);
 }
 
-describe('Consulente: questioni, non soluzioni', () => {
-  it('mostra priorità, titolo, sintesi e CTA, mai le options', () => {
+describe('Consulente: situazioni e azioni possibili', () => {
+  it('non mostra opzioni legacy senza una questione verificata collegata', () => {
     const html = renderToStaticMarkup(<AdvisorSituationsPanel situations={[situation]} onDeepen={() => {}} onOpenIssue={() => {}} />);
     for (const text of ['Urgente', situation.title, situation.summary, 'Approfondisci', 'Porta al Consiglio']) expect(html).toContain(text);
     for (const option of options) { expect(html).not.toContain(option.title); expect(html).not.toContain(option.content); }
     expect(html).not.toContain('aria-pressed');
   });
 
-  it('nasconde anche le options delle issue standalone', () => {
+  it('mostra le azioni delle issue standalone', () => {
     const html = renderToStaticMarkup(<CouncilIssueInline issue={issue} onOpenIssue={() => {}} />);
-    for (const option of options) { expect(html).not.toContain(option.title); expect(html).not.toContain(option.content); }
+    for (const option of options) { expect(html).toContain(option.title); expect(html).toContain(option.content); }
+  });
+
+  it('seleziona esattamente una proposta e conserva fonti e questione', () => {
+    const onOpenIssue = vi.fn();
+    const tree = AdvisorActionOptions({ issue, onOpenIssue });
+    const controls = buttons(tree);
+    expect(controls).toHaveLength(2);
+    controls[1].props.onClick();
+    expect(onOpenIssue).toHaveBeenCalledExactlyOnceWith(issue, 1);
+    const message = councilActionMessage(issue, 1);
+    expect(message).toContain(options[1].content);
+    expect(message).not.toContain(options[0].content);
+    const discussion = councilDiscussionIssue(issue);
+    expect(discussion.question).toBe(issue.question);
+    expect(discussion.verifiedFacts).toEqual(issue.verifiedFacts);
+    expect(discussion.sourceRefs).toEqual(issue.sourceRefs);
+    expect(discussion.options).toBeUndefined();
+    expect(issue.options).toEqual(options);
+    for (const invalid of [undefined, -1, 2, 0.5, NaN]) expect(councilActionMessage(issue, invalid)).toBe('');
+    expect(councilActionMessage({ ...issue, options: undefined }, 0)).toBe('');
+    expect(buttons(AdvisorActionOptions({ issue, onOpenIssue, disabled: true })).every(button => button.props.disabled)).toBe(true);
+  });
+
+  it('le alternative sono nella scheda richiudibile e compaiono una sola volta', () => {
+    const html = cards();
+    expect(html).toContain('<details class="advisor-situation-details">');
+    expect(html).not.toContain('open=""');
+    expect(html).toContain('Azioni possibili');
+    for (const option of options) expect(html.split(option.content)).toHaveLength(2);
   });
 
   it('una issue collegata non compare una seconda volta sotto la situazione', () => {
@@ -78,12 +108,12 @@ describe('Consulente: questioni, non soluzioni', () => {
     expect(html).not.toMatch(/<button[^>]*disabled/);
   });
 
-  it('una issue standalone compatta offre approfondimento e apertura senza mostrare fatti o options', () => {
+  it('una issue compatta offre azioni e approfondimento senza allungare la lista con i fatti', () => {
     const onOpenIssue = vi.fn(); const onDeepen = vi.fn();
     const tree = CouncilIssueInline({ issue, compact: true, onOpenIssue, onDeepen });
     const html = renderToStaticMarkup(tree);
     expect(html).not.toContain('council-issue-facts');
-    expect(html).not.toContain('Convogli protetti');
+    expect(html).toContain('Convogli protetti');
     const controls = buttons(tree);
     controls.find(button => button.props.className === 'advisor-situation-deepen')!.props.onClick();
     expect(onDeepen).toHaveBeenCalledExactlyOnceWith(issue);
@@ -130,12 +160,12 @@ describe('Consiglio: apertura sulla questione', () => {
     expect(html).toContain('Ministro degli Esteri +');
   });
 
-  it('il gestore reale non chiama seedChosenRoad né precompila soluzioni', () => {
+  it('il gestore prepara un messaggio, senza firmare né inserire misure approvate', () => {
     const source = fs.readFileSync(path.resolve(__dirname, 'GovernmentOffice.tsx'), 'utf8');
     const start = source.indexOf('const openIssue =');
     const body = source.slice(start, source.indexOf('\n  };', start));
     expect(body).not.toContain('seedChosenRoad');
-    expect(body).not.toContain('chosenOption');
+    expect(body).toContain('councilActionMessage(issue, optionIndex)');
     expect(body).toContain('discussionIssue.suggestedMinisters.find');
     expect(body).toContain('councilDraft(room, currentTurn ?? 0)');
     expect(body).not.toContain('onQueueOrder');

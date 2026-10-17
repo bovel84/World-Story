@@ -20,7 +20,7 @@ interface AdvisorChatProps {
   gameId: string;
   chartData?: ChartDataInput | null;
   scopeKey?: string;
-  onOpenIssue?: (issue: CouncilIssue) => void;
+  onOpenIssue?: (issue: CouncilIssue, optionIndex?: number) => void;
   visualSnapshot?: GovernmentVisualSnapshot;
   onFocusMap?: (card: MapFocusVisual) => void;
   /** WS-GOV-TURN-AWARENESS — Il turno corrente: la chat attiva è solo questo. */
@@ -40,7 +40,7 @@ export function AdvisorQuestionCards({ situations, issues, allSituations = situa
   allIssues?: CouncilIssue[];
   onDeepen: (situation: AdvisorSituation) => void;
   onDeepenIssue?: (issue: CouncilIssue) => void;
-  onOpenIssue?: (issue: CouncilIssue) => void;
+  onOpenIssue?: (issue: CouncilIssue, optionIndex?: number) => void;
   activeId?: string;
   disabled?: boolean;
 }) {

@@ -5,7 +5,7 @@
  *  - P-I1 l'opzione è **prosa**, non un fatto: nessuna cifra, nessuna chiave;
  *  - P-I5 **retrocompatibilità**: una scheda senza `options` resta valida;
  *  - i limiti (2-5 opzioni, lunghezze) sono validati dallo schema, non dal prompt;
- *  - il protocollo Advisor non chiede soluzioni; quello del ministro resta invariato.
+ *  - il protocollo Advisor propone alternative; quello del ministro resta invariato.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -106,10 +106,10 @@ describe('P01 — il parser scarta le schede con opzioni malformate', () => {
   });
 });
 
-describe('Advisor anchor protocol without solutions', () => {
-  it('does not request options or executable orders', () => {
-    expect(COUNCIL_ANCHOR_PROTOCOL).not.toMatch(/options|2-5 mosse|\[OPZIONI\]|ordine PRONTO|2-4 iniziative|proponi (?:una decisione|decisioni politiche)/i);
-    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('non una soluzione operativa');
+describe('Advisor anchors keep proposals grounded', () => {
+  it('keeps alternatives in council issues without duplicating them', () => {
+    expect(COUNCIL_ANCHOR_PROTOCOL).not.toMatch(/2-5 mosse|\[OPZIONI\]|ordine PRONTO|2-4 iniziative|proponi (?:una decisione|decisioni politiche)/i);
+    expect(COUNCIL_ANCHOR_PROTOCOL).toContain('alternative da sottoporre al Consiglio');
   });
 
   it('keeps grounding and financial constraints', () => {

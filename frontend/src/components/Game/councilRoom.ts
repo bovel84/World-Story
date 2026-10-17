@@ -105,6 +105,14 @@ export function councilDiscussionIssue(issue: CouncilIssue): CouncilIssue {
   return discussionIssue;
 }
 
+/** Resolve a selection against the original issue; never manufacture a source or act. */
+export function councilActionMessage(issue: CouncilIssue, optionIndex?: number): string {
+  if (optionIndex === undefined || !Number.isInteger(optionIndex)) return '';
+  const option = issue.options?.[optionIndex];
+  if (!option) return '';
+  return `Discutiamo la proposta «${option.title}»: ${option.content}\nVerifichiamo vincoli, copertura e conseguenze prima di preparare un atto.`;
+}
+
 export function createCouncilRoom(input: { id: string; scopeKey: string; initiatorMinister: CabinetSeat; sourceIssue?: CouncilIssue; sourceSituation?: GovernmentSituationView; sourceFollowUp?: CouncilSourceFollowUp }): CouncilRoomState {
   const sourceIssue = input.sourceIssue;
   const sourceSituation = input.sourceSituation;
