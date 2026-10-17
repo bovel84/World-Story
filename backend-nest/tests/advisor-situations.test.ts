@@ -782,10 +782,10 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     for (const situation of result.situations) expect(situation.signalKeys).toHaveLength(1);
   });
 
-  it('PROMPT-G: il briefing preferisce 3-6 situazioni ordinate per priorità politica', () => {
+  it('PROMPT-G: il briefing seleziona vicende indipendenti senza quote, per priorità politica', () => {
     const prompt = buildRealityAdvisorPrompt(buildRealityAdvisorContext(multi(), undefined, null, undefined, 'briefing').advisorContext, 'Apriamo il Governo.');
-    expect(prompt).toContain('circa 3-6 situazioni strategiche');
-    expect(prompt).toContain('raggruppando i segnali che descrivono lo stesso problema politico');
+    expect(prompt).toContain('SELEZIONE EDITORIALE');
+    expect(prompt).toContain('tutte e sole le questioni autonome e sostenute da prove');
     expect(prompt).toContain('importanza politica e urgenza');
     expect(prompt).toContain('non per categoria');
   });
