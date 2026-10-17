@@ -311,7 +311,7 @@ describe('Chat diplomatiche', () => {
     expect(broadcast?.data.message.seq).toBe(stored.seq);
   });
 
-  it('la nota della reazione non apre una chat senza richiesta diplomatica esplicita', async () => {
+  it('una nota diplomatica diretta apre la chat nel turno senza startChat esplicito', async () => {
     stubEventReactions = [{
       actorId: 'POL', optionId: 'POL:mobilize', polityName: 'Polonia',
       role: 'counterparty', stance: 'opposed',
@@ -319,9 +319,17 @@ describe('Chat diplomatiche', () => {
       note: 'Ritirate le unità avanzate e torniamo a parlare.',
     }];
     const { session } = createGame();
+    const broadcasts: any[] = [];
+    session.setSSEBroadcaster((type: any, data: any) => broadcasts.push({ type, data }));
     session.queueAction('Imporre un dispositivo di frontiera alla Polonia');
     await session.processNextAction(0);
-    expect(session.getChats()).toHaveLength(0);
+    const threads = session.getChats();
+    expect(threads).toHaveLength(1);
+    expect(threads[0].polityId).toBe('POL');
+    expect(session.getChatMessages(threads[0].id)[0].content)
+      .toBe('Ritirate le unità avanzate e torniamo a parlare.');
+    expect(broadcasts.filter(item => item.type === 'chat_message')).toHaveLength(1);
+    expect(capturedChatPrompt).toBe('');
     const worldEvent = session.getTimeline().flatMap((entry: any) => entry.events)
       .find((event: any) => event.headline === 'Vertice di frontiera');
     expect(worldEvent.detail).toContain('Varsavia ordina il richiamo');
@@ -342,6 +350,48 @@ describe('Chat diplomatiche', () => {
       .find((event: any) => event.headline === 'Vertice di frontiera');
     expect(worldEvent.detail).toContain('Varsavia respinge');
     expect(worldEvent.detail).toContain('Richiamo delle riserve');
+  });
+
+
+  it('alimenta la chat bilaterale esistente con una nuova nota diplomatica', async () => {
+    const { session } = createGame();
+    const existing = session.ensureChat(['Polonia']);
+    stubEventReactions = [{
+      actorId: 'POL', optionId: 'POL:mobilize', polityName: 'Polonia',
+      role: 'counterparty', stance: 'opposed',
+      response: 'Varsavia si oppone al dispositivo e chiede una verifica comune.',
+      note: 'Non possiamo accettare questo dispositivo. Chiediamo un incontro per definire nuove garanzie.',
+    }];
+    const broadcasts: any[] = [];
+    session.setSSEBroadcaster((type: any, data: any) => broadcasts.push({ type, data }));
+    session.queueAction('Imporre un dispositivo di frontiera alla Polonia');
+    await session.processNextAction(0);
+    expect(session.getChats()).toHaveLength(1);
+    expect(session.getChats()[0].id).toBe(existing.id);
+    expect(session.getChatMessages(existing.id)).toHaveLength(1);
+    expect(session.getChatMessages(existing.id)[0].content).toContain('Chiediamo un incontro');
+    expect(broadcasts.filter(item => item.type === 'chat_message')).toHaveLength(1);
+    expect(capturedChatPrompt).toBe('');
+  });
+
+
+  it('continua a scrivere nella stessa chat anche senza note nelle reazioni successive', async () => {
+    const { session } = createGame();
+    const existing = session.ensureChat(['Polonia']);
+    stubEventReactions = [{
+      actorId: 'POL', optionId: 'POL:mobilize', polityName: 'Polonia',
+      role: 'counterparty', stance: 'opposed',
+      response: 'Varsavia si oppone al dispositivo e chiede una verifica comune.',
+    }];
+    session.queueAction('Imporre un dispositivo di frontiera alla Polonia');
+    await session.processNextAction(0);
+
+    const threads = session.getChats();
+    expect(threads).toHaveLength(1);
+    expect(threads[0].id).toBe(existing.id);
+    expect(session.getChatMessages(existing.id)).toHaveLength(1);
+    expect(session.getChatMessages(existing.id)[0].content).toContain('Varsavia si oppone');
+    expect(capturedChatPrompt).toBe('');
   });
 
   it('senza reactions non effettua un secondo LLM per generare chat di fallback', async () => {

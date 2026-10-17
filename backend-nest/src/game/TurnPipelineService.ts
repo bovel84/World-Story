@@ -26,7 +26,7 @@ import { ingestJevBatch, relationshipMemoryInputs, consolidateJevMemory } from '
 import { loadSimulationCatalog } from '../scenario/loader';
 import { shortId } from '../utils/short-id';
 import type { RelationshipType } from '../core/RelationshipMatrix';
-import type { SimulationChatStart, SimulationEvent } from '../prompts/types';
+import type { SimulationChatStart, SimulationEvent, ActionOutcome } from '../prompts/types';
 import { mergeTimelineChronologically } from '../prompts/simulation/worldPulse';
 import type { PolityHistoricalBaseline } from '../core/government/HistoricalBaseline';
 import type { NationSituationRecord } from '../core/government/NationSituation';
@@ -549,14 +549,33 @@ export class TurnPipelineService {
       if (this.ctx.isStrictGame() && applyCompletionEffects) applyStagedStrictEffects(this.ctx.gameId, gameRepository.getHeadBranch(this.ctx.gameId)!, gameRepository.getWorldRevision(this.ctx.gameId), promptResult.effects || []);
       relationshipRepository.upsertForGame(this.ctx.gameId, persistedRelationshipChanges);
 
-      // Le chat sono conseguenze eccezionali di contatti rivolti al giocatore,
-      // non il prodotto automatico di tutte le reazioni internazionali.
+      // LLM startChat remains authoritative when present, but it is OPTIONAL.
+      // Ordinary turns previously ignored structured NPC reactions entirely:
+      // the same accepted event generated a dispatch but never reached the
+      // diplomatic inbox. Reuse the existing deterministic reaction pathway
+      // (already used by paused playback); this makes no extra LLM request.
       const chatTimelineEvents: TimelineEventRecord[] = [];
       const explicitChatStarts: SimulationChatStart[] = applyCompletionEffects || (autoJump && !intervened)
         ? promptResult.startChat || []
         : [];
+      const reactionStarts: SimulationChatStart[] = this.ctx.reactionChatStarts(appliedEvents, true);
       const acceptedHeadlines = new Set(appliedEvents.map(event => event.headline.trim().toLocaleLowerCase('it')));
-      const chatStarts = explicitChatStarts.filter(start =>
+      // Only *accepted player orders* can establish player involvement when the
+      // event omits their country's name; unrelated world events stay excluded.
+      const knownActionIds = new Set(actions.map(action => action.id));
+      const linkedPlayerEvents = new Set<string>(
+        ((promptResult.actionOutcomes || []) as ActionOutcome[])
+          .filter((outcome: ActionOutcome) => (outcome.status === 'accepted' || outcome.status === 'partial')
+            && ((!!outcome.actionId && knownActionIds.has(outcome.actionId))
+              || actions.some(action => action.text === outcome.action)))
+          .flatMap((outcome: ActionOutcome) => outcome.eventHeadlines || [])
+          .map((headline: string) => headline.trim().toLocaleLowerCase('it'))
+          .filter((headline: string) => acceptedHeadlines.has(headline)),
+      );
+      // Explicit diplomatic invitation takes priority over a fallback reaction
+      // for the same confirmed event. openSimulationChats enforces one thread
+      // per event, durable dedupe, participant validity and player relevance.
+      const chatStarts = [...explicitChatStarts, ...reactionStarts].filter(start =>
         Boolean(start.eventHeadline?.trim()) && acceptedHeadlines.has(start.eventHeadline!.trim().toLocaleLowerCase('it')));
       const chatEffects = this.ctx.diplomacy.openSimulationChats(
         chatStarts,
@@ -565,6 +584,7 @@ export class TurnPipelineService {
           fallbackDate: period.end,
           simulationId: simulationRunId || undefined,
           events: appliedEvents,
+          playerActionEventHeadlines: linkedPlayerEvents,
           requireEventLink: true,
         },
       );

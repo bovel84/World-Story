@@ -237,6 +237,17 @@ export const chatRepository = {
     return row ? rowToChat(row) : null;
   },
 
+  /** Reuse the active conversation with exactly the same participants.
+   * A new NPC reaction must not archive a live player negotiation. */
+  getActiveChatByParticipantIds(gameId: string, ids: string[]): ChatRecord | null {
+    const row = db.prepare(`
+      SELECT * FROM chats
+      WHERE game_id = ? AND participant_key = ? AND archived = 0
+      ORDER BY COALESCE(last_message_at, created_at) DESC LIMIT 1
+    `).get(gameId, participantKey(ids)) as any;
+    return row ? rowToChat(row) : null;
+  },
+
   /** Список чатов игры, свежие сверху, с последним сообщением и unread. */
   getChatsByGame(gameId: string, includeArchived = false): ChatSummary[] {
     const rows = db.prepare(`

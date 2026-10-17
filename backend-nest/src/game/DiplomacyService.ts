@@ -278,6 +278,8 @@ export class DiplomacyService {
       simulationId?: string;
       events?: Array<{ headline: string; date: string; description?: string; reactions?: Array<{ actorId?: string; polityName?: string }> }>;
       requireEventLink?: boolean;
+      /** Confirmed player-action outcomes linked to committed event headlines. */
+      playerActionEventHeadlines?: ReadonlySet<string>;
     },
   ): {
     /** Canali che portano un fatto nuovo: diventano voci di cronaca. */
@@ -323,7 +325,8 @@ export class DiplomacyService {
         const source = `${linkedEvent.headline} ${linkedEvent.description || ''}`.toLocaleLowerCase('it');
         const playerMentioned = (playerName && source.includes(playerName))
           || source.includes(`[${playerId.toLocaleLowerCase('it')}]`);
-        if (!playerMentioned) {
+        const playerActionLinked = options.playerActionEventHeadlines?.has(eventHeadline.toLocaleLowerCase('it')) ?? false;
+        if (!playerMentioned && !playerActionLinked) {
           console.warn('[GameSession] startChat ignorata: il giocatore non è coinvolto nel dispaccio:', eventHeadline);
           continue;
         }
@@ -352,7 +355,16 @@ export class DiplomacyService {
       // quando il mondo offre dati di adiacenza reali, così non svuota i mondi
       // senza confini registrati (fixture e test).
       if (this.ctx.hasGeographicAdjacency()) {
-        const relevant = this.ctx.crisisRelevantPolityIds([linkedEvent?.headline || '']);
+        // A validated event reaction is itself an authoritative reason for
+        // that nation to be present. Headline-only text matching discarded
+        // these NPCs even when the event's reaction listed them explicitly.
+        const eventActors = (linkedEvent?.reactions || [])
+          .map(reaction => resolver.resolve(reaction.actorId || reaction.polityName || '')?.polityId)
+          .filter((id): id is string => !!id && id !== 'neutral');
+        const relevant = this.ctx.crisisRelevantPolityIds(
+          [linkedEvent?.headline || '', linkedEvent?.description || ''],
+          eventActors,
+        );
         const kept = validPolityIds.filter(id => relevant.has(id));
         if (kept.length === 0) {
           console.warn('[GameSession] startChat ignorata: partecipanti fuori dal teatro della crisi:', requestedNames.join(', '));
@@ -375,7 +387,15 @@ export class DiplomacyService {
       opened.add(duplicateKey);
 
       try {
-        const chat = this.ensureChat(validPolityIds, {
+        // A narrated NPC reaction should FEED the existing live negotiation
+        // with the same participants rather than archive it and start over.
+        // New explicit invitations remain separate topics/conferences.
+        const liveThread = start.alreadyNarrated
+          ? chatRepository.getActiveChatByParticipantIds(
+            this.ctx.gameId, [this.ctx.playerPolityId(), ...validPolityIds],
+          )
+          : null;
+        const chat = liveThread || this.ensureChat(validPolityIds, {
           dedupeKey: simulationThreadKey({
             simulationId: options.simulationId,
             turn: options.turn,
@@ -391,6 +411,17 @@ export class DiplomacyService {
         if (!sender) continue;
         const gameDate = linkedEvent?.date || options.fallbackDate;
         const topic = this.ctx.publicText(start.topic) || 'Desideriamo discutere gli ultimi sviluppi.';
+        // Replayed SSE/checkpoints must not deliver the same dispatch twice
+        // even when the reaction appended to a pre-existing bilateral thread.
+        const alreadyDelivered = chatRepository.getMessages(chat.id).some(message =>
+          message.role === 'polity' && message.turn === options.turn
+          && message.gameDate === gameDate && message.senderName === sender.name
+          && message.content === topic
+        );
+        if (alreadyDelivered) {
+          if (eventKey) openedEvents.add(eventKey);
+          continue;
+        }
         const firstMessage = chatRepository.addMessage(
           chat.id, 'polity', topic, options.turn, sender.name, gameDate,
         );

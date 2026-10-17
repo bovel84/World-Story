@@ -192,13 +192,22 @@ export function useSimulationStream({
     onChatMessage: (data) => {
       const chatStore = useChatStore.getState();
       const isNewChannel = !chatStore.chats.some(chat => chat.id === data.chatId);
+      const messageAlreadyPresent = !!data.message?.id
+        && (chatStore.messagesByChat[data.chatId] || []).some(message => message.id === data.message.id);
+      const isViewingThread = chatStore.chatPanelVisible && chatStore.activeChatId === data.chatId;
       chatStore.handleIncomingChatMessage(data);
-      if (isNewChannel) {
+      // Reused conversations receive dispatches on later turns too. The badge
+      // alone was easy to miss; notify on every NEW incoming NPC message outside
+      // the visible thread, not only when a brand-new channel is created.
+      if (!messageAlreadyPresent && !isViewingThread) {
         const interlocutors = (data.participants || [])
           .filter(participant => participant.role !== 'player')
           .map(participant => participant.name);
-        const label = interlocutors.length > 1 ? 'Nuova riunione diplomatica' : 'Nuovo canale diplomatico';
-        notify(`${label}${interlocutors.length ? `: ${interlocutors.join(', ')}` : ''}`, 'info');
+        const source = data.senderName || interlocutors.join(', ') || data.polityName;
+        const label = isNewChannel
+          ? (interlocutors.length > 1 ? 'Nuova riunione diplomatica' : 'Nuovo canale diplomatico')
+          : 'Nuovo messaggio diplomatico';
+        notify(`${label}${source ? `: ${source}` : ''}`, 'info');
       }
       const updated = useChatStore.getState();
       if (updated.chatPanelVisible && updated.activeChatId === data.chatId && gameId) {
