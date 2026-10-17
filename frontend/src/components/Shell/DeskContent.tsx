@@ -272,11 +272,12 @@ export function DeskContent({
           <EmptyState>Apri una partita per consultare il dossier nazionale.</EmptyState>
         )}
 
-        {currentGame && selectedRegion && !externalRegionSelected && (
+        {currentGame && (
           <DiplomacyPanel
             gameId={currentGame.id}
-            selectedRegionId={selectedRegion}
-            regions={currentWorld?.regions ? Object.values(currentWorld.regions) as any[] : []}
+            playerPolityId={playerPolityId}
+            selectedRegionId={selectedRegion || undefined}
+            regions={currentWorld?.regions ? Object.values(currentWorld.regions) as Region[] : []}
             refreshKey={currentGame.currentTurn}
           />
         )}
