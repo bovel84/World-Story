@@ -192,6 +192,39 @@ describe('Country X — strategic focus and historical continuity', () => {
   });
 });
 
+describe('Opening agenda: separate ongoing historical issues without inventing continuity', () => {
+  it('separates the LRA and Sudan political questions in a semicolon-delimited baseline', () => {
+    const snapshot = world({ date: '2000-01-01', turn: 1 });
+    const context = { temporalScope: { initialDate: '2000-01-01', currentDate: '2000-01-01' },
+      historicalBaseline: "Alla vigilia della divergenza l'LRA era attivo nel nord, nelle aree di Gulu e Acholi; il rapporto diplomatico col Sudan restava un dossier distinto e aperto." };
+    const evidence = buildStrategicThreadEvidence(snapshot, context).filter(item => item.sourceRef === 'historicalBaseline');
+    expect(evidence).toHaveLength(2);
+    const security = resolveAdvisorSituation(snapshot, {
+      id: 'lra', title: "Sicurezza nell'area di Gulu", summary: "L'attività dell'LRA richiede una scelta politica sulla sicurezza nel nord.",
+      signalKeys: [], evidenceKeys: [evidence[0].key],
+    }, context);
+    const diplomacy = resolveAdvisorSituation(snapshot, {
+      id: 'sudan', title: 'Rapporti diplomatici col Sudan', summary: 'Il dossier con il Sudan richiede una decisione diplomatica distinta.',
+      signalKeys: [], evidenceKeys: [evidence[1].key],
+    }, context);
+    expect(mergeAdvisorSituations(snapshot, [security, diplomacy]).filter(situation => ['lra', 'sudan'].includes(situation.id))).toHaveLength(2);
+    const prompt = buildRealityAdvisorPrompt({
+      ...buildRealityAdvisorContext(snapshot, undefined, context.historicalBaseline, undefined, 'briefing').advisorContext,
+      temporalScope: context.temporalScope,
+    }, 'Apriamo il governo');
+    expect(prompt).toContain('AGENDA ALLA DATA DI DIVERGENZA');
+    expect(prompt).toContain(evidence[0].key);
+    expect(prompt).toContain(evidence[1].key);
+    expect(prompt).toContain('non è già concluso solo perché');
+    // Once the game advances, a historical passage alone is not current evidence.
+    const later = world({ date: '2000-02-01', turn: 2 });
+    expect(() => resolveAdvisorSituation(later, {
+      title: 'LRA ancora attivo', summary: 'Attività non confermata dalla storia della partita.',
+      signalKeys: [], evidenceKeys: [evidence[0].key],
+    }, context)).toThrow();
+  });
+});
+
 describe('Strategic threads grounded in server evidence', () => {
   const baseline = "Alla vigilia della divergenza l'LRA era attivo nel nord, nelle aree di Gulu e Acholi. Il Sudan ne complicava la dimensione transfrontaliera.";
   const opening = () => world({ date: '2000-01-01', turn: 1, relationships: { UGA: { SDN: 'hostile', COD: 'hostile' } } });
