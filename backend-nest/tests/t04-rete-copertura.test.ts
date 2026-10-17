@@ -1,4 +1,4 @@
-/** Advisor coverage requires a verified question, never prebuilt solutions. */
+/** Advisor coverage requires a verified question, with optional concrete alternatives. */
 import { describe, expect, it, vi } from 'vitest';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
 import { buildAdvisorSituations, parseAdvisorResponse, uncoveredAdvisorSituations, withAdvisorBriefingCoverage } from '../src/core/government/AdvisorSituations';
@@ -25,7 +25,7 @@ const briefing = (issue?: unknown, extraSituation = {}) => parseAdvisorResponse(
   ...(issue ? [block('council_issue', issue)] : []),
 ].join('\n'), 'advisor', { includeDeterministicSituations: true });
 
-describe('Advisor questions without solutions', () => {
+describe('Advisor questions and contextual alternatives', () => {
   it('A/B/D: accepts a situation and linked verified question without options; coverage is complete', () => {
     const result = briefing(question);
     expect(result.situations).toHaveLength(1);
@@ -57,12 +57,12 @@ describe('Advisor questions without solutions', () => {
     }
   });
 
-  it('C: repair emits only a linked verified question and completes coverage', async () => {
+  it.each([undefined, legacyOptions])('C: repair preserves alternatives on a linked question: %j', async options => {
     const result = briefing();
-    const complete = vi.fn(async () => block('council_issue', question));
+    const complete = vi.fn(async () => block('council_issue', { ...question, options }));
     const repaired = await repairAdvisorBriefing(world(), result, { complete });
     expect(complete).toHaveBeenCalledTimes(1);
-    expect(repaired.response.issues[0]).not.toHaveProperty('options');
+    expect(repaired.response.issues[0].options).toEqual(options);
     expect(repaired.response.issues[0].question).toBe(question.question);
     expect(repaired.response.briefingCoverage?.complete).toBe(true);
     expect(repaired.repairedSituationIds).toEqual([situation.id]);
@@ -87,14 +87,16 @@ describe('Advisor questions without solutions', () => {
     expect(repaired.response).toBe(result);
   });
 
-  it.each(['briefing', 'conversation'] as const)('F: the full %s Advisor prompt requests no solutions', mode => {
+  it.each(['briefing', 'conversation'] as const)('F: the full %s Advisor prompt requests grounded alternatives', mode => {
     const context = buildRealityAdvisorContext(world(), undefined, null, undefined, mode).advisorContext;
     const prompt = buildRealityAdvisorPrompt(context, 'Come procediamo?');
-    expect(prompt).not.toMatch(/options|2-5 mosse|\[OPZIONI\]|ordine PRONTO|prudente\/diplomatica/i);
+    expect(prompt).not.toMatch(/2-5 mosse|\[OPZIONI\]|ordine PRONTO|prudente\/diplomatica/i);
     expect(prompt).toContain('DEVI emettere');
     expect(prompt).toContain('suggestedMinisters');
-    expect(prompt).toContain('NON già risolta');
-    expect(prompt).toContain('Le soluzioni devono emergere SOLO nel Consiglio');
+    expect(prompt).toContain('2 alternative realmente distinte');
+    expect(prompt).toContain('un costo politico, vincolo o rischio specifico');
+    expect(prompt).not.toContain('Le soluzioni devono emergere SOLO nel Consiglio');
+    expect(prompt).toContain('"options"');
     expect(prompt).not.toContain(COUNCIL_ISSUE_PROTOCOL);
     if (mode === 'briefing') expect(prompt).toContain(ADVISOR_BRIEFING_SITUATION_PROTOCOL);
     expect(prompt).toContain(COUNCIL_ANCHOR_PROTOCOL);
@@ -107,11 +109,12 @@ describe('Advisor questions without solutions', () => {
     expect(prompt).not.toContain(COUNCIL_ANCHOR_PROTOCOL);
   });
 
-  it('G: neither repair system nor payload requests or copies solutions', () => {
+  it('G: repair requests fresh alternatives without treating legacy proposals as facts', () => {
     const result = briefing(undefined, { options: legacyOptions });
     const prompt = buildAdvisorBriefingRepairPrompt(world(), result.situations);
-    expect(ADVISOR_BRIEFING_REPAIR_SYSTEM + prompt).not.toMatch(/options|2-5|\[OPZIONI\]|ordine PRONTO/i);
-    for (const key of ['situationId', 'signalKeys', 'anchorKeys', 'suggestedMinisters']) expect(ADVISOR_BRIEFING_REPAIR_SYSTEM).toContain(key);
+    expect(ADVISOR_BRIEFING_REPAIR_SYSTEM + prompt).not.toMatch(/2-5|\[OPZIONI\]|ordine PRONTO/i);
+    expect(ADVISOR_BRIEFING_REPAIR_SYSTEM).toContain('2 alternative realmente distinte');
+    for (const key of ['options', 'situationId', 'signalKeys', 'anchorKeys', 'suggestedMinisters']) expect(ADVISOR_BRIEFING_REPAIR_SYSTEM).toContain(key);
     expect(prompt).not.toContain(legacyOptions[0].content);
     const context = buildRealityAdvisorContext(world()).advisorContext;
     const legacyIssue = parseCouncilIssues(world(), block('council_issue', { ...question, options: legacyOptions })).issues[0];
@@ -119,7 +122,7 @@ describe('Advisor questions without solutions', () => {
       const focusedPrompt = buildAdvisorBriefingRepairPrompt(world(), result.situations, {
         context: { ...context, ...focus }, message: 'Approfondisci le scorte', missingOpportunities: 1, existingIssues: [legacyIssue],
       });
-      expect(focusedPrompt).not.toContain('options');
+      expect(JSON.parse(focusedPrompt).request.focus).not.toHaveProperty('options');
       expect(focusedPrompt).not.toContain(legacyOptions[0].content);
       expect(JSON.parse(focusedPrompt).request.focus.id).toBeDefined();
     }

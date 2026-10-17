@@ -1,6 +1,7 @@
-/** Il Consulente presenta questioni; le soluzioni si discutono nel Consiglio. */
+/** Situazioni e alternative; il Presidente porta una proposta al Consiglio. */
 import type { AdvisorSituation, AdvisorSituationFocus, CouncilIssue } from '../../services/api';
 import { seatSpeaker } from './councilMeeting';
+import { AdvisorActionOptions } from './AdvisorActionOptions';
 
 export function buildSituationFocusMessage(situation: AdvisorSituation): string {
   return `Approfondiamo la situazione «${situation.title}».`;
@@ -36,7 +37,7 @@ export interface AdvisorSituationsPanelProps {
   situations: AdvisorSituation[];
   issues?: readonly CouncilIssue[];
   onDeepen: (situation: AdvisorSituation) => void;
-  onOpenIssue?: (issue: CouncilIssue) => void;
+  onOpenIssue?: (issue: CouncilIssue, optionIndex?: number) => void;
   activeId?: string;
   disabled?: boolean;
 }
@@ -54,20 +55,25 @@ export function AdvisorSituationsPanel({ situations, issues = [], onDeepen, onOp
         return <li key={situation.id}
           className={`advisor-situation-card${activeId === situation.id ? ' active' : ''}`}
           data-situation-id={situation.id} data-importance={situation.importance}>
-          <span className="advisor-situation-severity" data-importance={situation.importance}>{importanceLabel(situation.importance ?? 1)}</span>
-          <h5 className="advisor-situation-title">{situation.title}</h5>
-          <p className="advisor-situation-summary">{situation.summary}</p>
-          {issue?.question && <p className="advisor-situation-decision"><strong>Da decidere</strong> {issue.question}</p>}
-          {issue?.suggestedMinisters.length ? <details className="advisor-question-ministers"><summary>Ministri coinvolti</summary>{issue.suggestedMinisters.map(seatSpeaker).join(' · ')}</details> : null}
-          <div className="advisor-question-actions">
-            <button type="button" className="advisor-situation-deepen" disabled={disabled}
-              aria-label={`Approfondisci: ${situation.title}`}
-              onClick={() => onDeepen(situation)}>Approfondisci <span aria-hidden="true">→</span></button>
-            {onOpenIssue && <button type="button" className="council-issue-open advisor-situation-open"
-              disabled={disabled || !issue}
-              title={!issue ? 'Approfondisci per ottenere una questione verificata dal Consulente.' : undefined}
-              onClick={() => { if (issue) onOpenIssue(issue); }}>Porta al Consiglio</button>}
-          </div>
+          <details className="advisor-situation-details" open={activeId === situation.id || undefined}>
+            <summary className="advisor-situation-toggle">
+              <span className="advisor-situation-severity" data-importance={situation.importance}>{importanceLabel(situation.importance ?? 1)}</span>
+              <h5 className="advisor-situation-title">{situation.title}</h5>
+            </summary>
+            <p className="advisor-situation-summary">{situation.summary}</p>
+            {issue?.options?.length ? <AdvisorActionOptions issue={issue} onOpenIssue={onOpenIssue} disabled={disabled} />
+              : issue?.question && <p className="advisor-situation-decision"><strong>Da decidere</strong> {issue.question}</p>}
+            {issue?.suggestedMinisters.length ? <details className="advisor-question-ministers"><summary>Ministri coinvolti</summary>{issue.suggestedMinisters.map(seatSpeaker).join(' · ')}</details> : null}
+            <div className="advisor-question-actions">
+              <button type="button" className="advisor-situation-deepen" disabled={disabled}
+                aria-label={`Approfondisci: ${situation.title}`}
+                onClick={() => onDeepen(situation)}>Approfondisci <span aria-hidden="true">→</span></button>
+              {onOpenIssue && <button type="button" className="council-issue-open advisor-situation-open"
+                disabled={disabled || !issue}
+                title={!issue ? 'Approfondisci per ottenere una questione verificata dal Consulente.' : undefined}
+                onClick={() => { if (issue) onOpenIssue(issue); }}>Porta al Consiglio</button>}
+            </div>
+          </details>
         </li>;
       })}
     </ul>

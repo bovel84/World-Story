@@ -27,7 +27,7 @@ import { governmentSessionId } from './governmentSession';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { clientMandate, loadMemory, saveMemory, memoryScopeKey, seatRecords, withSeatRecords, recordMemory, queuedDecision, openQuestion, type MinisterMemoryStore } from './ministerMemory';
-import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilText, councilDiscussionIssue, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
+import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilText, councilActionMessage, councilDiscussionIssue, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
 import { seatSpeaker } from './councilMeeting';
 import { resolveCouncilExecution } from './councilExecution';
 import { resolveCurrentRegionRef } from './meetingLocalization';
@@ -211,14 +211,14 @@ export function GovernmentOffice({ open, onClose, gameId, session,
     setTarget('council');
     return next;
   };
-  /** Dal Consulente entra la questione verificata, non una soluzione.
-   * Tavola vuota: le misure emergono nella discussione; decide il Presidente. */
-  const openIssue = (issue: CouncilIssue): void => {
+  /** La proposta scelta entra nel messaggio modificabile, mai tra gli atti firmati. */
+  const openIssue = (issue: CouncilIssue, optionIndex?: number): void => {
     // Suggested seats are not admitted automatically: only the rapporteur starts.
     const discussionIssue = councilDiscussionIssue(issue);
     const rapporteur = discussionIssue.suggestedMinisters.find(seat => CABINET_SEATS.includes(seat)) ?? 'interno';
     const room = startRoom(rapporteur, discussionIssue);
     if (!room) return;
+    setInputs(previous => ({ ...previous, [room.id]: councilActionMessage(issue, optionIndex) }));
     const prepared: RoomDraft = {
       ...councilDraft(room, currentTurn ?? 0),
       signatureKey: crypto.randomUUID(),
@@ -479,7 +479,7 @@ export function GovernmentOffice({ open, onClose, gameId, session,
       <div className="government-office-bar">
         <button type="button" className="desk-close-x" onClick={onClose} aria-label="Chiudi il Governo">✕</button>
         <div className="council-head"><h2 className="council-title" id="government-office-title">Governo</h2>
-          <p className="council-sub">Il Primo Consulente ti dice cosa richiede attenzione; da qui porti la questione al Consiglio.</p></div>
+          <p className="council-sub">Il Consulente propone le prossime mosse. Scegli cosa discutere al Consiglio.</p></div>
       </div>
       <section className="government-advisor" aria-label="Il Primo Consulente">
         <h3 className="government-advisor-heading">IL PRIMO CONSULENTE</h3>
