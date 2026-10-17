@@ -213,8 +213,8 @@ export interface AdvisorOpening {
 // Previous cached openings used the initial-mandate request even on later turns,
 // and older protocols could predate CouncilIssue signalKeys or AdvisorSituation.
 // Invalidate them once; the server, not this cache, selects the briefing kind.
-// v8: refresh the narrative agenda once; preserve conversation history.
-const OPENING_PREFIX = 'ws.advisor.opening.v8';
+// v9: refresh opening evidence split into independent historical issues; retain conversation history.
+const OPENING_PREFIX = 'ws.advisor.opening.v9';
 
 /** Bucket dedicato: non entra nella scansione dell'archivio conversazione. */
 export function advisorOpeningKey(gameId: string, branchId: string | null, scopeKey: string): string {
