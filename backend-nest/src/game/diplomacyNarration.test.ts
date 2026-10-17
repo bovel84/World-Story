@@ -138,3 +138,39 @@ describe('E01b — le chat si aprono solo con chi è pertinente', () => {
     expect(source).toMatch(/crisisRelevantPolityIds\([^)]*,\s*contractActors\)/);
   });
 });
+
+/** Ordinary turns must route committed NPC decisions into diplomatic channels.
+ * No LLM call and no extra world event. */
+describe('DIPLOMACY — accepted world reactions feed chats', () => {
+  it('wires structured NPC reactions into the ordinary turn, as in paused playback', () => {
+    const source = read('src/game/TurnPipelineService.ts');
+    expect(source).toContain('this.ctx.reactionChatStarts(appliedEvents, true)');
+    expect(source).toContain('[...explicitChatStarts, ...reactionStarts]');
+    expect(source).toContain('requireEventLink: true');
+    expect(source).toContain('playerActionEventHeadlines: linkedPlayerEvents');
+    expect(source).toContain("outcome.status === 'accepted' || outcome.status === 'partial'");
+  });
+
+  it('enforces player involvement, while recognising confirmed player action events', () => {
+    const source = read('src/game/DiplomacyService.ts');
+    const start = source.indexOf('openSimulationChats(');
+    const end = source.indexOf('return { timelineEvents', start);
+    const body = source.slice(start, end);
+    expect(body).toContain('!playerMentioned && !playerActionLinked');
+    expect(body).toContain('playerActionEventHeadlines');
+    expect(body).toContain('eventActors');
+    expect(body).toContain("linkedEvent?.description || ''");
+    expect(body).toContain('eventActors,');
+  });
+
+  it('ignores observer-only commentary and retains valid counterparty reactions', () => {
+    const source = read('src/game-session.ts');
+    const start = source.indexOf('private reactionChatStarts(');
+    const end = source.indexOf('\n  /**', start);
+    const body = source.slice(start, end);
+    expect(body).toContain("reaction.role === 'observer' && !reaction.note?.trim()");
+    expect(body).toContain('contractActors');
+    expect(body).toContain('reaction.actorId || reaction.polityName');
+    expect(body).toContain('alreadyNarrated: true');
+  });
+});

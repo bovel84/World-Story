@@ -278,6 +278,8 @@ export class DiplomacyService {
       simulationId?: string;
       events?: Array<{ headline: string; date: string; description?: string; reactions?: Array<{ actorId?: string; polityName?: string }> }>;
       requireEventLink?: boolean;
+      /** Confirmed player-action outcomes linked to committed event headlines. */
+      playerActionEventHeadlines?: ReadonlySet<string>;
     },
   ): {
     /** Canali che portano un fatto nuovo: diventano voci di cronaca. */
@@ -323,7 +325,8 @@ export class DiplomacyService {
         const source = `${linkedEvent.headline} ${linkedEvent.description || ''}`.toLocaleLowerCase('it');
         const playerMentioned = (playerName && source.includes(playerName))
           || source.includes(`[${playerId.toLocaleLowerCase('it')}]`);
-        if (!playerMentioned) {
+        const playerActionLinked = options.playerActionEventHeadlines?.has(eventHeadline.toLocaleLowerCase('it')) ?? false;
+        if (!playerMentioned && !playerActionLinked) {
           console.warn('[GameSession] startChat ignorata: il giocatore non è coinvolto nel dispaccio:', eventHeadline);
           continue;
         }
@@ -352,7 +355,16 @@ export class DiplomacyService {
       // quando il mondo offre dati di adiacenza reali, così non svuota i mondi
       // senza confini registrati (fixture e test).
       if (this.ctx.hasGeographicAdjacency()) {
-        const relevant = this.ctx.crisisRelevantPolityIds([linkedEvent?.headline || '']);
+        // A validated event reaction is itself an authoritative reason for
+        // that nation to be present. Headline-only text matching discarded
+        // these NPCs even when the event's reaction listed them explicitly.
+        const eventActors = (linkedEvent?.reactions || [])
+          .map(reaction => resolver.resolve(reaction.actorId || reaction.polityName || '')?.polityId)
+          .filter((id): id is string => !!id && id !== 'neutral');
+        const relevant = this.ctx.crisisRelevantPolityIds(
+          [linkedEvent?.headline || '', linkedEvent?.description || ''],
+          eventActors,
+        );
         const kept = validPolityIds.filter(id => relevant.has(id));
         if (kept.length === 0) {
           console.warn('[GameSession] startChat ignorata: partecipanti fuori dal teatro della crisi:', requestedNames.join(', '));

@@ -2616,17 +2616,24 @@ export class GameSession {
     const resolver = pruneIrrelevant ? this.buildResolvers().polities : null;
     const actionTexts = pruneIrrelevant ? this.actions.slice(-10).map(action => action.text) : [];
     return events.flatMap(event => {
+      // Canonical actor IDs were vetted by ReactionContext; their presence in
+      // the event is stronger evidence than a mention in a short headline.
+      const contractActors = (event.reactions || [])
+        .map(reaction => reaction.actorId || '')
+        .filter(id => id && id !== 'neutral');
       const relevant = pruneIrrelevant
-        ? this.crisisRelevantPolityIds([event.headline, event.description, ...actionTexts])
+        ? this.crisisRelevantPolityIds([event.headline, event.description, ...actionTexts], contractActors)
         : null;
       return (event.reactions || []).flatMap(reaction => {
-        if (relevant && resolver) {
-          const resolution = resolver.resolve(reaction.polityName);
-          if (!resolution || resolution.isNew || !relevant.has(resolution.polityId)) return [];
-        }
+        // An observer's commentary is not a diplomatic invitation. Require a
+        // direct counterparty/mediator or an actual message written to us.
+        if (reaction.role === 'observer' && !reaction.note?.trim()) return [];
+        const resolved = resolver?.resolve(reaction.actorId || reaction.polityName);
+        if (relevant && (!resolved || resolved.isNew || !relevant.has(resolved.polityId))) return [];
+        const polityId = resolved?.polityId || reaction.actorId || reaction.polityName;
         return [{
-          polityName: reaction.polityName,
-          participants: [reaction.polityName],
+          polityName: polityId,
+          participants: [polityId],
           // Il canale diplomatico parla con la voce della nazione: usiamo la sua
           // nota diretta quando c'è, altrimenti la decisione (senza etichette
           // da bollettino come «Misura annunciata»).
