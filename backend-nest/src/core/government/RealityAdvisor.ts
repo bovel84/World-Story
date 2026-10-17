@@ -430,7 +430,7 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
     audience === 'advisor' ? `[CURRENT STRATEGIC SIGNALS — selezione interna, non elenco da recitare]\n${JSON.stringify(context.mode === 'briefing'
       ? buildRealitySignals(context.verifiedWorldSnapshot).filter(signal => signal.domain !== 'decision').slice(0, MAX_ADVISOR_SITUATIONS)
       : buildRealitySignals(context.verifiedWorldSnapshot).slice(0, MAX_COUNCIL_ISSUES))}` : '',
-    audience === 'advisor' ? renderCouncilProposalAnchors(context.verifiedWorldSnapshot) : '',
+    audience === 'advisor' && !agendaOnly ? renderCouncilProposalAnchors(context.verifiedWorldSnapshot) : '',
     audience === 'advisor' ? renderPlayerStorylines(context.verifiedWorldSnapshot) : '',
     audience === 'advisor' && !structuredAgenda && context.strategicHistory?.length ? `[CRONACA STRATEGICA — PLAYER HISTORY — eventi datati della partita, non conversazione]\n${JSON.stringify(context.strategicHistory)}\nRicorda le scelte pertinenti anche di turni lontani, i programmi con startedDate e gli atti appena firmati. Usa "tre mesi fa" o "lo scorso anno" solo quando le date lo consentono. Questi ricordi non provano causalità o miglioramenti quantitativi; per quelli servono delta confrontabili.` : '',
     '[GOVERNMENT BRIEF — orientamento deterministico, non copiare le sue formule]', context.governmentBrief,
