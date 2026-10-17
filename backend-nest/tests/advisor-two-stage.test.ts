@@ -98,5 +98,6 @@ describe('Advisor two-stage briefing', () => {
     expect(prompt).toContain('FASE 1 DI 2');
     expect(prompt).toContain('REAL HISTORY < START DATE');
     expect(prompt).not.toContain('Per ogni questione proponi normalmente 3-5 azioni');
+    expect(prompt).not.toContain('[COUNCIL PROPOSAL ANCHORS');
   });
 });
