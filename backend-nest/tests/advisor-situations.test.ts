@@ -286,8 +286,9 @@ describe('Strategic threads grounded in server evidence', () => {
       players: [{ id: 'p', name: 'Presidente', regionId: 'home', polityId: 'UGA' }], playerPolityId: 'UGA', actions: [], results: [],
       advisorContext: { ...buildRealityAdvisorContext(snapshot).advisorContext, ...strategicContext } } as never, 'fammi il quadro');
     const parsed = parseAdvisorResponse(snapshot, serialized, 'advisor', { strategicContext });
-    // One existing opportunity remains valid; the advisor may seek another.
-    expect(generate).toHaveBeenCalledTimes(1);
+    // The first-stage situation remains valid; premature options are discarded
+    // and regenerated in the second completion, not accepted from discovery.
+    expect(generate).toHaveBeenCalledTimes(2);
     expect(parsed.situations[0].kind).toBe('opportunity');
     expect(parsed.situations[0].importance).toBe(1);
     expect(parsed.issues[0].situationId).toBe('integrazione');
@@ -575,8 +576,9 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
       playerPolityId: 'UGA', actions: [], results: [],
       advisorContext: buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing').advisorContext,
     } as never, 'Apriamo.');
-    // No second completion merely to fill a quota of opportunities.
-    expect(generate).toHaveBeenCalledTimes(1);
+    // Discovery returns no authored situations in this legacy stub: one bounded
+    // full-protocol fallback preserves all 10 proposals, without a third repair.
+    expect(generate).toHaveBeenCalledTimes(2);
     expect(parseAdvisorResponse(snapshot, text, 'advisor', { includeDeterministicSituations: true }).issues).toHaveLength(10);
   });
 

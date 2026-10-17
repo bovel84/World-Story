@@ -1864,9 +1864,44 @@ export class PromptEngine {
     if (correction) return correction;
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
     const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
+    if (context.mode === 'briefing' && !isMinisterRequest(game, message)) {
+      const agendaPrompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, 'advisor', undefined, 'agenda');
+      const discovery = await this.llm.generate('advisor', VERIFIED_FACT_POLICY, agendaPrompt, {
+        temperature: 0.45, maxTokens: 4000, singleAttempt: true, signal,
+      });
+      return this.finishAdvisorDiscovery(context, discovery.content, message,
+        async () => (await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, {
+          temperature: 0.5, singleAttempt: true, signal,
+        })).content, signal);
+    }
     const response = await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, { temperature: 0.5, signal });
     return validatedAdvisorText(context, response.content,
-      isMinisterRequest(game, message) ? undefined : prompt => this.repairAdvisorBriefing(prompt, signal), message);
+      isMinisterRequest(game, message) ? undefined : proposalPrompt => this.repairAdvisorBriefing(proposalPrompt, signal), message);
+  }
+
+  /** Phase 1 extracts independently verified situations. Phase 2 elaborates only
+   * those situations through the existing canonical CouncilIssue validator.
+   * Failed discovery may use one legacy full completion; never a third attempt. */
+  private async finishAdvisorDiscovery(
+    context: RealityAdvisorContext, discoveredText: string, message: string,
+    legacyCompletion: () => Promise<string>, signal?: AbortSignal,
+  ): Promise<string> {
+    // The first pass may ignore the agenda-only instruction and produce
+    // premature actions. Discard them: only the second, evidence-grounded pass
+    // can build council proposals. This also keeps the two phases measurable.
+    const agendaText = discoveredText.replace(/```council_issue\b[^]*?(?:```|$)/gi, '');
+    const discovered = parseAdvisorResponse(context.verifiedWorldSnapshot, agendaText, 'president', {
+      strategicContext: context,
+      includeDeterministicSituations: false,
+    });
+    if (!discovered.situations.length) {
+      // A small model may fail to output a usable situation: preserve the old
+      // single-completion protocol as a bounded fallback, without another repair.
+      const fallback = await legacyCompletion();
+      return validatedAdvisorText(context, fallback, undefined, message);
+    }
+    return validatedAdvisorText(context, agendaText,
+      prompt => this.repairAdvisorBriefing(prompt, signal), message);
   }
 
   /**
@@ -1909,13 +1944,22 @@ export class PromptEngine {
     if (correction) return correction;
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
     const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
-    // Progress is observable, but no unvalidated prose is published. Even providers
-    // emitting string chunks are buffered until the complete response is guarded.
+    // Progress is observable, but unvalidated prose is never published.
+    if (context.mode === 'briefing' && !isMinisterRequest(game, message)) {
+      const agendaPrompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, 'advisor', undefined, 'agenda');
+      const discovery = await this.llm.stream('advisor', VERIFIED_FACT_POLICY, agendaPrompt, progress => {
+        if (typeof progress === 'number') onToken(progress);
+      }, { temperature: 0.45, maxTokens: 4000, singleAttempt: true, signal });
+      return this.finishAdvisorDiscovery(context, discovery.content, message,
+        async () => (await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, {
+          temperature: 0.5, singleAttempt: true, signal,
+        })).content, signal);
+    }
     const response = await this.llm.stream('advisor', VERIFIED_FACT_POLICY, prompt, progress => {
       if (typeof progress === 'number') onToken(progress);
     }, { temperature: 0.5, signal });
     return validatedAdvisorText(context, response.content,
-      isMinisterRequest(game, message) ? undefined : prompt => this.repairAdvisorBriefing(prompt, signal), message);
+      isMinisterRequest(game, message) ? undefined : proposalPrompt => this.repairAdvisorBriefing(proposalPrompt, signal), message);
   }
 
 

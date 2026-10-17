@@ -6,6 +6,7 @@ import { bestMatchingSituation, uncoveredAdvisorSituations, withAdvisorBriefingC
 import { buildCouncilProposalAnchors } from './CouncilProposalAnchors';
 import { guardRealityAdvisorOutput, type RealityAdvisorContext } from './RealityAdvisor';
 import { buildRealitySignals } from './RealitySignals';
+import { buildStrategicThreadEvidence } from './StrategicThreads';
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 
 export const ADVISOR_BRIEFING_REPAIR_SYSTEM = [
@@ -49,15 +50,33 @@ export function buildAdvisorBriefingRepairPrompt(
 ): string {
   const relevant = relevantProposalAnchors(snapshot, request?.context);
   const focus = request?.context.focusSituation ?? request?.context.focusIssue;
+  // Second phase only: carry verified facts behind the chosen themes, not the
+  // entire historical registry again. Evidence keys are looked up server-side.
+  const evidence = new Map((request?.context
+    ? buildStrategicThreadEvidence(snapshot, request.context.fullStrategicHistory
+      ? { ...request.context, resolveFullHistory: true } : request.context)
+    : []).map(item => [item.key, item]));
   return JSON.stringify({
     task: 'Collega ogni situazione scoperta a una questione politica verificata con situationId e fonti canoniche pertinenti. Solo blocchi council_issue con azioni alternative nelle options, senza duplicarle nella prosa.',
-    situations: uncovered.map(({ id, title, summary, signalKeys, evidenceKeys }) => ({ id, title, summary, signalKeys, ...(evidenceKeys?.length ? { evidenceKeys } : {}) })),
+    situations: uncovered.map(({ id, title, summary, signalKeys, evidenceKeys }) => ({
+      id, title, summary, signalKeys,
+      ...(evidenceKeys?.length ? {
+        evidenceKeys,
+        verifiedContext: evidenceKeys.slice(0, 5).flatMap(key => {
+          const item = evidence.get(key);
+          return item ? [{ key, kind: item.kind, text: item.text.slice(0, 350) }] : [];
+        }),
+      } : {}),
+    })),
     anchors: relevant.map(anchor => ({ key: anchor.key, domain: anchor.domain, reason: anchor.reason,
       facts: anchor.factKeys.map(key => snapshot.facts[key]).filter(Boolean).map(({ key, label, value }) => ({ key, label, value })),
     })),
     signedActs: snapshot.recent.signedActs.map(({ id, text }) => ({ id, text })),
     ...(request ? { request: {
-      message: request.message.slice(0, 1500), preset: request.context.presetContext,
+      message: request.message.slice(0, 600), preset: request.context.presetContext ? {
+        name: request.context.presetContext.name, startDate: request.context.presetContext.startDate,
+        premise: request.context.presetContext.premise.slice(0, 600),
+      } : undefined,
       countryName: snapshot.polityName, polityId: snapshot.polityId, currentDate: snapshot.date,
       temporalScope: request.context.temporalScope,
       // Legacy solutions are not input to question repair.

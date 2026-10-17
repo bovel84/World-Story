@@ -213,9 +213,9 @@ export interface AdvisorOpening {
 // Previous cached openings used the initial-mandate request even on later turns,
 // and older protocols could predate CouncilIssue signalKeys or AdvisorSituation.
 // Invalidate them once; the server, not this cache, selects the briefing kind.
-// v10: after reverting PR #269, discard cached advisor openings generated with its regressed prompt.
-// Conversation/archive buckets remain unchanged, preserving all user messages.
-const OPENING_PREFIX = 'ws.advisor.opening.v10';
+// v11: regenerate the opening once under the two-stage agenda/proposal protocol.
+// Conversation and archive keys stay unchanged, preserving all player messages.
+const OPENING_PREFIX = 'ws.advisor.opening.v11';
 
 /** Bucket dedicato: non entra nella scansione dell'archivio conversazione. */
 export function advisorOpeningKey(gameId: string, branchId: string | null, scopeKey: string): string {
