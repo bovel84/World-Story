@@ -112,6 +112,10 @@ export function GameMap({
           changedRegionIds={changedRegionIds}
           reason={webgl.reason}
           focusRegionRequest={focusRegionRequest}
+          militaryUnits={militaryUnits}
+          worldFacilities={worldFacilities}
+          playerPolityId={playerCountryCode}
+          onUnitClick={onUnitClick}
         />
       );
     }
@@ -126,6 +130,10 @@ export function GameMap({
           changedRegionIds={changedRegionIds}
           reason="context_failed"
           focusRegionRequest={focusRegionRequest}
+          militaryUnits={militaryUnits}
+          worldFacilities={worldFacilities}
+          playerPolityId={playerCountryCode}
+          onUnitClick={onUnitClick}
         />
       }>
         <Suspense fallback={<div className="map-loading-fallback" role="status">Caricamento mappa…</div>}>

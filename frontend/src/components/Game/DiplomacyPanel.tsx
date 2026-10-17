@@ -6,13 +6,16 @@
 
 import React, { useEffect, useState } from 'react';
 import { chatsApi, gameApi } from '../../services/api';
-import { useChatStore } from '../../stores';
+import { useChatStore, useUIStore } from '../../stores';
+import { useSimulationStore } from '../../stores/simulationRuntime';
+import { findActiveBilateralChat } from './diplomaticChatNavigation';
 import type { Region } from '../../types';
 import { deriveDiplomacyPresence, type DiplomacyEntry } from './diplomacyPresence';
 
 interface DiplomacyPanelProps {
   gameId: string;
-  selectedRegionId: string;
+  selectedRegionId?: string;
+  playerPolityId: string;
   regions: Region[];
 /** Cambia dopo ogni turno (currentTurn) — innesca il ricaricamento della matrice */
   refreshKey?: number | string;
@@ -59,7 +62,7 @@ const FLAG_EMOJI: Record<string, string> = {
 
 export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   gameId,
-  selectedRegionId,
+  playerPolityId,
   regions,
   refreshKey,
 }) => {
@@ -97,36 +100,43 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
     fetchRelationships();
   }, [fetchRelationships, refreshKey]);
 
-  // Pass the canonical polity ID, not its display name or the selected province.
-  // Creation/reopening belongs to DiplomacyService; the client only navigates.
+  // The national relationship matrix is always about the player's country, not
+  // the selected province; a click must preserve existing bilateral history.
+  const regionOwner = playerPolityId;
+  if (!regionOwner || regionOwner === 'neutral') return null;
+
   const handleOpenChat = async (polityId: string) => {
-    if (!polityId || openingChatId || gameId.startsWith('local_')) return;
+    if (!polityId || polityId === playerPolityId || openingChatId || gameId.startsWith('local_')) return;
     setOpeningChatId(polityId);
     setChatError(null);
+    const commandGeneration = useSimulationStore.getState().commandGeneration;
     try {
-      const { chat } = await chatsApi.create(gameId, [polityId]);
-      const data = await chatsApi.messages(gameId, chat.id);
+      // A new chat archives sibling threads on the server. Resume the existing
+      // active bilateral conversation rather than silently losing its context.
+      const { chats } = await chatsApi.list(gameId);
+      const existing = findActiveBilateralChat(chats ?? [], playerPolityId, polityId);
+      // The resolver accepts canonical polity IDs; province/country names are
+      // presentation labels and must never be sent as participant identity.
+      const chat = existing ?? (await chatsApi.create(gameId, [polityId])).chat;
+      const { messages } = await chatsApi.messages(gameId, chat.id);
       const store = useChatStore.getState();
-      if (store.gameId !== gameId) return; // prevent stale responses crossing games
+      if (store.gameId !== gameId || useSimulationStore.getState().commandGeneration !== commandGeneration) return;
       store.upsertChat(chat);
-      store.setMessages(chat.id, data.messages || []);
-      store.setActiveChat(chat.id);
+      store.setMessages(chat.id, messages ?? []);
       store.markRead(chat.id);
+      store.setActiveChat(chat.id);
       store.setPanelTab('chats');
       store.setChatPanelVisible(true);
+      useUIStore.getState().openModule('diplomacy');
       void store.refreshChats();
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : 'Non è stato possibile avviare la trattativa.');
+      if (useChatStore.getState().gameId !== gameId
+          || useSimulationStore.getState().commandGeneration !== commandGeneration) return;
+      setChatError(error instanceof Error ? error.message : 'Non è stato possibile aprire la trattativa.');
     } finally {
       setOpeningChatId(null);
     }
   };
-
-  // regionOwner è il polityId del proprietario della regione selezionata
-  const regionOwner = regions.find(r => r.id === selectedRegionId)?.owner;
-  if (!regionOwner || regionOwner === 'neutral') {
-    return null;
-  }
 
   if (!relationships) {
     return (
@@ -146,17 +156,6 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
   const allies = entries.filter(e => e.relationship === 'ally');
   const hostiles = entries.filter(e => e.relationship === 'hostile');
 
-  if (entries.length === 0 && presence.neutrals === 0) {
-    return (
-      <div className="diplomacy-panel">
-        <div className="diplomacy-header">
-          <span>Relazioni estere</span>
-        </div>
-        <div style={{ padding: 8, fontSize: 12, color: '#888' }}>Nessun alleato o nemico</div>
-      </div>
-    );
-  }
-
   const closeSelf = () => {
     // Chiude il modulo diplomazia tramite l'evento globale ascoltato da App
     window.dispatchEvent(new CustomEvent('ws:close-module', { detail: 'diplomacy' }));
@@ -173,6 +172,15 @@ export const DiplomacyPanel: React.FC<DiplomacyPanelProps> = ({
 
       {!collapsed && (
         <div className="diplomacy-content">
+          <button type="button" className="btn-negotiate"
+            disabled={gameId.startsWith('local_')}
+            onClick={() => {
+              useChatStore.getState().setChatPanelVisible(true);
+              useUIStore.getState().openModule('diplomacy');
+            }}
+            aria-label="Apri le chat diplomatiche con tutte le nazioni">
+            Apri le trattative diplomatiche →
+          </button>
           {allies.length === 0 && hostiles.length === 0 && (
             <div className="diplomacy-section">
               <div className="diplomacy-section-title" style={{ color: REL_COLOR.neutral }}>Nessuna alleanza o ostilità aperta</div>

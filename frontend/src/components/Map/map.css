@@ -279,3 +279,16 @@
   background: #fff0e8;
   border-color: #e1b2a6;
 }
+
+/* WebGL fallback: the map remains geographic, while actual operations have an
+   accessible drill-down independent of markers and polygon size. */
+.static-map-operational-index { margin: 8px 12px 14px; border: 1px solid #adc4b3; border-radius: 8px; background: #f1f5ee; color: #233f34; font: 14px/1.5 system-ui, sans-serif; }
+.static-map-operational-index > summary { cursor: pointer; padding: 12px; font-weight: 700; }
+.static-map-operational-index > p { margin: 0 12px 8px; color: #536a60; font-size: 12px; }
+.static-map-operational-groups { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px; padding: 0 12px 12px; }
+.static-map-operational-groups h4 { font: 700 13px/1.4 system-ui, sans-serif; margin: 8px 0; }
+.static-map-operational-groups ul { list-style: none; padding: 0; margin: 0; max-height: 220px; overflow-y: auto; }
+.static-map-operational-groups li + li { margin-top: 6px; }
+.static-map-operational-groups button { width: 100%; padding: 8px 10px; text-align: left; border: 1px solid #b5cbb9; background: #fff; border-radius: 5px; cursor: pointer; color: #294639; }
+.static-map-operational-groups button span { display: block; color: #567366; font-size: 12px; margin-top: 2px; }
+.static-map-operational-groups button:focus-visible { outline: 2px solid #3d6a50; }

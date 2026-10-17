@@ -1,0 +1,31 @@
+import { describe, expect, it } from 'vitest';
+import type { ChatSummaryData } from '../../services/api';
+import { findActiveBilateralChat } from './diplomaticChatNavigation';
+
+const chat = (id: string, others: string[], archived = false): ChatSummaryData => ({
+  id, polityId: others[0] || 'RWA', polityName: others[0] || 'RWA',
+  polityColor: '#fff', archived, unread: 0,
+  participants: [
+    { id: 'UGA', name: 'Uganda', color: '#111', role: 'player' },
+    ...others.map(id => ({ id, name: id, color: '#999', role: 'polity' as const })),
+  ],
+} as ChatSummaryData);
+
+describe('DIPLOMACY — reuse the right live bilateral conversation', () => {
+  it('resumes a live negotiation by polity ID and never mixes similarly named provinces', () => {
+    const rows = [chat('kigali', ['RWA']), chat('congo', ['COD'])];
+    expect(findActiveBilateralChat(rows, 'UGA', 'COD')?.id).toBe('congo');
+    expect(findActiveBilateralChat(rows, 'UGA', 'RWA')?.id).toBe('kigali');
+  });
+  it('never opens an archived thread or an unrelated group discussion', () => {
+    const rows = [chat('old', ['RWA'], true), chat('group', ['RWA', 'COD'])];
+    expect(findActiveBilateralChat(rows, 'UGA', 'RWA')).toBeUndefined();
+  });
+  it('does not select conversations with a different player or the player themself', () => {
+    const wrong = { ...chat('wrong', ['RWA']),
+      participants: [{ id: 'FRA', role: 'player' as const, name: 'Francia', color: '#111' },
+        { id: 'RWA', role: 'polity' as const, name: 'Rwanda', color: '#fff' }] };
+    expect(findActiveBilateralChat([wrong], 'UGA', 'RWA')).toBeUndefined();
+    expect(findActiveBilateralChat([chat('a', ['UGA'])], 'UGA', 'UGA')).toBeUndefined();
+  });
+});
