@@ -44,7 +44,7 @@ describe('Advisor two-stage briefing', () => {
     const generate = vi.fn(async (_mechanic: string, _system: string, prompt: string) => {
       calls.push(prompt);
       if (prompt.includes('FASE 1 DI 2')) return { content: 'Il quadro richiede attenzione.\n' + fenced('advisor_situation', f.situation) };
-      if (prompt.includes('"task":"Collega ogni situazione')) return { content: fenced('council_issue', f.issue) };
+      if (prompt.includes('"task":"Per ogni situazione scoperta')) return { content: fenced('council_issue', f.issue) };
       throw new Error('Unexpected third request');
     });
     const reply = await new PromptEngine({ generate } as never).getAdvisor(f.game as never, 'fammi il quadro');
