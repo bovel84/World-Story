@@ -1889,7 +1889,7 @@ export class PromptEngine {
     // The first pass may ignore the agenda-only instruction and produce
     // premature actions. Discard them: only the second, evidence-grounded pass
     // can build council proposals. This also keeps the two phases measurable.
-    const agendaText = discoveredText.replace(/```council_issue\\b[^]*?(?:```|$)/gi, '');
+    const agendaText = discoveredText.replace(/```council_issue\b[^]*?(?:```|$)/gi, '');
     const discovered = parseAdvisorResponse(context.verifiedWorldSnapshot, agendaText, 'president', {
       strategicContext: context,
       includeDeterministicSituations: false,
