@@ -32,6 +32,24 @@ const naked = (regions: Region[], playerPolityId: string | undefined = 'A'): Gov
 
 const explicitRequest = () => ({ requested: true as const, scopeKey: SCOPE, signalKeys: [] as string[] });
 
+describe('Advisor immersion — chronology before atlas', () => {
+  it('keeps the political agenda ahead of a collapsed geographic appendix', () => {
+    const snapshot = naked(ownedRegions(6));
+    const message = { role: 'assistant' as const, content: 'Il Presidente valuta la situazione.',
+      visualRequest: explicitRequest() };
+    const html = renderToStaticMarkup(<GovernmentMessageVisuals message={message} snapshot={snapshot}
+      compactVisuals renderText={() => <p>Il bivio nazionale</p>}
+      belowText={<section>Situazioni sul tavolo</section>} />);
+    expect(html.indexOf('Il bivio nazionale')).toBeLessThan(html.indexOf('Situazioni sul tavolo'));
+    expect(html.indexOf('Situazioni sul tavolo')).toBeLessThan(html.indexOf('government-visual-appendix'));
+    expect(html).toContain('<details class="government-visual-appendix"');
+    expect(html).toContain('Contesto geografico · 1 mappa');
+    expect(html).toContain('+2 territori');
+    // The geographic content is still present and can be opened.
+    expect(html).toContain('Mostra sulla mappa principale');
+  });
+});
+
 describe('M-I3 — una richiesta esplicita mostra il territorio posseduto, senza fronti', () => {
   it('richiesta esplicita, nessun segnale, nessun fronte → una card col territorio posseduto', () => {
     const snapshot = naked(ownedRegions(4));
