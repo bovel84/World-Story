@@ -59,6 +59,21 @@ describe('Advisor two-stage briefing', () => {
     expect(result.issues.find(i => i.situationId === 'scorte')?.options).toHaveLength(4);
   });
 
+  it('does not accept premature first-pass actions as finished proposals', async () => {
+    const f = fixture();
+    const generate = vi.fn(async (_mechanic: string, _system: string, prompt: string) => ({
+      content: prompt.includes('FASE 1 DI 2')
+        ? fenced('advisor_situation', f.situation) + '\n'
+          + fenced('council_issue', { ...f.issue, title: 'Proposta prematura' })
+        : fenced('council_issue', f.issue),
+    }));
+    const reply = await new PromptEngine({ generate } as never).getAdvisor(f.game as never, 'fammi il quadro');
+    expect(generate).toHaveBeenCalledTimes(2);
+    const issues = parseAdvisorResponse(f.snapshot, reply, 'advisor', { strategicContext: f.context }).issues;
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toBe('Garantire gli approvvigionamenti');
+  });
+
   it('uses at most one legacy fallback when first phase produces no valid situation', async () => {
     const f = fixture();
     const calls: string[] = [];
