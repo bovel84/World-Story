@@ -111,6 +111,8 @@ describe('Advisor two-stage briefing', () => {
     const prompt = buildRealityAdvisorPrompt(f.context, 'fammi il quadro', [], undefined, 'advisor', undefined, 'agenda');
     expect(prompt).toContain('STRATEGIC THREAD EVIDENCE');
     expect(prompt).toContain('FASE 1 DI 2');
+    expect(prompt).toContain('SCRIVI COME UNA CRONACA POLITICA VIVA');
+    expect(prompt).toContain('non anticipare eventi successivi alla divergenza');
     expect(prompt).toContain('REAL HISTORY < START DATE');
     expect(prompt).not.toContain('Per ogni questione proponi normalmente 3-5 azioni');
     expect(prompt).not.toContain('[COUNCIL PROPOSAL ANCHORS');
