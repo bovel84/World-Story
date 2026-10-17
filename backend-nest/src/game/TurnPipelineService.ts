@@ -26,7 +26,7 @@ import { ingestJevBatch, relationshipMemoryInputs, consolidateJevMemory } from '
 import { loadSimulationCatalog } from '../scenario/loader';
 import { shortId } from '../utils/short-id';
 import type { RelationshipType } from '../core/RelationshipMatrix';
-import type { SimulationChatStart, SimulationEvent } from '../prompts/types';
+import type { SimulationChatStart, SimulationEvent, ActionOutcome } from '../prompts/types';
 import { mergeTimelineChronologically } from '../prompts/simulation/worldPulse';
 import type { PolityHistoricalBaseline } from '../core/government/HistoricalBaseline';
 import type { NationSituationRecord } from '../core/government/NationSituation';
@@ -563,14 +563,14 @@ export class TurnPipelineService {
       // Only *accepted player orders* can establish player involvement when the
       // event omits their country's name; unrelated world events stay excluded.
       const knownActionIds = new Set(actions.map(action => action.id));
-      const linkedPlayerEvents = new Set(
-        (promptResult.actionOutcomes || [])
-          .filter(outcome => (outcome.status === 'accepted' || outcome.status === 'partial')
+      const linkedPlayerEvents = new Set<string>(
+        ((promptResult.actionOutcomes || []) as ActionOutcome[])
+          .filter((outcome: ActionOutcome) => (outcome.status === 'accepted' || outcome.status === 'partial')
             && ((!!outcome.actionId && knownActionIds.has(outcome.actionId))
               || actions.some(action => action.text === outcome.action)))
-          .flatMap(outcome => outcome.eventHeadlines || [])
-          .map(headline => headline.trim().toLocaleLowerCase('it'))
-          .filter(headline => acceptedHeadlines.has(headline)),
+          .flatMap((outcome: ActionOutcome) => outcome.eventHeadlines || [])
+          .map((headline: string) => headline.trim().toLocaleLowerCase('it'))
+          .filter((headline: string) => acceptedHeadlines.has(headline)),
       );
       // Explicit diplomatic invitation takes priority over a fallback reaction
       // for the same confirmed event. openSimulationChats enforces one thread
