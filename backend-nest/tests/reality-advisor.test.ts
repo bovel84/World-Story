@@ -57,9 +57,9 @@ describe('briefing intent without an LLM classifier', () => {
       advisorContext: buildRealityAdvisorContext(canonical).advisorContext };
     expect(await engine.getAdvisor(game as never, 'dammi la situazione strategica')).toContain('advisor_situation');
     expect(await engine.getAdvisor(game as never, "approfondisci l'LRA")).not.toContain('advisor_situation');
-    // Both prose-only requests may need one proposal repair; neither repeats
-    // the agenda during focus/conversation, even if repair returns only prose.
-    expect(generate).toHaveBeenCalledTimes(4);
+    // Only the authored briefing situation needs its missing question repaired;
+    // the ordinary follow-up does not trigger a quota of opportunities.
+    expect(generate).toHaveBeenCalledTimes(3);
   });
 });
 

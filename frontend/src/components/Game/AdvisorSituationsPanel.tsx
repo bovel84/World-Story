@@ -44,13 +44,11 @@ export interface AdvisorSituationsPanelProps {
 
 export function AdvisorSituationsPanel({ situations, issues = [], onDeepen, onOpenIssue, activeId, disabled = false }: AdvisorSituationsPanelProps) {
   if (!situations.length) return null;
-  return <section className="advisor-situations" aria-label="Situazioni sul tavolo" data-many={situations.length > 6 ? 'true' : undefined}>
-    <header className="advisor-situations-header">
-      <h4 className="advisor-situations-heading">Situazioni sul tavolo</h4>
-      <p className="advisor-situations-subheading">Questioni che richiedono attenzione</p>
-    </header>
+  const threads = situations.filter(situation => situation.basis !== 'signal');
+  const signals = situations.filter(situation => situation.basis === 'signal');
+  const renderCards = (items: AdvisorSituation[]) => (
     <ul className="advisor-situation-list">
-      {situations.map(situation => {
+      {items.map(situation => {
         const issue = situationAsPortableIssue(situation, issues);
         return <li key={situation.id}
           className={`advisor-situation-card${activeId === situation.id ? ' active' : ''}`}
@@ -78,6 +76,17 @@ export function AdvisorSituationsPanel({ situations, issues = [], onDeepen, onOp
         </li>;
       })}
     </ul>
+  );
+  return <section className="advisor-situations" aria-label="Situazioni sul tavolo" data-many={situations.length > 6 ? 'true' : undefined}>
+    <header className="advisor-situations-header">
+      <h4 className="advisor-situations-heading">Situazioni sul tavolo</h4>
+      <p className="advisor-situations-subheading">Questioni che richiedono attenzione</p>
+    </header>
+    {threads.length > 0 && renderCards(threads)}
+    {signals.length > 0 && <details className="advisor-signal-register" open={!threads.length || signals.some(signal => signal.id === activeId) || undefined}>
+      <summary>Segnali da approfondire ({signals.length}){signals.some(signal => signal.importance === 3) ? ' · priorità urgenti' : ''}</summary>
+      {renderCards(signals)}
+    </details>}
   </section>;
 }
 

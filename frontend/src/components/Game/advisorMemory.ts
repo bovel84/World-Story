@@ -106,6 +106,7 @@ function sanitizeSituations(raw: unknown): AdvisorSituation[] | undefined {
       : [];
     return [{
       id, title, summary,
+      ...(situation.basis === 'signal' ? { basis: 'signal' as const } : {}),
       ...(signalKeys.length ? { signalKeys } : {}),
       ...(evidenceKeys.length ? { evidenceKeys } : {}),
       ...(kind ? { kind } : {}),
@@ -212,8 +213,8 @@ export interface AdvisorOpening {
 // Previous cached openings used the initial-mandate request even on later turns,
 // and older protocols could predate CouncilIssue signalKeys or AdvisorSituation.
 // Invalidate them once; the server, not this cache, selects the briefing kind.
-// v7: regenerate once with broader grounded alternatives; keep conversation history intact.
-const OPENING_PREFIX = 'ws.advisor.opening.v7';
+// v8: refresh the narrative agenda once; preserve conversation history.
+const OPENING_PREFIX = 'ws.advisor.opening.v8';
 
 /** Bucket dedicato: non entra nella scansione dell'archivio conversazione. */
 export function advisorOpeningKey(gameId: string, branchId: string | null, scopeKey: string): string {

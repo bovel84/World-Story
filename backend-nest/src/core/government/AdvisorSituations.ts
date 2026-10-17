@@ -31,6 +31,8 @@ export interface AdvisorSituation extends StrategicThread {
   signalKeys: string[];
   /** Derivata dai segnali; senza alert: 2 per problemi, 1 per opportunità. */
   importance: number;
+  /** Server-derived alert awaiting interpretation; not an authored political thread. */
+  basis?: 'signal';
 }
 
 /**
@@ -220,6 +222,7 @@ export function buildAdvisorSituations(snapshot: VerifiedWorldSnapshot, max = MA
       summary: signal.reason,
       signalKeys: [signal.key],
       importance: signal.importance,
+      basis: 'signal' as const,
     }));
 }
 
@@ -427,7 +430,8 @@ export function advisorReplyWithProposals(result: AdvisorResponse): string {
 export function serializeAdvisorResponse(result: AdvisorResponse): string {
   return [
     result.reply,
-    ...result.situations.map(situation => `\`\`\`advisor_situation\n${JSON.stringify(situation)}\n\`\`\``),
+    // Rebuilt from the snapshot on parsing; never promote raw alerts to stories.
+    ...result.situations.filter(situation => situation.basis !== 'signal').map(situation => `\`\`\`advisor_situation\n${JSON.stringify(situation)}\n\`\`\``),
     ...result.issues.map(issue => `\`\`\`council_issue\n${JSON.stringify(issue)}\n\`\`\``),
   ].filter(Boolean).join('\n\n');
 }
