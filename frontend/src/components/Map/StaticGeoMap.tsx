@@ -12,6 +12,9 @@
  */
 import React, { useMemo, useState } from 'react';
 import type { Region } from '../../types';
+import type { MilitaryUnitPayload } from '../../services/api';
+import type { CanonicalFacilitySite } from './thematicMapModel';
+import { StaticOperationalIndex, staticOperationalEntries } from './StaticOperationalIndex';
 import { buildStaticMap } from './staticMapModel';
 import { webglUnavailableNotice, type WebGLSupport } from './webglSupport';
 import { eventCameraViewBox, regionIdsForFocus, type MapRegionFocusRequest } from './mapFocus';
@@ -25,6 +28,11 @@ export interface StaticGeoMapProps {
   focusRegionRequest?: MapRegionFocusRequest | null;
   /** Ragione della indisponibilità: decide il messaggio, non il disegno. */
   reason?: WebGLSupport['reason'];
+  /** Same canonical operational snapshot used by the interactive map. */
+  militaryUnits?: readonly MilitaryUnitPayload[];
+  worldFacilities?: readonly CanonicalFacilitySite[];
+  playerPolityId?: string;
+  onUnitClick?: (unitId: string) => void;
 }
 
 export const StaticGeoMap: React.FC<StaticGeoMapProps> = ({
@@ -34,8 +42,15 @@ export const StaticGeoMap: React.FC<StaticGeoMapProps> = ({
   changedRegionIds,
   focusRegionRequest,
   reason = 'context_failed',
+  militaryUnits = [],
+  worldFacilities = [],
+  playerPolityId,
+  onUnitClick,
 }) => {
   const [hovered, setHovered] = useState<string | null>(null);
+  const operations = useMemo(() => playerPolityId
+    ? staticOperationalEntries(regions, militaryUnits, worldFacilities, playerPolityId)
+    : [], [regions, militaryUnits, worldFacilities, playerPolityId]);
   const model = useMemo(() => buildStaticMap(regions), [regions]);
   const changed = useMemo(() => new Set(changedRegionIds ?? []), [changedRegionIds]);
   const focus = useMemo(() => regionIdsForFocus(focusRegionRequest, new Map(model.paths.map(path => [path.id, path]))), [focusRegionRequest, model]);
@@ -91,6 +106,7 @@ export const StaticGeoMap: React.FC<StaticGeoMapProps> = ({
           );
         })}
       </svg>
+      <StaticOperationalIndex entries={operations} onRegionClick={onRegionClick} onUnitClick={onUnitClick} />
       {model.skipped > 0 && (
         <p className="static-geo-map-skipped" role="note">
           {model.skipped} {model.skipped === 1 ? 'provincia non disegnata' : 'province non disegnate'}: geometria illeggibile.
