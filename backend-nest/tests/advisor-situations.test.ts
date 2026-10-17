@@ -575,8 +575,9 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
       playerPolityId: 'UGA', actions: [], results: [],
       advisorContext: buildRealityAdvisorContext(snapshot, undefined, null, undefined, 'briefing').advisorContext,
     } as never, 'Apriamo.');
-    // No second completion merely to fill a quota of opportunities.
-    expect(generate).toHaveBeenCalledTimes(1);
+    // Discovery returns no authored situations in this legacy stub: one bounded
+    // full-protocol fallback preserves all 10 proposals, without a third repair.
+    expect(generate).toHaveBeenCalledTimes(2);
     expect(parseAdvisorResponse(snapshot, text, 'advisor', { includeDeterministicSituations: true }).issues).toHaveLength(10);
   });
 
