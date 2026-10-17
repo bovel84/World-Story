@@ -16,7 +16,7 @@ import { useSimulationStore } from '../../stores/simulationRuntime';
 import type { Region } from '../../types';
 import { publicNarrativeText } from '../../services/publicNarrative';
 import { formatGameDate, formatChatStamp, orderChatsByLatest } from './chatTimeline';
-import { pickDiplomaticTargetIds } from './diplomaticChatNavigation';
+import { isNewDiplomaticMessagePersisted, pickDiplomaticTargetIds } from './diplomaticChatNavigation';
 
 interface ChatsPanelProps {
   gameId: string;
@@ -208,30 +208,55 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     }
   };
 
-  // Invia il messaggio; la risposta della politia arriva in reply
+  // The backend persists the player note BEFORE requesting the LLM answer.
+  // If the provider fails, reconcile the thread instead of resending the same note.
   const handleSend = async () => {
     const text = inputText.trim();
-    if (!text || !activeChatId || sending || autoRunning) return;
+    const chatId = activeChatId;
+    if (!text || !chatId || sending || autoRunning) return;
+    const previousIds = new Set((useChatStore.getState().messagesByChat[chatId] ?? [])
+      .map(message => message.id).filter(Boolean));
     setInputText('');
     setSending(true);
-    // F06 passo 3: game switch e restore invalidano la risposta in volo.
     const commandGeneration = useSimulationStore.getState().commandGeneration;
+    const isCurrent = () => useSimulationStore.getState().commandGeneration === commandGeneration
+      && useChatStore.getState().gameId === gameId;
     try {
-      const { message, reply } = await chatsApi.send(gameId, activeChatId, text);
-      if (useSimulationStore.getState().commandGeneration !== commandGeneration) return;
-      appendMessage(activeChatId, message);
-      if (reply) {
-        appendMessage(activeChatId, reply);
-      }
-      await chatsApi.markRead(gameId, activeChatId);
-      markRead(activeChatId);
+      const { message, reply } = await chatsApi.send(gameId, chatId, text);
+      if (!isCurrent()) return;
+      appendMessage(chatId, message);
+      if (reply) appendMessage(chatId, reply);
       setError('');
-      // Aggiorna l'«ultimo messaggio» nell'elenco chat
-      refreshChats();
+      try {
+        await chatsApi.markRead(gameId, chatId);
+        if (isCurrent()) markRead(chatId);
+      } catch (readError) {
+        console.warn('[ChatsPanel] Messaggio inviato, lettura non sincronizzata:', readError);
+      }
+      void refreshChats();
     } catch (e) {
-      console.error('[ChatsPanel] Impossibile inviare il messaggio:', e);
-      setError(e instanceof Error ? e.message : 'Messaggio non inviato. Riprova.');
-      setInputText(text); // riporta il testo nel campo di input
+      if (!isCurrent()) return;
+      console.error('[ChatsPanel] Impossibile completare la risposta diplomatica:', e);
+      const details = e instanceof Error ? e.message : 'Risposta diplomatica non disponibile.';
+      try {
+        const data = await chatsApi.messages(gameId, chatId);
+        if (!isCurrent()) return;
+        const messages = data.messages ?? [];
+        const persisted = isNewDiplomaticMessagePersisted(previousIds, messages, text);
+        setMessages(chatId, messages);
+        markRead(chatId);
+        if (persisted) {
+          setError(`La tua nota è stata registrata, ma la controparte non ha risposto: ${details}`);
+          void refreshChats();
+        } else {
+          setInputText(text);
+          setError(`Messaggio non inviato: ${details}`);
+        }
+      } catch {
+        if (!isCurrent()) return;
+        setInputText(text);
+        setError('Esito non verificabile. Controlla la cronologia prima di riprovare per evitare doppioni.');
+      }
     } finally {
       setSending(false);
     }
@@ -404,7 +429,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
         </div>
 
         {error && <div className="chat-error" role="alert">{error}</div>}
-        {sending && <div className="chat-loading" role="status" aria-live="polite">Messaggio inviato al modello: attendo la risposta diplomatica…</div>}
+        {sending && <div className="chat-loading" role="status" aria-live="polite">Invio in corso: attendo la risposta diplomatica…</div>}
         <div className="chat-input-row">
           <textarea
             value={inputText}

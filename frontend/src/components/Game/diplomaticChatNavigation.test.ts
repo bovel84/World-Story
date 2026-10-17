@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatSummaryData } from '../../services/api';
-import { findActiveBilateralChat, pickDiplomaticTargetIds } from './diplomaticChatNavigation';
+import { findActiveBilateralChat, pickDiplomaticTargetIds, isNewDiplomaticMessagePersisted } from './diplomaticChatNavigation';
 
 const chat = (id: string, others: string[], archived = false): ChatSummaryData => ({
   id, polityId: others[0] || 'RWA', polityName: others[0] || 'RWA',
@@ -38,5 +38,18 @@ describe('DIPLOMACY — canonical targets for new chats', () => {
     ];
     expect(pickDiplomaticTargetIds(targets, new Set(['COD', 'KEN']))).toEqual(['COD', 'KEN']);
     expect(pickDiplomaticTargetIds(targets, new Set<string>())).toEqual([]);
+  });
+});
+
+describe('DIPLOMACY — persisted messages after failed LLM reply', () => {
+  it('recognizes a newly saved diplomatic note and avoids sending it twice', () => {
+    const before = new Set(['old']);
+    const messages = [
+      { id: 'old', role: 'player' as const, content: 'Ripetiamo la richiesta' },
+      { id: 'new', role: 'player' as const, content: 'Ripetiamo la richiesta' },
+    ];
+    expect(isNewDiplomaticMessagePersisted(before, messages, 'Ripetiamo la richiesta')).toBe(true);
+    expect(isNewDiplomaticMessagePersisted(new Set(['old', 'new']), messages, 'Ripetiamo la richiesta')).toBe(false);
+    expect(isNewDiplomaticMessagePersisted(before, [{ id: 'npc', role: 'polity', content: 'Ripetiamo la richiesta' }], 'Ripetiamo la richiesta')).toBe(false);
   });
 });

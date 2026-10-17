@@ -1,7 +1,7 @@
 /** Only an active *bilateral* thread can be reused from the diplomatic dossier.
  * Group meetings and archived records must never silently absorb a new negotiation.
  * IDs (not country/province names) establish identity; archive stays intact. */
-import type { ChatSummaryData } from '../../services/api';
+import type { ChatMessageData, ChatSummaryData } from '../../services/api';
 
 export function findActiveBilateralChat(
   chats: readonly ChatSummaryData[], playerPolityId: string, targetPolityId: string,
@@ -22,4 +22,19 @@ export function pickDiplomaticTargetIds(
   selectedIds: ReadonlySet<string>,
 ): string[] {
   return polities.filter(polity => selectedIds.has(polity.id)).map(polity => polity.id);
+}
+
+/** A failed HTTP response may follow a *persisted* player message because
+ * DiplomacyService writes the message before asking the LLM to reply.
+ * Distinguish an unanswered note from a note that was never accepted. */
+export function isNewDiplomaticMessagePersisted(
+  priorMessageIds: ReadonlySet<string>,
+  messages: readonly ChatMessageData[],
+  content: string,
+): boolean {
+  return messages.some(message =>
+    message.role === 'player'
+    && message.content.trim() === content.trim()
+    && !!message.id && !priorMessageIds.has(message.id)
+  );
 }
