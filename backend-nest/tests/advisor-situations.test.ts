@@ -15,7 +15,7 @@ import {
 } from '../src/core/government/AdvisorSituations';
 import { buildAdvisorBriefingRepairPrompt, repairAdvisorBriefing } from '../src/core/government/AdvisorBriefingRepair';
 import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, withAdvisorStrategicContext } from '../src/core/government/RealityAdvisor';
-import { buildEditorialAgendaIndex, buildStrategicThreadEvidence } from '../src/core/government/StrategicThreads';
+import { buildStrategicThreadEvidence } from '../src/core/government/StrategicThreads';
 import { ADVISOR_BRIEFING_SITUATION_PROTOCOL, ADVISOR_CONVERSATION_PROTOCOL } from '../src/core/government/CouncilIssue';
 
 const block = (kind: string, value: unknown) => `\`\`\`${kind}\n${JSON.stringify(value)}\n\`\`\``;
@@ -59,29 +59,6 @@ const multi = () => world({
 });
 
 describe('Country X — strategic focus and historical continuity', () => {
-  it('distributes sourced independent storylines across an editorial index without fabricating events', () => {
-    const narratives = [
-      { key: 'lra', kind: 'historical' as const, sourceRef: 'nationSituation', text: 'I ribelli LRA sono attivi nella regione di Gulu.' },
-      { key: 'kigali', kind: 'historical' as const, sourceRef: 'nationSituation', text: 'Il negoziato con il Rwanda resta aperto.' },
-      { key: 'coffee', kind: 'historical' as const, sourceRef: 'nationSituation', text: 'Le cooperative del caffè cercano mercati di esportazione.' },
-      { key: 'congo', kind: 'history' as const, sourceRef: 'results.front', text: 'Le truppe combattono su un fronte congolese.' },
-      { key: 'money', kind: 'current' as const, sourceRef: 'facts.treasury', text: 'Le finanze pubbliche registrano un saldo negativo.' },
-      { key: 'reform', kind: 'historical' as const, sourceRef: 'historicalBaseline', text: 'Le istituzioni discutono una riforma costituzionale.' },
-      { key: 'other', kind: 'history' as const, sourceRef: 'results.unknown', text: 'A Makana si discute il futuro della regione.' },
-    ];
-    const lanes = buildEditorialAgendaIndex(narratives);
-    expect(lanes.map(lane => [lane.theme, lane.evidenceIndexes])).toEqual([
-      ['sicurezza interna e insurrezioni', [0]],
-      ['guerre e fronti esterni', [3]],
-      ['diplomazia e rapporti regionali', [1]],
-      ['economia reale e commercio', [2]],
-      ['istituzioni e società', [5]],
-      ['altre vicende documentate', [6]],
-    ]);
-    expect(lanes.flatMap(lane => lane.evidenceIndexes).sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 5, 6]);
-    expect(JSON.stringify(lanes)).not.toContain('caffè'); // index references existing facts, never duplicates prose
-  });
-
   it('keeps independent national issues beyond the old 1800-character / 8-sentence cutoff', () => {
     const snapshot = world({ date: '2000-01-01', turn: 1 });
     const lateIssue = 'Le cooperative del caffè di WEST negoziano accesso ai mercati con DELTA.';
@@ -782,10 +759,10 @@ describe('WS-CONSULENTE-SITUAZIONI — AdvisorSituation', () => {
     for (const situation of result.situations) expect(situation.signalKeys).toHaveLength(1);
   });
 
-  it('PROMPT-G: il briefing seleziona vicende indipendenti senza quote, per priorità politica', () => {
+  it('PROMPT-G: il briefing preferisce 3-6 situazioni ordinate per priorità politica', () => {
     const prompt = buildRealityAdvisorPrompt(buildRealityAdvisorContext(multi(), undefined, null, undefined, 'briefing').advisorContext, 'Apriamo il Governo.');
-    expect(prompt).toContain('SELEZIONE EDITORIALE');
-    expect(prompt).toContain('tutte e sole le questioni autonome e sostenute da prove');
+    expect(prompt).toContain('circa 3-6 situazioni strategiche');
+    expect(prompt).toContain('raggruppando i segnali che descrivono lo stesso problema politico');
     expect(prompt).toContain('importanza politica e urgenza');
     expect(prompt).toContain('non per categoria');
   });
