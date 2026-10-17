@@ -226,7 +226,7 @@ describe('MAP02 — le zone di cui si parla salgono a primarie, con il loro vici
   it('la scheda dichiara il soggetto e marca i ruoli nel DOM', () => {
     const html = renderToStaticMarkup(<GovernmentVisualCard card={territoryCard('La crisi di Irbid.')} snapshot={naked(country())} />);
     expect(html).toContain('In evidenza: Irbid');
-    expect(html).toContain('sulle 5 del contesto');
+    expect(html).toContain('su 5 territori del contesto');
     expect(html).toContain('data-role="primary"');
     expect(html).toContain('data-role="adjacent"');
     expect(html).toContain('data-role="context"');
