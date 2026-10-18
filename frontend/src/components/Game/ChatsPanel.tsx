@@ -17,6 +17,7 @@ import type { Region } from '../../types';
 import { publicNarrativeText } from '../../services/publicNarrative';
 import { formatGameDate, formatChatStamp, orderChatsByLatest } from './chatTimeline';
 import { isNewDiplomaticMessagePersisted, pickDiplomaticTargetIds } from './diplomaticChatNavigation';
+import { diplomaticMessageForDisplay } from './diplomaticOpeningView';
 
 interface ChatsPanelProps {
   gameId: string;
@@ -336,49 +337,46 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     return (
       <div className="chats-panel">
         <div className="chat-thread-header">
-          {!uniqueMeeting && (
-          <button className="btn-chat-back" onClick={() => setActiveChat(null)} title="Alle chat">
-            ←
-          </button>
-          )}
-          <span className="chat-thread-flags" aria-label={`${activeInterlocutors.length} partecipanti`}>
-            {(activeInterlocutors.length ? activeInterlocutors : [{ id: activeChat?.polityId, name: activeChat?.polityName }]).slice(0, 4).map((p: any, i) => (
-              <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
-            ))}
-          </span>
-          <span className="chat-thread-title">{activeTitle}</span>
-          {activeInterlocutors.length > 1 && <span className="group-chat-badge">Gruppo · {activeInterlocutors.length}</span>}
-          <span className="chat-thread-stamp" title="Data dell'ultimo messaggio">
-            {formatChatStamp(
-              activeMessages.length ? activeMessages[activeMessages.length - 1].gameDate : activeChat?.lastMessageGameDate,
-              activeChat?.lastMessageAt || activeChat?.createdAt,
+          <div className="chat-thread-heading">
+            {!uniqueMeeting && (
+              <button type="button" className="btn-chat-back" onClick={() => setActiveChat(null)} aria-label="Torna alle conversazioni" title="Alle chat">←</button>
             )}
-          </span>
-          <button
-            className="btn-chat-auto"
-            onClick={handleAutoChat}
-            disabled={autoRunning || sending}
-            title="Lascia che le nazioni proseguano la trattativa tra loro"
-          >
-            {autoRunning ? 'In corso' : 'Prosegui dialogo'}
-          </button>
-          {activeChat?.archived ? (
+            <span className="chat-thread-flags" aria-label={`${activeInterlocutors.length} interlocutori`}>
+              {(activeInterlocutors.length ? activeInterlocutors : [{ id: activeChat?.polityId, name: activeChat?.polityName }]).slice(0, 4).map((p: any, i) => (
+                <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
+              ))}
+            </span>
+            <div className="chat-thread-identity">
+              <strong className="chat-thread-title">{activeTitle}</strong>
+              <time className="chat-thread-stamp" title="Ultimo messaggio nel calendario di gioco">
+                {formatChatStamp(
+                  activeMessages.length ? activeMessages[activeMessages.length - 1].gameDate : activeChat?.lastMessageGameDate,
+                  activeChat?.lastMessageAt || activeChat?.createdAt,
+                )}
+              </time>
+            </div>
+            {activeInterlocutors.length > 1 && <span className="group-chat-badge">Gruppo · {activeInterlocutors.length}</span>}
+          </div>
+          <div className="chat-thread-actions">
             <button
-              className="btn-chat-archive reopen"
-              onClick={() => { if (activeChat) unarchiveChat(activeChat.id); }}
-              title="Riapri questa discussione archiviata"
+              type="button"
+              className="btn-chat-auto"
+              onClick={handleAutoChat}
+              disabled={autoRunning || sending || !!activeChat?.archived}
+              title="Lascia che la delegazione prosegua la trattativa"
             >
-              ↩ Riapri
+              {autoRunning ? 'In corso…' : 'Prosegui dialogo'}
             </button>
-          ) : (
-            <button
-              className="btn-chat-archive"
-              onClick={() => { if (activeChatId) archiveChat(activeChatId); }}
-              title="Archivia la discussione: esce dall'elenco attivo ma resta consultabile"
-            >
-              Archivia
-            </button>
-          )}
+            {activeChat?.archived ? (
+              <button type="button" className="btn-chat-archive reopen"
+                onClick={() => { if (activeChat) unarchiveChat(activeChat.id); }}
+                title="Riapri la discussione archiviata">↩ Riapri</button>
+            ) : (
+              <button type="button" className="btn-chat-archive"
+                onClick={() => { if (activeChatId) archiveChat(activeChatId); }}
+                title="Sposta la discussione nell'archivio">Archivia</button>
+            )}
+          </div>
         </div>
 
         {activeChat?.archived && (
@@ -414,7 +412,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                   className={`chat-bubble ${m.role}`}
                   style={m.role === 'polity' ? { '--nation-color': senderColor(m.senderName || '') } as React.CSSProperties : undefined}
                 >
-                  {publicNarrativeText(m.content, playerPolityName)}
+                  {publicNarrativeText(diplomaticMessageForDisplay(m.content, activeChat?.subject, m.role), playerPolityName)}
                 </div>
               </div>
             ))
@@ -430,29 +428,30 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
 
         {error && <div className="chat-error" role="alert">{error}</div>}
         {sending && <div className="chat-loading" role="status" aria-live="polite">Invio in corso: attendo la risposta diplomatica…</div>}
-        <div className="chat-input-row">
+        <form className="chat-input-row" onSubmit={(event) => { event.preventDefault(); void handleSend(); }}>
           <textarea
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder={activeChat?.archived ? 'Discussione archiviata — riaprila per scrivere' : 'Messaggio alla politia...'}
+            placeholder={activeChat?.archived ? 'Discussione archiviata — riaprila per scrivere' : 'Scrivi alla delegazione…'}
+            aria-label="Messaggio diplomatico"
             rows={2}
             disabled={sending || autoRunning || !!activeChat?.archived}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
-                handleSend();
+                void handleSend();
               }
             }}
           />
           <button
             className="btn-chat-send"
-            onClick={handleSend}
+            type="submit"
             disabled={!inputText.trim() || sending || autoRunning || !!activeChat?.archived}
             title="Invia"
           >
             {sending ? '…' : 'Invia'}
           </button>
-        </div>
+        </form>
       </div>
     );
   }

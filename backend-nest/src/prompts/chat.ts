@@ -85,6 +85,23 @@ function renderHistory(history: ChatHistoryItem[], playerPolityName: string): st
     .join('\n');
 }
 
+/**
+ * Older simulation providers return only a newspaper-style `topic`. A new
+ * `message` must win verbatim; for legacy headlines use a modest conversational
+ * invitation instead of displaying the headline as though it were dialogue.
+ * No invented concessions, deadlines, deployments or extra LLM request.
+ */
+export function diplomaticOpeningText(topic: string, message?: string): string {
+  const spoken = String(message || '').trim();
+  if (spoken) return compact(spoken, 1_200);
+  const subject = String(topic || '').replace(/\s+/g, ' ').trim();
+  if (!subject) return 'Desideriamo aprire un confronto con il vostro governo. Attendiamo la vostra posizione prima di discutere eventuali impegni.';
+  if (/[.!?…]$/.test(subject) || /^(?:desideriamo|chiediamo|proponiamo|riteniamo|intendiamo|vorremmo|sollecitiamo|siamo|non possiamo)\b/i.test(subject)) {
+    return compact(subject, 1_200);
+  }
+  return compact(`Desideriamo sottoporre al vostro governo questa questione: ${subject.charAt(0).toLowerCase() + subject.slice(1)}. Prima di assumere impegni, vorremmo conoscere la vostra posizione e le condizioni che ritenete necessarie.`, 1_200);
+}
+
 /** Prompt «Next Speaker»: decide chi ha davvero motivo di parlare ora. */
 export function buildNextSpeakerPrompt(vars: NextSpeakerPromptVars): string {
   const latest = vars.playerMessage.trim()
@@ -178,6 +195,8 @@ ${modeRule}
 - Le sole nazioni presenti in questa trattativa sono: ${presentNames}. Non far parlare né trattare come presenti altre nazioni: un altro paese può essere citato solo come attore esterno della situazione, mai come interlocutore.
 - Usa forza, territori e relazioni per decidere, ma NON citare cifre, percentuali, punteggi, livelli, indici, PIL, popolazione, numero di regioni o divisioni, tassi o statistiche. Traduci i dati in giudizi politici naturali («una forza militare superiore», «un’economia fragile», «una popolazione esigua»).
 - Parla come un diplomatico: frasi naturali, tono da nota ufficiale o colloquio tra governi. Non menzionare dossier, priorità interne, difficoltà di gioco o campi tecnici.
+- Non emettere un titolo di evento, una didascalia («proposta di cooperazione...») o un comunicato in terza persona al posto di una battuta: rivolgi parole direttamente alla controparte e indica quale decisione o risposta attendi.
+- Fai emergere una posta in gioco specifica tratta dalla trattativa e una condizione negoziabile; evita formule di cortesia ripetitive e promesse non sostenute dallo stato.
 - Usa una voce riconoscibile coerente con personalità, rapporto ed epoca: cordiale, secca, diffidente, orgogliosa o conciliante quando motivato. Paragrafi brevi, aperture variate, nessuna scena inventata o spiegazione da narratore.
 - Non dire mai di essere un’IA e non parlare della meccanica del gioco.
 - Scrivi in italiano, in modo concreto, normalmente 2–5 frasi e massimo 1200 caratteri.

@@ -170,6 +170,8 @@ export interface SimulationChatStart {
   polityName?: string;
   participants?: string[];
   topic: string;
+  /** Prima battuta diretta della delegazione, distinta dal titolo/oggetto. */
+  message?: string;
   kind?: DiplomaticChatKind;
   eventHeadline?: string;
   /**

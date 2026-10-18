@@ -154,6 +154,48 @@ describe('DiplomacyService — canali', () => {
     expect(result.broadcasts).toHaveLength(1);
   });
 
+  it('separa il tema dalla battuta della delegazione e conserva il testo originale', () => {
+    const d = makeService();
+    const message = 'Desideriamo discutere l’accesso ai corridoi commerciali. Per noi è essenziale una gestione concordata dei controlli. Quali garanzie può offrire il vostro governo?';
+    const result = d.openSimulationChats(
+      [{ polityName: 'Francia', participants: ['Francia'], topic: 'Cooperazione commerciale',
+        message, kind: 'negotiation' }],
+      { turn: 31, fallbackDate: '1952-03-01', simulationId: 'spoken-opening-31' },
+    );
+    expect(result.broadcasts).toHaveLength(1);
+    expect(result.broadcasts[0].message.content).toBe(message);
+    expect(result.acceptedStarts[0].topic).toBe('Cooperazione commerciale');
+    // L’oggetto della chat resta separato dalla prima battuta.
+    const thread = d.getChats().find((chat: any) => chat.id === result.broadcasts[0].chatId);
+    expect(thread?.subject).toBe('Cooperazione commerciale');
+  });
+
+  it('con i provider legacy non presenta un titolo come se fosse una battuta', () => {
+    const d = makeService();
+    const result = d.openSimulationChats(
+      [{ polityName: 'Francia', participants: ['Francia'],
+        topic: 'Proposta francese di cooperazione sui trasporti', kind: 'negotiation' }],
+      { turn: 32, fallbackDate: '1952-04-01', simulationId: 'legacy-opening-32' },
+    );
+    const opening = result.broadcasts[0].message.content;
+    expect(opening).toMatch(/^Desideriamo sottoporre/);
+    expect(opening).toContain('cooperazione sui trasporti');
+    expect(opening).not.toBe('Proposta francese di cooperazione sui trasporti');
+  });
+
+  it('il parser preserva separatamente una prima battuta LLM e il suo oggetto', async () => {
+    const { parseSimulationResponse } = await import('../src/prompts/simulation/parse');
+    const parsed: any = parseSimulationResponse(JSON.stringify({
+      type: 'complete', narration: 'x', events: [], startChat: [
+        { participants: ['Francia'], topic: 'Corridorio commerciale',
+          message: 'Proponiamo negoziati sui valichi: quali garanzie potete offrire?',
+          kind: 'negotiation' },
+      ],
+    }));
+    expect(parsed.startChat[0].topic).toBe('Corridorio commerciale');
+    expect(parsed.startChat[0].message).toBe('Proponiamo negoziati sui valichi: quali garanzie potete offrire?');
+  });
+
   it('openSimulationChats ignora startChat senza evento quando richiesto', () => {
     const d = makeService();
     const result = d.openSimulationChats(
