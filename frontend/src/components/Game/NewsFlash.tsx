@@ -30,7 +30,7 @@ export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive, 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   if (!item) return null;
   const category = classifyDispatch(item.text, item.detail);
-  const headline = compactEventText(publicNarrativeText(item.text.replace(/^Evento \\d+:\\s*/, ''), playerPolityName), 105);
+  const headline = compactEventText(publicNarrativeText(item.text.replace(/^Evento \d+:\s*/, ''), playerPolityName), 105);
   const detail = compactEventText(
     item.detail ? publicNarrativeText(item.detail, playerPolityName) : 'Non sono ancora disponibili ulteriori particolari su questo sviluppo.',
     240,
@@ -56,7 +56,7 @@ export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive, 
         </header>
         <div className="news-flash-body">
           <span className="news-flash-mark" aria-hidden="true">▤</span>
-          <h2 id="news-flash-title">{expanded ? publicNarrativeText(item.text.replace(/^Evento \\d+:\\s*/, ''), playerPolityName) : headline.text}</h2>
+          <h2 id="news-flash-title">{expanded ? publicNarrativeText(item.text.replace(/^Evento \d+:\s*/, ''), playerPolityName) : headline.text}</h2>
           <p>{expanded && item.detail ? publicNarrativeText(item.detail, playerPolityName) : detail.text}</p>
           {canExpand && (
             <button type="button" className="news-flash-more" aria-expanded={expanded}
