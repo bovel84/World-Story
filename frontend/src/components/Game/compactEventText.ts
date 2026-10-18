@@ -19,7 +19,7 @@ export function compactEventText(value: string, maxCharacters = 240): CompactEve
   const endings = [...prefix.matchAll(/[.!?…](?=\s|$)/g)]
     .map(match => (match.index ?? 0) + 1)
     .filter(index => index >= minUsefulLength);
-  const sentenceEnd = endings.at(-1);
+  const sentenceEnd = endings.length ? endings[endings.length - 1] : undefined;
   const wordEnd = prefix.lastIndexOf(' ');
   const cut = sentenceEnd ?? (wordEnd >= minUsefulLength ? wordEnd : prefix.length);
   const candidate = prefix.slice(0, cut).trim().replace(/[,;:\s]+$/, '');
