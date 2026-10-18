@@ -15,7 +15,7 @@ export const ADVISOR_BRIEFING_REPAIR_SYSTEM = [
   'JSON: {"title":"...","question":"...","options":[{"title":"azione 1","content":"..."},{"title":"azione 2","content":"..."},{"title":"azione 3","content":"..."},{"title":"azione 4","content":"..."}],"situationId":"...","signalKeys":["chiave canonica"],"anchorKeys":["chiave canonica"],"evidenceKeys":["chiave del contesto verificato"],"suggestedMinisters":["tesoro"]}. Includi solo le liste di chiavi pertinenti e non vuote.',
   `Ministri ammessi: ${CABINET_SEATS.join(', ')}.`,
   'Ogni questione deve riferirsi a una situazione scoperta e usare situationId uguale alla sua id. Anche le opportunità devono essere già documentate in quelle situazioni; gli anchor descrivono vincoli, non obbligano a nuove schede.',
-  'Una questione concreta per ciascuna situazione validata: il Presidente deve percepire una scelta difficile tra interessi in contrasto, non un elenco di uffici da incaricare. Normalmente 3-5 opzioni, quattro vie davvero differenti se sostenute da fatti. Ogni opzione deve chiarire (1) ordine politico e interlocutore/teatro, (2) obiettivo pratico, (3) costo, reazione plausibile oppure leva persa: cosa cambia se il Presidente sceglie questa via anziché le altre? Condizionali per reazioni e futuri; nessun risultato garantito. Evita ripetizioni e slogan. Le alternative sono proposte, mai azioni autorizzate.',
+  'Se la situazione è un segnale urgente, non proporre soltanto studio o monitoraggio: se esiste una vera scelta politica sostenuta dai fatti, sviluppala; altrimenti non forzare una decisione. Una questione concreta per ciascuna situazione validata: il Presidente deve percepire una scelta difficile tra interessi in contrasto, non un elenco di uffici da incaricare. Normalmente 3-5 opzioni, quattro vie davvero differenti se sostenute da fatti. Ogni opzione deve chiarire (1) ordine politico e interlocutore/teatro, (2) obiettivo pratico, (3) costo, reazione plausibile oppure leva persa: cosa cambia se il Presidente sceglie questa via anziché le altre? Condizionali per reazioni e futuri; nessun risultato garantito. Evita ripetizioni e slogan. Le alternative sono proposte, mai azioni autorizzate.',
   'SVILUPPO DELLA SITUAZIONE: nella summary (massimo 600 caratteri) racconta il fatto attestato, gli attori e i loro interessi, il vincolo e la posta della scelta. Mantieni una scena politica specifica del paese, non un bollettino di indicatori. La question esplicita il bivio senza ripetere la sintesi. Non inventare un incidente o un ultimatum per animare la scena.',
   'Sviluppa normalmente quattro strategie distinguibili per strumento o interlocutore, non quattro formulazioni della stessa azione. Un negoziato deve indicare cosa chiediamo e cosa siamo disposti a concedere; una riforma chi sostiene il costo; una scelta militare obiettivo e limite. Se pertinenti, includi una via diplomatica e una scelta interna. Non imporre categorie fuori contesto.',
   ...ADVISOR_ACTION_PROTOCOL,
@@ -107,7 +107,7 @@ export interface AdvisorBriefingRepairOutcome {
 export async function repairAdvisorBriefing(
   snapshot: VerifiedWorldSnapshot, result: AdvisorResponse, deps: AdvisorBriefingRepairDeps,
 ): Promise<AdvisorBriefingRepairOutcome> {
-  const uncovered = result.briefingCoverage?.complete === false ? uncoveredAdvisorSituations(result).filter(situation => situation.basis !== 'signal') : [];
+  const uncovered = result.briefingCoverage?.complete === false ? uncoveredAdvisorSituations(result).filter(situation => situation.basis !== 'signal' || (situation.importance ?? 0) >= 2) : [];
   const limit = deps.context?.mode === 'conversation' ? MAX_COUNCIL_ISSUES : MAX_BRIEFING_COUNCIL_ISSUES;
   const headroom = Math.max(0, limit - result.issues.length);
   // Repair authored questions, not every numeric alert or a quota of capacities.
@@ -168,7 +168,7 @@ export async function repairAdvisorBriefing(
   });
   const merged = { ...result, situations, issues: mergedIssues };
   const response = result.briefingCoverage ? withAdvisorBriefingCoverage(snapshot, merged) : merged;
-  for (const situation of uncoveredAdvisorSituations(response).filter(situation => situation.basis !== 'signal')) discard('Nessuna decisione verificabile dal repair', situation.id);
+  for (const situation of uncoveredAdvisorSituations(response).filter(situation => situation.basis !== 'signal' || (situation.importance ?? 0) >= 2)) discard('Nessuna decisione verificabile dal repair', situation.id);
   return { response, repairedSituationIds: [...new Set(response.issues.filter(issue => !existingById.has(issue.id)).flatMap(issue => issue.situationId ? [issue.situationId] : []))], discarded };
 }
 
@@ -178,7 +178,8 @@ export async function repairAdvisorBriefing(
 export async function developAdvisorBriefing(
   snapshot: VerifiedWorldSnapshot, agenda: AdvisorResponse, deps: AdvisorBriefingRepairDeps,
 ): Promise<AdvisorResponse> {
-  const threads = agenda.situations.filter(situation => situation.basis !== 'signal');
+  // Urgent verified signals may also justify a real choice; routine indicators do not.
+  const threads = agenda.situations.filter(situation => situation.basis !== 'signal' || (situation.importance ?? 0) >= 2);
   const developed: AdvisorResponse[] = new Array(threads.length);
   let cursor = 0;
   const worker = async () => {
