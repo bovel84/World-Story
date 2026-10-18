@@ -1096,7 +1096,7 @@
 .chat-message-date { margin-left: auto; color: #aabbd3 !important; font: 650 10px/1 system-ui, sans-serif !important; white-space: nowrap; }
 .floating-advisor-panel .chat-message-meta.player-meta { justify-content: flex-end; color: #cdbfff !important; }
 .floating-advisor-panel .chat-bubble { max-width: 92%; padding: 10px 12px !important; font-size: 13px !important; line-height: 1.5 !important; }
-.floating-advisor-panel .chat-bubble.polity { border-left: 3px solid var(--nation-color, #7f9cca) !important; }
+.floating-advisor-panel .chat-bubble.polity { border-left: 0 !important; }
 .floating-advisor-panel .chat-item { min-height: 62px; padding: 10px 11px !important; }
 .floating-advisor-panel .chat-item-main { min-width: 0; }
 .floating-advisor-panel .chat-item-name { color: #f2f6ff !important; }
