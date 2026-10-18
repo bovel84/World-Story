@@ -132,7 +132,7 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     const generation = useSimulationStore.getState().commandGeneration;
     const owns = () => requestRef.current === controller && !controller.signal.aborted && scopeRef.current === scope
       && useSimulationStore.getState().commandGeneration === generation;
-    const requestingMore = /\b(?:nuov[ei]|altr[ei]|ulteriori|aggiuntiv[ei]|diverse|più)\b/i.test(text)
+    const requestingMore = /(?:^|\s)(?:nuov[ei]|altr[ei]|ulteriori|aggiuntiv[ei]|diverse|più)(?=\s|$)/iu.test(text)
       && /\b(?:proposte|situazioni|azioni|opzioni|mosse|alternative)\b/i.test(text);
     const history = currentTurnMessages(advisorMessages, currentTurn)
       .filter(message => !message.proactive && message.content.trim()).slice(-18)
