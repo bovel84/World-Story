@@ -1,3 +1,5 @@
+import { COMPACT_CONVERSATION_STYLE } from './conversation-style';
+
 /**
  * World Story — Diplomazia stile Pax Historia
  * =========================================
@@ -214,7 +216,8 @@ ${modeRule}
 ✗ da evitare: «Le nostre priorità includono la sicurezza dei confini e lo sviluppo commerciale. Le nostre linee rosse riguardano il transito militare. Proponiamo un patto di non aggressione e chiediamo garanzie sul rispetto dei confini.»
 ✓ da imitare: «I vostri reggimenti ammassati alla frontiera non sono un dettaglio che ci sfugge. Se iniziano il ritiro entro la fine del mese, siamo pronti a riaprire i valichi commerciali da subito; in caso contrario questa trattativa si chiude qui, e le conseguenze ricadranno sul vostro governo.»
 
-Scrivi in italiano, in prima persona plurale: 2–4 frasi incisive (idealmente 350–700 caratteri, massimo 850), una posizione e una conseguenza negoziale specifica. Niente monologhi o preamboli: la risposta deve far avanzare il punto aperto, anche rispondendo a un altro governo. Puoi dividere il testo in due brevi paragrafi.
+Scrivi in italiano, in prima persona plurale: una posizione e una conseguenza negoziale specifica. La risposta deve far avanzare il punto aperto, anche rispondendo a un altro governo.
+${COMPACT_CONVERSATION_STYLE}
 
 Rispondi SOLO con un oggetto JSON valido, senza markdown o testo attorno:
 {"message":"<replica diplomatica di ${speaker.name}>"}`;
