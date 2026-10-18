@@ -94,9 +94,9 @@ function renderHistory(history: ChatHistoryItem[], playerPolityName: string): st
 export function diplomaticOpeningText(topic: string, message?: string): string {
   const spoken = String(message || '').trim();
   if (spoken) return compact(spoken, 1_200);
-  const subject = String(topic || '').replace(/\\s+/g, ' ').trim();
+  const subject = String(topic || '').replace(/\s+/g, ' ').trim();
   if (!subject) return 'Desideriamo aprire un confronto con il vostro governo. Attendiamo la vostra posizione prima di discutere eventuali impegni.';
-  if (/[.!?…]$/.test(subject) || /^(?:desideriamo|chiediamo|proponiamo|riteniamo|intendiamo|vorremmo|sollecitiamo|siamo|non possiamo)\\b/i.test(subject)) {
+  if (/[.!?…]$/.test(subject) || /^(?:desideriamo|chiediamo|proponiamo|riteniamo|intendiamo|vorremmo|sollecitiamo|siamo|non possiamo)\b/i.test(subject)) {
     return compact(subject, 1_200);
   }
   return compact(`Desideriamo sottoporre al vostro governo questa questione: ${subject.charAt(0).toLowerCase() + subject.slice(1)}. Prima di assumere impegni, vorremmo conoscere la vostra posizione e le condizioni che ritenete necessarie.`, 1_200);
