@@ -354,6 +354,9 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
           <span className="chat-item-participants">{names}</span>
         </span>
         <span className="chat-item-end">
+          <time className="chat-item-time" dateTime={c.lastMessageGameDate || undefined}>
+            {formatChatStamp(c.lastMessageGameDate, c.lastMessageAt || c.createdAt)}
+          </time>
           {!!c.unread && <span className="chat-unread-badge">{c.unread}</span>}
           <span aria-hidden="true" className="chat-item-chevron">›</span>
         </span>
@@ -377,7 +380,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
               <button type="button" className="btn-chat-back" onClick={() => setActiveChat(null)} aria-label="Torna alle conversazioni" title="Alle chat">←</button>
             )}
             <div className="chat-thread-identity">
-              <strong className="chat-thread-title">{activeTitle}</strong>
+              <strong className="chat-thread-title" title={activeTitle}>{activeTitle}</strong>
               <time className="chat-thread-stamp" title="Ultimo messaggio nel calendario di gioco">
                 {formatChatStamp(
                   activeMessages.length ? activeMessages[activeMessages.length - 1].gameDate : activeChat?.lastMessageGameDate,
@@ -385,34 +388,38 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                 )}
               </time>
             </div>
-
+            <details className="chat-thread-details">
+              <summary title="Partecipanti e opzioni">
+                <span className="chat-details-accessible">Partecipanti e opzioni</span>
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 3.5l1.4 1 2-.1.9 1.8 1.9.8v2l1.3 1.5-1.3 1.5v2l-1.9.8-.9 1.8-2-.1-1.4 1-1.4-1-2 .1-.9-1.8-1.9-.8v-2L4.5 10.5 5.8 9v-2l1.9-.8.9-1.8 2 .1L12 3.5Z" transform="translate(0 1.5)"/>
+                  <circle cx="12" cy="12" r="2.5"/>
+                </svg>
+              </summary>
+              <div className="chat-thread-details-popover">
+                <h3>Partecipanti · {activeInterlocutors.length + 1}</h3>
+                <div className="chat-participants">{activeChat?.participants?.map(p => (
+                  <span key={p.id}><span className="chat-flag">{flagForPolity(p.id, p.name)}</span> {p.name}{p.role === 'player' ? ' (tu)' : ''}</span>
+                ))}</div>
+                <div className="chat-thread-actions">
+                  <button type="button" className="btn-chat-auto" onClick={handleAutoChat}
+                    disabled={autoRunning || sending || !!activeChat?.archived}
+                    title="Lascia che la delegazione prosegua la trattativa">
+                    {autoRunning ? 'In corso…' : 'Prosegui dialogo'}
+                  </button>
+                  {activeChat?.archived ? (
+                    <button type="button" className="btn-chat-archive reopen"
+                      onClick={() => { if (activeChat) unarchiveChat(activeChat.id); }}
+                      title="Riapri la discussione archiviata">↩ Riapri</button>
+                  ) : (
+                    <button type="button" className="btn-chat-archive"
+                      onClick={() => { if (activeChatId) archiveChat(activeChatId); }}
+                      title="Sposta la discussione nell'archivio">Archivia</button>
+                  )}
+                </div>
+              </div>
+            </details>
           </div>
-          <details className="chat-thread-details">
-            <summary>Partecipanti e opzioni · {activeInterlocutors.length + 1}</summary>
-            <div className="chat-participants">{activeChat?.participants?.map(p => (
-              <span key={p.id}><span className="chat-flag">{flagForPolity(p.id, p.name)}</span> {p.name}{p.role === 'player' ? ' (tu)' : ''}</span>
-            ))}</div>
-            <div className="chat-thread-actions">
-            <button
-              type="button"
-              className="btn-chat-auto"
-              onClick={handleAutoChat}
-              disabled={autoRunning || sending || !!activeChat?.archived}
-              title="Lascia che la delegazione prosegua la trattativa"
-            >
-              {autoRunning ? 'In corso…' : 'Prosegui dialogo'}
-            </button>
-            {activeChat?.archived ? (
-              <button type="button" className="btn-chat-archive reopen"
-                onClick={() => { if (activeChat) unarchiveChat(activeChat.id); }}
-                title="Riapri la discussione archiviata">↩ Riapri</button>
-            ) : (
-              <button type="button" className="btn-chat-archive"
-                onClick={() => { if (activeChatId) archiveChat(activeChatId); }}
-                title="Sposta la discussione nell'archivio">Archivia</button>
-            )}
-            </div>
-          </details>
         </div>
 
         {activeChat?.archived && (
