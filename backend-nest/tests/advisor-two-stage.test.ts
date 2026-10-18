@@ -136,7 +136,7 @@ describe('Political agenda development and Council handoff', () => {
 
 describe('Explicit new proposals after a political briefing', () => {
   it('routes explicit additional requests to a new two-stage briefing without hijacking focused questions', () => {
-    for (const message of ['Dammi altre proposte', 'crea nuove situazioni', 'Proponimi ulteriori alternative']) {
+    for (const message of ['Dammi altre proposte', 'crea nuove situazioni', 'Proponimi ulteriori alternative', 'dammi più proposte']) {
       expect(isAdvisorAdditionalProposalsRequest(message), message).toBe(true);
       expect(isAdvisorBriefingRequest(message), message).toBe(true);
     }
