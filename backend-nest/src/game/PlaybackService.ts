@@ -22,7 +22,7 @@ import { shortId } from '../utils/short-id';
 import { composeDispatchLines } from './dispatchComposer';
 import { buildActionLinkIndex, lookupActionIds } from './dispatchLink';
 import type { RelationshipType } from '../core/RelationshipMatrix';
-import type { SimulationEvent } from '../prompts/types';
+import type { ActionOutcome, SimulationChatStart, SimulationEvent } from '../prompts/types';
 import type { MovementIntent } from '../utils/movement-orders';
 import type { PendingAction, OrderSettlementEntry } from './OrderExecutionService';
 import type { CommitmentResult } from './CommitmentService';
@@ -293,13 +293,25 @@ export class PlaybackService {
       // con sé lo stato aggiornato: il giocatore vede il pericolo al checkpoint.
       if (elapsedDays > 0) this.ctx.evaluateCrisis(elapsedDays);
 
-      const reactionChatEffects = this.ctx.diplomacy.openSimulationChats(this.ctx.reactionChatStarts([event], true), {
+      // Deliver invitations when their causal event commits, not at the end
+      // of the jump: intervening must preserve this contact, never future ones.
+      const eventKey = event.headline.trim().toLocaleLowerCase('it');
+      const explicitStarts = (state.completion.startChat || []).filter((start: SimulationChatStart) =>
+        start.eventHeadline?.trim().toLocaleLowerCase('it') === eventKey);
+      const playerActionLinked = (state.completion.actionOutcomes || []).some((outcome: ActionOutcome) =>
+        (outcome.status === 'accepted' || outcome.status === 'partial')
+        && !!outcome.actionId && state.batchActionIds.includes(outcome.actionId)
+        && outcome.eventHeadlines?.some(headline => headline.trim().toLocaleLowerCase('it') === eventKey));
+      const reactionChatEffects = this.ctx.diplomacy.openSimulationChats(
+        [...explicitStarts, ...this.ctx.reactionChatStarts([event], true)], {
         turn: state.jumpTurn,
         fallbackDate: eventDate,
         simulationId: runId,
         events: [event],
+        playerActionEventHeadlines: new Set(playerActionLinked ? [eventKey] : []),
         requireEventLink: true,
       });
+      this.ctx.recordCommitments({ startChat: reactionChatEffects.acceptedStarts });
       timelineEvents.push(...reactionChatEffects.timelineEvents);
       reactionChatBroadcasts.push(...reactionChatEffects.broadcasts);
 
@@ -543,8 +555,6 @@ export class PlaybackService {
     const persistedRelationshipChanges: {
       from: string; to: string; newRelationship: RelationshipType; reason: string;
     }[] = [];
-    const chatTimelineEvents: TimelineEventRecord[] = [];
-    const chatBroadcasts: Array<Record<string, unknown>> = [];
     // Variabili prodotte dentro la transazione e lette fuori (broadcast e
     // ritorno): la callback è sempre eseguita per intero o ha rilanciato.
     let narration!: string;
@@ -577,20 +587,13 @@ export class PlaybackService {
       }
       // F02 passo 2: la transazione è aperta prima dell’if destinationReached.
       relationshipRepository.upsertForGame(this.ctx.gameId, persistedRelationshipChanges);
-      const chatEffects = this.ctx.diplomacy.openSimulationChats(completion.startChat, {
-        turn: state.jumpTurn,
-        fallbackDate: finalDate,
-        simulationId: runId,
-        events: appliedRows,
-      });
+      // Event-linked channels and their commitments already committed at each
+      // checkpoint. Reopening them here would duplicate notes/archive replies.
       // GAMEPLAY-LONG: anche il percorso in pausa registra gli impegni del turno.
       this.ctx.recordCommitments({
-        startChat: completion.startChat,
         proposals: (completion as { commitments?: unknown }).commitments,
         updates: (completion as { commitmentUpdates?: unknown }).commitmentUpdates,
       });
-      chatTimelineEvents.push(...chatEffects.timelineEvents);
-      chatBroadcasts.push(...chatEffects.broadcasts);
     }
 
     // Anche nel playback scaglionato un movimento accettato deve avvenire: se
@@ -657,7 +660,6 @@ export class PlaybackService {
         source: 'diplomacy' as const,
         simulationId: runId,
       })),
-      ...chatTimelineEvents,
     ];
     const finalEvents = destinationReached
       ? [...voidedHeadlines, ...bulletins]
@@ -915,7 +917,6 @@ export class PlaybackService {
     // PLAYBACK-ATOMIC-OVER: a transazione riuscita il `game_over` differito esce
     // qui, una sola volta, dopo che l'epilogo è davvero persistito.
     endingGuard.flush();
-    for (const payload of chatBroadcasts) this.ctx.broadcast('chat_message', payload);
     this.ctx.broadcast('turn_complete', {
       turn: state.jumpTurn,
       narration,

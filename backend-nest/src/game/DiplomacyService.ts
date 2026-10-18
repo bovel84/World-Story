@@ -276,7 +276,7 @@ export class DiplomacyService {
       turn: number;
       fallbackDate: string;
       simulationId?: string;
-      events?: Array<{ headline: string; date: string; description?: string; reactions?: Array<{ actorId?: string; polityName?: string }> }>;
+      events?: Array<{ headline: string; date: string; description?: string; reactions?: Array<{ actorId?: string; polityName?: string; note?: string }> }>;
       requireEventLink?: boolean;
       /** Confirmed player-action outcomes linked to committed event headlines. */
       playerActionEventHeadlines?: ReadonlySet<string>;
@@ -306,6 +306,7 @@ export class DiplomacyService {
     );
     const opened = new Set<string>();
     const openedEvents = new Set<string>();
+    const deliveredActors = new Map<string, Set<string>>();
     const resolver = this.ctx.buildResolvers().polities;
 
     for (const start of starts || []) {
@@ -326,7 +327,16 @@ export class DiplomacyService {
         const playerMentioned = (playerName && source.includes(playerName))
           || source.includes(`[${playerId.toLocaleLowerCase('it')}]`);
         const playerActionLinked = options.playerActionEventHeadlines?.has(eventHeadline.toLocaleLowerCase('it')) ?? false;
-        if (!playerMentioned && !playerActionLinked) {
+        // `note` is the validated event's direct message to the player. Its
+        // recipient need not be repeated literally in the narrative ("voi").
+        // Only the internal reaction pathway may use this evidence, and the
+        // exact note and sender must belong to this committed event.
+        const initiator = resolver.resolve(start.polityName || start.participants?.[0] || '');
+        const linkedDirectNote = start.alreadyNarrated && !!initiator && !initiator.isNew
+          && linkedEvent.reactions?.some(reaction => reaction.note?.trim()
+            && reaction.note.trim() === start.topic.trim()
+            && resolver.resolve(reaction.actorId || reaction.polityName || '')?.polityId === initiator.polityId);
+        if (!playerMentioned && !playerActionLinked && !linkedDirectNote) {
           console.warn('[GameSession] startChat ignorata: il giocatore non è coinvolto nel dispaccio:', eventHeadline);
           continue;
         }
@@ -381,10 +391,18 @@ export class DiplomacyService {
         [...validPolityIds].sort().join('|'),
         eventKey,
       ].join('::');
-      // Al massimo un canale per evento: le conferenze vanno chieste
-      // come unica startChat con tutti i partecipanti pertinenti.
-      if (opened.has(duplicateKey) || (eventKey && openedEvents.has(eventKey))) continue;
-      opened.add(duplicateKey);
+      // One explicit conference per event; separate direct notes still reach
+      // their bilateral threads unless that actor is already in the conference.
+      const covered = deliveredActors.get(eventKey) || new Set<string>();
+      if (opened.has(duplicateKey)
+          || (!start.alreadyNarrated && eventKey && openedEvents.has(eventKey))
+          || (start.alreadyNarrated && validPolityIds.every(id => covered.has(id)))) continue;
+      const markDelivered = () => {
+        opened.add(duplicateKey);
+        validPolityIds.forEach(id => covered.add(id));
+        deliveredActors.set(eventKey, covered);
+        if (eventKey && !start.alreadyNarrated) openedEvents.add(eventKey);
+      };
 
       try {
         // A narrated NPC reaction should FEED the existing live negotiation
@@ -419,7 +437,7 @@ export class DiplomacyService {
           && message.content === topic
         );
         if (alreadyDelivered) {
-          if (eventKey) openedEvents.add(eventKey);
+          markDelivered();
           continue;
         }
         const firstMessage = chatRepository.addMessage(
@@ -473,7 +491,7 @@ export class DiplomacyService {
           message: firstMessage,
         });
         validPolityIds.forEach(id => participantPolityIds.add(id));
-        if (eventKey) openedEvents.add(eventKey);
+        markDelivered();
         acceptedStarts.push(start);
       } catch (error) {
         console.warn('[GameSession] startChat: impossibile aprire il canale diplomatico:', requestedNames, error);
@@ -663,6 +681,7 @@ export class DiplomacyService {
       history,
       playerMessage,
       mode,
+      subject: chat.subject,
     }) + '\n\n' + (respondingParticipant.diplomaticSituation ?? '')
       + '\n\n' + this.historicalContext(respondingParticipant.polityId, playerMessage);
 
@@ -715,13 +734,15 @@ export class DiplomacyService {
         role: 'polity',
       });
     }
+    const allRegions = Array.from(this.ctx.regions().values());
+    const accounts = WorldStateEngine.accounts(allRegions, this.ctx.worldStateOptions());
+    const playerMilitary = this.ctx.nationalEffectiveMilitaryPower(this.ctx.playerPolityId(), accounts);
     return polityParticipants.map(p => {
-      const owned = Array.from(this.ctx.regions().values()).filter(r => r.owner === p.id);
+      const owned = allRegions.filter(r => r.owner === p.id);
       const population = owned.reduce((sum, r) => sum + (r.population || 0), 0);
       const gdp = owned.reduce((sum, r) => sum + (r.gdp || 0), 0);
       const military = owned.reduce((sum, r) => sum + (r.militaryPower || 0), 0);
-      const ownedAccounts = WorldStateEngine.accounts(owned, this.ctx.worldStateOptions());
-      const effectiveMilitary = this.ctx.nationalEffectiveMilitaryPower(p.id, ownedAccounts);
+      const effectiveMilitary = this.ctx.nationalEffectiveMilitaryPower(p.id, accounts);
       const relationship = this.matrix().get(p.id, this.ctx.playerPolityId());
       const profile = strategicProfileForPolity(p.id);
       const hostileNeighbours = this.ctx.hostileNeighbourCount(p.id);
@@ -734,9 +755,11 @@ export class DiplomacyService {
         hostileActors: allRelations.filter(value => value === 'hostile').length,
         alliedActors: allRelations.filter(value => value === 'ally').length,
         militaryPower: effectiveMilitary,
-        playerMilitaryPower: this.ctx.nationalEffectiveMilitaryPower(this.ctx.playerPolityId(), ownedAccounts),
-        monthlyBalance: ownedAccounts[p.id]?.monthlyBalance,
-        stability: ownedAccounts[p.id]?.stability,
+        playerMilitaryPower: playerMilitary,
+        monthlyBalance: accounts[p.id]?.monthlyBalance,
+        stability: accounts[p.id]?.stability,
+        socialTension: accounts[p.id]?.socialTension,
+        warEffort: accounts[p.id]?.warEffort,
       });
       const memory = this.ctx.recentStrategicMemory(p.id, 2);
       // WS-JEV-W5 — La memoria diplomatica entra nel briefing del colloquio:

@@ -2256,7 +2256,10 @@ export class GameSession {
       nationalEffectiveMilitaryPower: (polityId, accounts) => this.nationalEffectiveMilitaryPower(polityId, accounts),
       hostileNeighbourCount: polityId => this.hostileNeighbourCount(polityId),
       recentStrategicMemory: (polityId, limit) => this.recentStrategicMemory(polityId, limit),
-      strategicAgenda: polityId => this.npcAgenda.describe(polityId),
+      strategicAgenda: polityId => {
+        this.refreshNpcAgenda();
+        return this.npcAgenda.describe(polityId);
+      },
       commitmentsForPolity: polityId => this.commitments.describeForPolity(polityId),
       historicalBaselinesCached: (playerPolityId, polityId) => this.persistedPolityHistoricalBaselines([playerPolityId, polityId]),
     });

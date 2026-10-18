@@ -555,9 +555,9 @@ export class TurnPipelineService {
       // diplomatic inbox. Reuse the existing deterministic reaction pathway
       // (already used by paused playback); this makes no extra LLM request.
       const chatTimelineEvents: TimelineEventRecord[] = [];
-      const explicitChatStarts: SimulationChatStart[] = applyCompletionEffects || (autoJump && !intervened)
-        ? promptResult.startChat || []
-        : [];
+      // A contact belongs to its committed event even if the player interrupts
+      // the jump; the applied-event filter below excludes all future contacts.
+      const explicitChatStarts: SimulationChatStart[] = promptResult.startChat || [];
       const reactionStarts: SimulationChatStart[] = this.ctx.reactionChatStarts(appliedEvents, true);
       const acceptedHeadlines = new Set(appliedEvents.map(event => event.headline.trim().toLocaleLowerCase('it')));
       // Only *accepted player orders* can establish player involvement when the

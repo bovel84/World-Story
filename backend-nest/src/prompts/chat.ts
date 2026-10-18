@@ -31,6 +31,7 @@ export interface ChatPromptVars {
   history: ChatHistoryItem[];
   playerMessage: string;
   mode: 'reply' | 'auto' | 'reaction';
+  subject?: string | null;
 }
 
 export interface NextSpeakerPromptVars {
@@ -121,6 +122,12 @@ export function buildChatPrompt(vars: ChatPromptVars): string {
       ? `${vars.playerPolityName} non ha scritto in chat: ${speaker.name} prende formalmente posizione — nota ufficiale, protesta, apprezzamento, richiesta o avvertimento — reagendo agli ordini e agli eventi descritti qui sopra.`
       : 'Il giocatore non interviene: continua in modo naturale il confronto con le altre nazioni.';
   const presentNames = vars.participants.map(p => p.name).join(', ');
+  // Keep the speaker's opening position even when it leaves the recent tail.
+  const opening = vars.history.find(item => item.role === speaker.name);
+  const mandate = [
+    vars.subject ? `Oggetto: ${compact(vars.subject, 180)}` : '',
+    opening ? `Posizione iniziale di ${speaker.name}: ${compact(opening.content, 700)}` : '',
+  ].filter(Boolean).join('\n');
 
   return `Stai simulando una diplomazia a turni. Interpreta esclusivamente ${speaker.name}, in prima persona plurale, come governo o leadership della nazione.
 
@@ -152,6 +159,10 @@ ${events}
 
 [Mappa e rapporti di forza attuali]
 ${compact(vars.mapContext, 5_000)}
+
+[Obiettivo della trattativa]
+${mandate || 'Definisci una richiesta concreta coerente con gli interessi attuali.'}
+Per decidere, usa prima obiettivi del preset, agenda in corso e impegni registrati; il carattere generale guida il tono, non li sostituisce. Porta avanti un obiettivo pertinente e valuta se l'offerta lo avvicina. Conserva le condizioni già poste, salvo concessioni o fatti nuovi documentati nella cronaca; in quel caso spiega il cambiamento. La posizione iniziale non annulla gli accordi successivi.
 
 [Cronaca della trattativa]
 ${renderHistory(vars.history, vars.playerPolityName)}

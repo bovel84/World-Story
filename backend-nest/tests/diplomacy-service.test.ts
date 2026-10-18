@@ -230,7 +230,77 @@ describe('DiplomacyService — canali', () => {
   });
 });
 
+describe('DiplomacyService — contatti causali', () => {
+  it('una nota diretta validata non richiede il nome del destinatario ripetuto nel titolo', () => {
+    const d = makeService();
+    const result = d.openSimulationChats([
+      { polityName: 'FRA', topic: 'Chiediamo garanzie verificabili.', eventHeadline: 'Nota di Parigi', alreadyNarrated: true },
+    ], { turn: 20, fallbackDate: '1952-01-01', requireEventLink: true, events: [{
+      headline: 'Nota di Parigi', date: '1952-01-01', description: 'Parigi prende posizione.',
+      reactions: [{ actorId: 'FRA', note: 'Chiediamo garanzie verificabili.' }],
+    }] });
+    expect(result.broadcasts).toHaveLength(1);
+    const rejected = d.openSimulationChats([
+      { polityName: 'FRA', topic: 'Messaggio non presente nell’evento.', eventHeadline: 'Nota di Parigi', alreadyNarrated: true },
+    ], { turn: 21, fallbackDate: '1952-01-01', requireEventLink: true, events: [{
+      headline: 'Nota di Parigi', date: '1952-01-01', description: 'Parigi prende posizione.',
+      reactions: [{ actorId: 'FRA', note: 'Chiediamo garanzie verificabili.' }],
+    }] });
+    expect(rejected.broadcasts).toHaveLength(0);
+  });
+
+  it('consegna le note di tutte le controparti senza duplicare quelle di una conferenza', () => {
+    const extra = { id: 'r-pol', name: 'Polonia', owner: 'POL', population: 100, gdp: 10, militaryPower: 20 };
+    const localRegions = [...regions.values(), extra];
+    const d = makeService({
+      regions: () => new Map(localRegions.map(r => [r.id, r])),
+      buildResolvers: () => ({ polities: new PolityResolver(localRegions, PLAYER) }),
+    });
+    const notes = ['FRA', 'POL'].map(id => ({ polityName: id, topic: `Nota ${id}`,
+      eventHeadline: 'Consultazione', alreadyNarrated: true }));
+    const options = { turn: 22, fallbackDate: '1952-02-01', requireEventLink: true,
+      events: [{ headline: 'Consultazione', date: '1952-02-01', description: 'Il Giocatore consulta Francia e Polonia.' }] };
+    const separate = d.openSimulationChats(notes, options);
+    expect(separate.broadcasts).toHaveLength(2);
+    expect(d.openSimulationChats(notes, options).broadcasts).toHaveLength(0);
+    const conference = d.openSimulationChats([
+      { participants: ['FRA', 'POL'], topic: 'Apriamo la conferenza.', eventHeadline: 'Consultazione', kind: 'conference' },
+      ...notes,
+    ], { ...options, turn: 23 });
+    expect(conference.broadcasts).toHaveLength(1);
+  });
+});
+
 describe('DiplomacyService — conversazione LLM', () => {
+  it('mantiene l’obiettivo iniziale e valuta entrambi i paesi nella stessa fotografia', async () => {
+    const { chatRepository } = await import('../src/repositories');
+    let prompt = '';
+    let playerAccountSeen = false;
+    const allRegions = new Map(regions);
+    allRegions.set('r-player', { id: 'r-player', name: 'Giocatore', owner: PLAYER, population: 80_000_000, gdp: 600, militaryPower: 800 });
+    const d = makeService({
+      regions: () => allRegions,
+      strategicAgenda: () => 'Proteggere il corridoio commerciale concordato.',
+      commitmentsForPolity: () => 'Accesso civile garantito, nessun transito militare.',
+      nationalEffectiveMilitaryPower: (id, accounts) => {
+        if (id === PLAYER) playerAccountSeen = !!accounts?.[PLAYER] && !!accounts?.FRA;
+        return id === PLAYER ? 800 : 120;
+      },
+      llm: { generate: async (_mechanic: string, _system: string, user: string) => {
+        prompt = user; return { content: '{"message":"Il transito resta civile."}' };
+      } } as any,
+    });
+    const chat = d.ensureChat(['Francia'], { subject: 'Accesso al corridoio', dedupeKey: 'mandate' });
+    chatRepository.addMessage(chat.id, 'polity', 'Vogliamo accesso civile senza truppe straniere.', 1, 'Francia', '1951-01-01');
+    for (let i = 0; i < 18; i++) chatRepository.addMessage(chat.id, 'player', `Dettaglio ${i}`, 1, 'Giocatore', '1951-01-01');
+    await d.sendChatMessage(chat.id, 'Confermate le condizioni?');
+    expect(playerAccountSeen).toBe(true);
+    expect(prompt).toContain('Proteggere il corridoio commerciale concordato');
+    expect(prompt).toContain('nessun transito militare');
+    expect(prompt).toContain('Posizione iniziale di Francia: Vogliamo accesso civile senza truppe straniere.');
+    expect(prompt).toContain('Oggetto: Accesso al corridoio');
+  });
+
   it('sendChatMessage salva messaggio e replica, e broadcasta', () => {
     const events: Array<{ type: string; data: any }> = [];
     const d = makeService({ broadcast: (type, data) => { events.push({ type, data }); return true; } });
