@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { publicNarrativeText } from '../../services/publicNarrative';
 import { classifyDispatch } from './dispatchCategory';
+import { compactEventText } from './compactEventText';
 
 export interface FeedItem {
   id: string;
@@ -155,7 +156,7 @@ In attesa del prossimo dispaccio. Invia un ordine per registrare le sue consegue
                 <span className="feed-item-date">{formatFeedDate(item.date)}</span>
                 <span className="feed-item-text">
                   <span className={`feed-item-badge cat-${category.key}`}>{category.label}</span>
-                  {publicHeadline}
+                  {compactEventText(publicHeadline, 105).text}
                 </span>
                 {unread && <span className="feed-item-new" title="Da leggere">NUOVO</span>}
               </button>
