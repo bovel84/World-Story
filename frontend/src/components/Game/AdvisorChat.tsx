@@ -139,10 +139,17 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
       .map(message => ({ role: message.role, content: message.content }));
     // The opening is genuine advisor history, not an invented request. The
     // model needs its titles to avoid restating the same political decisions.
-    if (requestingMore && opening) history.unshift({ role: 'assistant', content: [opening.reply,
-      ...(opening.situations ?? []).map(situation => `Situazione già proposta: ${situation.title}`),
-      ...opening.issues.map(issue => `Questione già proposta: ${issue.title}`),
-    ].join('\n').slice(0, 2400) });
+    if (requestingMore) {
+      const previousTitles = [
+        ...(opening?.situations ?? []).map(situation => situation.title),
+        ...(opening?.issues ?? []).map(issue => issue.title),
+        ...activeMessages.flatMap(message => [...(message.situations ?? []).map(item => item.title), ...(message.issues ?? []).map(item => item.title)]),
+      ];
+      const distinctTitles = [...new Set(previousTitles)].slice(-30);
+      if (distinctTitles.length) history.unshift({
+        role: 'assistant', content: `Questioni già proposte in questo turno, da NON duplicare:\n${distinctTitles.join('\n')}`.slice(0, 2400),
+      });
+    }
     // WS-CONSULENTE-SITUAZIONI — Focus canonico: al server vanno TUTTI i
     // riferimenti (signalKeys + evidenceKeys), mai titolo o sintesi.
     const activeSituation = requestingMore ? undefined : explicitIssue ? undefined : explicitSituation ?? situationFocus;
