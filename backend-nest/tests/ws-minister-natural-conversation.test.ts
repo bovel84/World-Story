@@ -28,7 +28,7 @@ describe('WS-MINISTER-NATURAL-CONVERSATION — view e continuità', () => {
       expect(prompt).toContain('NON RIPETERE ciò che hai appena detto');
       expect(prompt).toContain('50');
       expect(prompt).toContain(message);
-      expect(prompt).toContain('30–80');
+      expect(prompt).toContain('650 caratteri');
       expect(prompt.match(/\[DIALOGUE STYLE\]/g)).toHaveLength(1);
       expect(prompt.match(/\[PROTOCOL\]/g)).toHaveLength(1);
       const withMemory = composeMinisterDialoguePrompt({ ...dialogue, memory: { context: 'MEMORY_SENTINEL' } });

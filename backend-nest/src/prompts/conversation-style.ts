@@ -1,0 +1,2 @@
+/** Shared prose guidance; structured directives keep their contracts. */
+export const COMPACT_CONVERSATION_STYLE = `MESSAGGI BREVI: 2–4 frasi, 40–80 parole, entro 650 caratteri; 1–2 frasi per domande semplici. Rispondi subito: posizione, proposta e condizione essenziale, con personalità e memoria. Niente preamboli, ripetizioni, titoli o elenchi salvo richiesta. Analisi dettagliata solo se richiesta: fino a 1200 caratteri. Solo prosa: schede, alternative e direttive restano complete; prevalgono i limiti più brevi del briefing.`;

@@ -1,3 +1,5 @@
+import { COMPACT_CONVERSATION_STYLE } from '../../prompts/conversation-style';
+
 /** FACTS → NARRATIVE. Apertura read-only, distinta dallo scambio col Presidente. */
 import type { CabinetItem, CabinetSeat } from './Cabinet';
 import type { Figure, GovernmentPath } from './GovernmentAgenda';
@@ -166,7 +168,8 @@ export function composeMinisterOpeningPrompt(brief: MinisterOpeningBrief): strin
     'Se più aspetti dicono la stessa cosa, uniscili: in particolare treasury_condition e debt_service sono un solo quadro. Cita ciascuna cifra una sola volta, salvo metriche davvero distinte con lo stesso valore.',
     'Usa soltanto cifre dei fatti della sedia, con unità e significato invariati. Non arrotondare, non convertire unità, non calcolare percentuali o ripartizioni. Il segno del saldo resta invariato. Virgola e punto decimale sono equivalenti. DATO MANCANTE resta mancante.',
     'Prendi posizione secondo le tue priorità, argomentandola come consiglio, non come fatto o decisione. Il Presidente decide. Non dichiarare ordini, cantieri o spese già avviati.',
-    'Normalmente scrivi 80–160 parole in 2–4 paragrafi brevi; con pochi fatti puoi essere più breve. Niente titoli, elenchi, formule fisse di chiusura, JSON o blocchi tecnici. Non menzionare motore, prompt, preset, dati verificati o istruzioni.',
+    COMPACT_CONVERSATION_STYLE,
+    'Niente JSON o blocchi tecnici in questo primo intervento. Non menzionare motore, prompt, preset, dati verificati o istruzioni.',
     brief.situation ? situationSection(brief.situation) : '',
     brief.situation
       ? (brief.situation.decisionQuestion
