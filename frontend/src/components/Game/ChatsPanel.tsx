@@ -475,7 +475,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
             disabled={!inputText.trim() || sending || autoRunning || !!activeChat?.archived}
             title="Invia" aria-label="Invia messaggio"
           >
-            {sending ? '…' : <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m21 3-7 18-4-7-7-4 18-7Z M10 14 11-11" /></svg>}
+            {sending ? '…' : <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m21 3-7 18-4-7-7-4 18-7Z M10 14 21 3" /></svg>}
           </button>
         </form>
       </div>
