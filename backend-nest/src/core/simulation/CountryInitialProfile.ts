@@ -623,6 +623,9 @@ function militaryResourcesPrompt(input: CountryProfileInput, fallback: CountryIn
       'activePersonnel ≤ maxActivePersonnel e activePersonnel + reservePersonnel ≤ maxTotalPersonnel.',
       'Se activePersonnel > 0 serve almeno una formazione; activePersonnel / formations resta entro limiti plausibili.',
       'readinessPct, trainingPct, qualityPct, logisticsPct sono 0-100; defenceBurdenPct è 0-30.',
+      'Non confondere apparati di sicurezza, forze di polizia, esercito regolare e milizie autonome: conta solo il personale attribuibile allo Stato alla data indicata. Le formazioni non sono automaticamente divisioni convenzionali.',
+      ...(input.polityId === 'PSE' && Number(input.startDate.slice(0, 4)) >= 1994 && Number(input.startDate.slice(0, 4)) <= 2000
+        ? ['Per l’Autorità Palestinese negli anni 1994–2000 descrivi le unità di polizia e sicurezza riconosciute come apparato statale, non come esercito convenzionale. Non includere le milizie indipendenti negli effettivi regolari o negli arsenali ufficiali. Se manca una dotazione comprovata, stima con prudenza e non inventare carri, artiglieria, aviazione o marina.'] : []),
     ],
     availableTechnologies: availableTechnologiesAt(input.startDate).map(({ id, name }) => `${id} (${name})`),
     schema: { military: { activePersonnel: 'intero', reservePersonnel: 'intero', formations: 'intero', readinessPct: '0-100', defenceBurdenPct: '0-30', trainingPct: '0-100', qualityPct: '0-100', logisticsPct: '0-100', equipmentProfile: 'id (allowedEquipmentIds) -> intero' }, resources: { food: 'number?', clothing: 'number?', weapons: 'number?', fuel: 'number?', research: 'number?', technologies: 'string[]?' } },
