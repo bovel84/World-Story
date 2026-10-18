@@ -694,7 +694,7 @@ export class DiplomacyService {
       'chat',
       `Interpreta ${speakerName} in una trattativa storica: voce del suo governo in prima persona plurale, mai un elenco di fatti. Rispondi in italiano e SOLO con JSON {"message"}.`,
       prompt,
-      { temperature: 0.7 },
+      { temperature: 0.7, maxTokens: 450 },
     );
     const parsed = parseChatResponse(response.content);
     // F04 passo 3: verifica del fence PRIMA della scrittura — una risposta
