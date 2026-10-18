@@ -121,7 +121,7 @@ describe('Этап 3: живой Советник', () => {
     expect(capturedAdvisorPrompt).toContain('dialogo IN CORSO');
     expect(capturedAdvisorPrompt).toContain('non salutare');
     // Лимит длины ответа сохранён
-    expect(capturedAdvisorPrompt).toContain('1000 caratteri');
+    expect(capturedAdvisorPrompt).toContain('650 caratteri');
     expect(capturedAdvisorPrompt).toContain('il limite riguarda SOLO la prosa');
   });
 
