@@ -439,7 +439,7 @@ export class DiplomacyService {
         const alreadyDelivered = chatRepository.getMessages(chat.id).some(message =>
           message.role === 'polity' && message.turn === options.turn
           && message.gameDate === gameDate && message.senderName === sender.name
-          && message.content === opening
+          && (message.content === opening || message.content === topic)
         );
         if (alreadyDelivered) {
           markDelivered();
