@@ -23,7 +23,7 @@ import { simulationThreadKey, reactionThreadKey } from '../core/chat/threads';
 import { WorldStateEngine, type NationalAccount } from '../core/simulation/WorldStateEngine';
 import { currentStrategicPriorities, strategicProfileForPolity } from '../npc-agents';
 import { difficultyPromptBlock, type Difficulty } from '../prompts/difficulty';
-import { buildChatPrompt, buildNextSpeakerPrompt, parseChatResponse, parseNextSpeakerResponse, diplomaticEventContext } from '../prompts/chat';
+import { buildChatPrompt, buildNextSpeakerPrompt, parseChatResponse, parseNextSpeakerResponse, diplomaticEventContext, diplomaticOpeningText } from '../prompts/chat';
 import type { LLMRouter } from '../llm/router';
 import type { SSEEventType } from '../sse';
 import type { ChatRecord, ChatSummary, ChatMessageRecord, ChatParticipant } from '../repositories';
@@ -428,20 +428,25 @@ export class DiplomacyService {
           || chat.participants.find(p => p.role === 'polity');
         if (!sender) continue;
         const gameDate = linkedEvent?.date || options.fallbackDate;
-        const topic = this.ctx.publicText(start.topic) || 'Desideriamo discutere gli ultimi sviluppi.';
+        const topic = this.ctx.publicText(start.topic) || 'Consultazione diplomatica';
+        // A direct note already quoted in the event must stay byte-identical;
+        // explicit invitations instead use the model's own spoken opening.
+        const opening = start.alreadyNarrated
+          ? topic
+          : diplomaticOpeningText(topic, this.ctx.publicText(start.message));
         // Replayed SSE/checkpoints must not deliver the same dispatch twice
         // even when the reaction appended to a pre-existing bilateral thread.
         const alreadyDelivered = chatRepository.getMessages(chat.id).some(message =>
           message.role === 'polity' && message.turn === options.turn
           && message.gameDate === gameDate && message.senderName === sender.name
-          && message.content === topic
+          && message.content === opening
         );
         if (alreadyDelivered) {
           markDelivered();
           continue;
         }
         const firstMessage = chatRepository.addMessage(
-          chat.id, 'polity', topic, options.turn, sender.name, gameDate,
+          chat.id, 'polity', opening, options.turn, sender.name, gameDate,
         );
         const group = validPolityIds.length > 1;
         const openingByKind: Record<string, string> = {
