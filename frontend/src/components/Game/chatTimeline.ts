@@ -54,14 +54,14 @@ export function participantSetKey(participants?: { id: string; role?: string }[]
 }
 
 /**
- * Una nuova discussione con gli stessi interlocutori rende obsoleta la
+ * Una nuova discussione sullo stesso argomento con gli stessi interlocutori sostituisce la
  * precedente: quando arriva un messaggio su `chatId`, le altre chat attive con
- * gli stessi partecipanti vengono marcate come archiviate nella UI. La stessa
+ * gli stessi partecipanti e oggetto vengono marcate come archiviate nella UI. La stessa
  * regola è applicata dal backend, qui serve a non mostrare due discussioni
  * attive in contemporanea nell'attesa del refresh.
  */
 export function archiveSiblingThreads<
-  T extends { id: string; participants?: { id: string; role?: string }[]; archived?: boolean },
+  T extends { id: string; participants?: { id: string; role?: string }[]; archived?: boolean; subject?: string | null },
 >(chats: T[], chatId: string): T[] {
   const incoming = chats.find(chat => chat.id === chatId);
   if (!incoming) return chats;
@@ -69,6 +69,7 @@ export function archiveSiblingThreads<
   if (!key) return chats;
   return chats.map(chat => (
     chat.id !== chatId && !chat.archived && participantSetKey(chat.participants) === key
+      && (chat.subject || '').trim() === (incoming.subject || '').trim()
       ? { ...chat, archived: true }
       : chat
   ));
@@ -163,4 +164,14 @@ export function compareChatMessages(a: ChatOrderFields, b: ChatOrderFields): num
 export function lastChatMessage<T extends ChatOrderFields>(messages: readonly T[] | null | undefined): T | null {
   const ordered = orderChatMessages(messages);
   return ordered.length > 0 ? ordered[ordered.length - 1] : null;
+}
+
+/** Date headings in the inbox use only the simulation calendar. */
+export function groupChatsByGameDate<T extends { lastMessageGameDate?: string; lastMessageAt?: string; createdAt?: string }>(chats: T[]): { date: string; chats: T[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const chat of orderChatsByLatest(chats)) {
+    const date = isoDay(chat.lastMessageGameDate);
+    groups.set(date, [...(groups.get(date) || []), chat]);
+  }
+  return [...groups].sort(([a], [b]) => b.localeCompare(a)).map(([date, items]) => ({ date, chats: items }));
 }

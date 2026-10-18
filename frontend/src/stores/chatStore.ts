@@ -92,6 +92,7 @@ interface ChatState {
     polityId: string;
     polityName: string;
     participants?: ChatSummary['participants'];
+    subject?: string | null;
     message: ChatMessage;
   }) => void;
   addAdvisorMessage: (msg: AdvisorMessage) => void;
@@ -258,6 +259,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         participants: payload.participants,
         unread: 0,
       }),
+      subject: payload.subject ?? known?.subject,
       lastMessage: latest.content,
       lastMessageAt: latest.createdAt || known?.lastMessageAt || new Date().toISOString(),
       lastMessageGameDate: latest.gameDate || known?.lastMessageGameDate,

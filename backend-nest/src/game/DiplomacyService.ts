@@ -187,7 +187,7 @@ export class DiplomacyService {
    * risolti via PolityResolver; nome giocatore/neutral/inesistenti → errore.
    *
    * Ogni discussione è una chat distinta: con gli stessi interlocutori le
-   * precedenti vanno in archivio. Per non moltiplicare i canali si riapre
+   * precedenti sullo stesso argomento vanno in archivio. Per non moltiplicare i canali si riapre
    * soltanto una bozza ancora vuota; `dedupeKey` rende idempotenti i
    * ritentativi dello stesso evento o turno.
    */
@@ -242,12 +242,12 @@ export class DiplomacyService {
     // Bozza ancora vuota: riaprila invece di crearne una nuova. La simulazione
     // crea sempre una discussione propria e non scrive nella bozza del giocatore.
     if (options.origin !== 'simulation') {
-      const draft = chatRepository.getEmptyChatByParticipants(this.ctx.gameId, participantIds);
+      const draft = chatRepository.getEmptyChatByParticipants(this.ctx.gameId, participantIds, options.subject);
       if (draft) return draft;
     }
 
-    // Nuova discussione: le precedenti con gli stessi interlocutori vanno in archivio.
-    chatRepository.archiveChatsForParticipants(this.ctx.gameId, participantIds);
+    // Only replace the same topic: trade and security talks can coexist with the same nations.
+    chatRepository.archiveChatsForParticipants(this.ctx.gameId, participantIds, undefined, options.subject);
 
     const primary = interlocutors[0];
     const displayName = interlocutors.length > 1
@@ -490,6 +490,7 @@ export class DiplomacyService {
           polityId: chat.polityId,
           polityName: chat.polityName,
           participants: chat.participants,
+          subject: chat.subject,
           senderName: sender.name,
           meetingKind: kind,
           eventHeadline: eventHeadline || undefined,
@@ -643,11 +644,15 @@ export class DiplomacyService {
 
     const participantsVars = this.chatParticipantVarsFor(chat);
 
-    let speakerName = participantsVars[0].name;
-    if (participantsVars.length > 1) {
+    const lastSpeaker = history[history.length - 1]?.role;
+    const candidates = mode === 'auto' && participantsVars.length > 1
+      ? participantsVars.filter(p => p.name !== lastSpeaker)
+      : participantsVars;
+    let speakerName = candidates[0].name;
+    if (candidates.length > 1) {
       const nextSpeakerPrompt = buildNextSpeakerPrompt({
         playerPolityName: this.ctx.publicPolityName(this.ctx.playerPolityId()),
-        participantNames: participantsVars.map(p => p.name),
+        participantNames: candidates.map(p => p.name),
         history,
         playerMessage,
         mode: mode === 'reaction' ? 'auto' : mode,
@@ -661,7 +666,7 @@ export class DiplomacyService {
         );
         speakerName = parseNextSpeakerResponse(
           selection.content,
-          participantsVars.map(p => p.name),
+          candidates.map(p => p.name),
           speakerName,
         );
       } catch (error) {
@@ -715,6 +720,7 @@ export class DiplomacyService {
       polityId: chat.polityId,
       polityName: chat.polityName,
       participants: chat.participants,
+      subject: chat.subject,
       senderName: speakerName,
       message: reply,
     });
@@ -846,6 +852,7 @@ export class DiplomacyService {
         polityId: chat.polityId,
         polityName: chat.polityName,
         participants: chat.participants,
+        subject: chat.subject,
         senderName: sender,
         message: reply,
         reaction: true,
@@ -949,6 +956,7 @@ export class DiplomacyService {
           polityId: chat.polityId,
           polityName: chat.polityName,
           participants: chat.participants,
+          subject: chat.subject,
           senderName: sender,
           message: reply,
           reaction: true,

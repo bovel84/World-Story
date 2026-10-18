@@ -81,7 +81,7 @@ export function diplomaticEventContext(input: {
 function renderHistory(history: ChatHistoryItem[], playerPolityName: string): string {
   if (history.length === 0) return '(La trattativa sta iniziando)';
   return history.slice(-12)
-    .map(m => `${m.role === 'player' ? `${playerPolityName} (voce ufficiale)` : m.role}: ${compact(m.content, 480)}`)
+    .map((m, index, tail) => `${m.role === 'player' ? `${playerPolityName} (voce ufficiale)` : m.role}: ${compact(m.content, index >= tail.length - 4 ? 1_200 : 480)}`)
     .join('\n');
 }
 
@@ -137,7 +137,11 @@ export function buildChatPrompt(vars: ChatPromptVars): string {
     ? `Rispondi direttamente all’ultimo messaggio di ${vars.playerPolityName}.`
     : vars.mode === 'reaction'
       ? `${vars.playerPolityName} non ha scritto in chat: ${speaker.name} prende formalmente posizione — nota ufficiale, protesta, apprezzamento, richiesta o avvertimento — reagendo agli ordini e agli eventi descritti qui sopra.`
-      : 'Il giocatore non interviene: continua in modo naturale il confronto con le altre nazioni.';
+      : vars.history.length === 0
+        ? 'Apri la trattativa sul suo oggetto: proponi un passo concreto ai governi presenti, senza inventare loro risposte o accordi precedenti.'
+        : vars.participants.length === 1 || vars.history[vars.history.length - 1].role === 'player'
+          ? `Riprendi il punto aperto con ${vars.playerPolityName}, senza inventare una sua risposta. Non rispondere a te stesso: aggiungi un chiarimento o una proposta utile, senza ripetere l'ultima nota.`
+          : 'Il giocatore non interviene: rispondi alla delegazione che ha appena parlato, chiamandola per nome. Riprendi una sua proposta o obiezione concreta e aggiungi il contributo del tuo governo; non ricominciare un colloquio separato con il Presidente.';
   const presentNames = vars.participants.map(p => p.name).join(', ');
   // Keep the speaker's opening position even when it leaves the recent tail.
   const opening = vars.history.find(item => item.role === speaker.name);
@@ -150,7 +154,7 @@ export function buildChatPrompt(vars: ChatPromptVars): string {
 
 [Identità dell'interlocutore umano]
 - Chi scrive come «${vars.playerPolityName} (voce ufficiale)» è il governo di ${vars.playerPolityName} in persona: i suoi messaggi sono dichiarazioni ufficiali di quella nazione, non commenti di uno spettatore.
-- Rivolgiti sempre a ${vars.playerPolityName} come soggetto politico reale — per nome, al governo, al capo di Stato o ai ministri — e rispondi come faresti con un omologo. MAI le parole «giocatore», «utente» o «umano», mai toni da assistente o da narratore: parli nazione con nazione.
+- Quando ti rivolgi a ${vars.playerPolityName}, trattalo come soggetto politico reale — per nome, al governo, al capo di Stato o ai ministri — e rispondi come faresti con un omologo. MAI le parole «giocatore», «utente» o «umano», mai toni da assistente o da narratore: parli nazione con nazione.
 - Tratta le dichiarazioni di ${vars.playerPolityName} come atti impegnativi del suo governo (proposte, ultimatum, garanzie), da valutare sul merito con gli strumenti reali di ${speaker.name}.
 
 [Chi sei — retroterra, non copione]
@@ -188,6 +192,8 @@ ${latest}
 ${modeRule}
 
 [Come parli — la voce di una nazione]
+- In una riunione multilaterale le nazioni si rispondono anche tra loro: puoi sostenere una proposta altrui precisando il tuo contributo, chiedere una modifica, offrire mediazione o motivare un dissenso. Non rendere ogni intervento un ultimatum né un'altra domanda al Presidente. Evita la semplice eco dell'ultimo discorso.
+- Dai concretezza con luoghi, interlocutori, modalità e tempi coerenti con il contesto: un vertice proposto ha una sede e un ordine del giorno, un corridoio ha un percorso e condizioni d'accesso. Presentali come proposte finché non risultano attuati; non inventare forze o risorse già disponibili.
 - Ogni messaggio nasce dalle ultime parole della controparte e porta UNA posizione dominante — una richiesta, una risposta, un giudizio, un avvertimento — non il riepilogo della tua situazione: tutto il resto resta dietro le quinte.
 - Non enumerare mai il tuo retroterra come voci di un elenco. Forme VIETATE: «le nostre priorità sono…», «le nostre linee rosse includono…», «la nostra agenda prevede…», «dai nostri dati risulta…», «la nostra memoria recente…», «i nostri impegni in vigore…». Interessi, limiti, memoria e forza si lasciano intuire da ciò che chiedi, accetti o rifiuti: mai citati come categorie a parte.
 - Non fare la rassegna stampa della cronaca: citi solo il fatto che serve alla tua posizione, come farebbe una cancelleria («dopo quanto avvenuto a…»), mai l’elenco degli eventi recenti.
@@ -208,7 +214,7 @@ ${modeRule}
 ✗ da evitare: «Le nostre priorità includono la sicurezza dei confini e lo sviluppo commerciale. Le nostre linee rosse riguardano il transito militare. Proponiamo un patto di non aggressione e chiediamo garanzie sul rispetto dei confini.»
 ✓ da imitare: «I vostri reggimenti ammassati alla frontiera non sono un dettaglio che ci sfugge. Se iniziano il ritiro entro la fine del mese, siamo pronti a riaprire i valichi commerciali da subito; in caso contrario questa trattativa si chiude qui, e le conseguenze ricadranno sul vostro governo.»
 
-Scrivi in italiano, in prima persona plurale: 2–4 frasi incisive (idealmente 350–700 caratteri, massimo 850), una posizione e una conseguenza negoziale specifica. Niente monologhi o preamboli: la risposta deve invitare una decisione effettiva del Presidente.
+Scrivi in italiano, in prima persona plurale: 2–4 frasi incisive (idealmente 350–700 caratteri, massimo 850), una posizione e una conseguenza negoziale specifica. Niente monologhi o preamboli: la risposta deve far avanzare il punto aperto, anche rispondendo a un altro governo. Puoi dividere il testo in due brevi paragrafi.
 
 Rispondi SOLO con un oggetto JSON valido, senza markdown o testo attorno:
 {"message":"<replica diplomatica di ${speaker.name}>"}`;
