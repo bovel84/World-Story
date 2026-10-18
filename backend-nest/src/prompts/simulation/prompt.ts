@@ -233,7 +233,7 @@ Ogni avanzamento temporale simula l'intero mondo, non soltanto la politia del gi
 ${buildNpcAgencyGuard(vars)}
 ${buildDomesticReactionGuard(vars)}
 
-*Qualità dei dispacci.* Ogni evento è un breve articolo verificabile, non un titolo generico.
+*Qualità dei dispacci.* Ogni evento è un dispaccio essenziale e verificabile, non un titolo generico.
 - Titolo: ${EVENT_HEADLINE_GUIDE}, con luogo/oggetto concreto se documentato. Per un ordine del giocatore, usa il nome della sua politia o della controparte coinvolta. Mai “Tensioni crescono”, “Nuova crisi”, “Bollettino”, “Evento”, una cifra di bilancio o formule vaghe.
 - Corpo: ${EVENT_DESCRIPTION_GUIDE}. Chiarisci perché questa notizia conta nel contesto della partita, non limitarti a registrare l'esito dell'ordine.
 - Usa cifre solo se presenti nello stato o proporzionate e necessarie; non inventare presidenti, ministri o dati statistici non forniti. Distingui chiaramente proposta, misura avviata e risultato ottenuto.
@@ -266,7 +266,7 @@ Nel gioco esiste una mappa dinamica. Curalo con attenzione i trasferimenti di re
 *Regole di output importanti:*
 - Ogni evento ha un titolo, una descrizione ed eventualmente modifiche alla mappa
 - Il titolo è una frase singola
-- La descrizione contiene dettagli di qualità
+- La descrizione dice il fatto e una conseguenza concreta, senza prolissità
 - Il numero di eventi emerge dalle cause storiche documentate e dall'intervallo simulato, senza quote o tetti numerici per turno. Nei salti lunghi copri i diversi sviluppi in ordine cronologico; termina prima che l'output tecnico si esaurisca, riservando spazio alla riga complete
 - Citazioni per il quaderno (notebook): 0-3 eventi
 - NON creare eventi-fantoccio: "Niente è accaduto", "Inizio dell'anno", "Fine dell'anno", "Bilancio dell'anno". Costruisci una cronaca: ogni evento è significativo
