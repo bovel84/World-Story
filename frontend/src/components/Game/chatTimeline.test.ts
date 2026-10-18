@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  groupChatsByGameDate,
   formatChatStamp,
   formatGameDate,
   orderChatsByLatest,
@@ -61,6 +62,26 @@ describe('chatTimeline — date e ordinamento delle chat diplomatiche', () => {
     // Il gruppo ha interlocutori diversi: non è la stessa discussione.
     expect(next.find(c => c.id === 'group')?.archived).toBeUndefined();
     expect(next.find(c => c.id === 'new')?.archived).toBeUndefined();
+  });
+
+  it('mantiene aperti argomenti diversi anche durante un aggiornamento SSE', () => {
+    const participants = [{ id: 'DEU', role: 'player' }, { id: 'POL', role: 'polity' }];
+    const chats = [
+      { id: 'trade', participants, subject: 'Commercio', archived: false },
+      { id: 'security', participants, subject: 'Sicurezza', archived: false },
+    ];
+    expect(archiveSiblingThreads(chats, 'security').every(c => !c.archived)).toBe(true);
+  });
+
+  it('raggruppa per calendario del mondo e mette le date ignote in fondo', () => {
+    const groups = groupChatsByGameDate([
+      { id: 'old', lastMessageGameDate: '1951-01-01', lastMessageAt: '2026-10-19' },
+      { id: 'new', lastMessageGameDate: '1951-02-01', lastMessageAt: '2026-10-18' },
+      { id: 'unknown', lastMessageAt: '2026-10-20' },
+      { id: 'same-day', lastMessageGameDate: '1951-02-01', lastMessageAt: '2026-10-17' },
+    ]);
+    expect(groups.map(g => g.date)).toEqual(['1951-02-01', '1951-01-01', '']);
+    expect(groups[0].chats.map(c => c.id)).toEqual(['new', 'same-day']);
   });
 
   it('canonicalizza l’insieme dei partecipanti indipendentemente dall’ordine', () => {

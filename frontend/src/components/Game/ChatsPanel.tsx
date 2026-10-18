@@ -15,8 +15,9 @@ import type { ChatSummary } from '../../stores/chatStore';
 import { useSimulationStore } from '../../stores/simulationRuntime';
 import type { Region } from '../../types';
 import { publicNarrativeText } from '../../services/publicNarrative';
-import { formatGameDate, formatChatStamp, orderChatsByLatest } from './chatTimeline';
+import { formatGameDate, formatChatStamp, orderChatsByLatest, groupChatsByGameDate } from './chatTimeline';
 import { isNewDiplomaticMessagePersisted, pickDiplomaticTargetIds } from './diplomaticChatNavigation';
+import { isNearBottom } from './chatScroll';
 import { diplomaticMessageForDisplay } from './diplomaticOpeningView';
 
 interface ChatsPanelProps {
@@ -42,6 +43,8 @@ const ISO3_TO_ISO2: Record<string, string> = {
   SAU: 'sa', ISR: 'il', PSE: 'ps', JOR: 'jo', LBN: 'lb', EGY: 'eg', UKR: 'ua',
   POL: 'pl', SWE: 'se', NOR: 'no', FIN: 'fi', DNK: 'dk', NLD: 'nl', BEL: 'be',
   CHE: 'ch', AUT: 'at', GRC: 'gr', PAK: 'pk', IDN: 'id', VNM: 'vn', THA: 'th',
+  UGA: 'ug', RWA: 'rw', BDI: 'bi', TZA: 'tz', COD: 'cd', COG: 'cg', SSD: 'ss', SDN: 'sd',
+  KHM: 'kh', LAO: 'la', MMR: 'mm', ERI: 'er', CZE: 'cz', SVK: 'sk', HUN: 'hu', ROU: 'ro',
   ZAF: 'za', NGA: 'ng', ETH: 'et', KEN: 'ke', MAR: 'ma', DZA: 'dz', TUN: 'tn',
 };
 
@@ -49,14 +52,6 @@ function flagEmoji(code?: string): string {
   const alpha2 = ISO3_TO_ISO2[(code || '').toUpperCase()] || (code || '').toLowerCase();
   if (!/^[a-z]{2}$/.test(alpha2)) return '🏳️';
   return alpha2.toUpperCase().split('').map(char => String.fromCodePoint(127397 + char.charCodeAt(0))).join('');
-}
-
-function reactionForMessage(content?: string): { icon: string; label: string } {
-  const text = (content || '').toLocaleLowerCase('it');
-  if (/(condann|rifiut|minacc|ostil|inaccett|ritorsion|aggress|violazion|attacc)/.test(text)) return { icon: '😠', label: 'Reazione ostile' };
-  if (/(accogli|sostegn|collabor|accord|intesa|ringrazi|favorevol|concord)/.test(text)) return { icon: '🤝', label: 'Reazione favorevole' };
-  if (/(preoccup|riserv|valuter|verifich|chiariment|condizion|cautel)/.test(text)) return { icon: '🤔', label: 'Reazione cauta' };
-  return { icon: '💬', label: 'Comunicazione diplomatica' };
 }
 
 export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerPolityId, uniqueMeeting }) => {
@@ -76,6 +71,17 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
   /** «Lascia che parlino» in corso */
   const [autoRunning, setAutoRunning] = useState(false);
   const [error, setError] = useState('');
+  const [subject, setSubject] = useState('');
+  const [countrySearch, setCountrySearch] = useState('');
+  const [creating, setCreating] = useState(false);
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const followMessages = useRef(true);
+  const openingRequest = useRef(0);
+  const currentContext = () => {
+    const generation = useSimulationStore.getState().commandGeneration;
+    return () => useSimulationStore.getState().commandGeneration === generation
+      && useChatStore.getState().gameId === gameId;
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playerRegion = regions.find(region => region.owner === playerPolityId);
@@ -94,8 +100,14 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
   // Scroll del thread in basso con nuovi messaggi
   const activeMessages = activeChatId ? (messagesByChat[activeChatId] || []) : [];
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeMessages.length, activeChatId]);
+    if (followMessages.current) messagesEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [activeMessages.length, activeChatId, loadingMessages]);
+
+  useEffect(() => {
+    followMessages.current = true;
+    setInputText('');
+    setError('');
+  }, [activeChatId, gameId]);
 
   // Politie dalle regioni: owner unici, esclusi giocatore e neutri
   const polities = useMemo<PolityOption[]>(() => {
@@ -108,7 +120,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
         byId.set(r.owner, { id: r.owner, name: r.polityName || r.owner, color: r.color });
       }
     }
-    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'it'));
   }, [regions, playerPolityId]);
 
   // Riunione unica: una sola chat di gruppo con tutte le nazioni (create è
@@ -142,44 +154,54 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
 
   // Apri la chat: carica i messaggi (il backend li segna letti) e azzera unread
   const openChat = async (chatId: string) => {
+    const request = ++openingRequest.current;
+    const isCurrent = currentContext();
+    followMessages.current = true;
     setActiveChat(chatId);
     setShowNewChat(false);
     if (isLocal) return;
     setLoadingMessages(true);
     try {
       const data = await chatsApi.messages(gameId, chatId);
+      if (!isCurrent() || request !== openingRequest.current) return;
       setMessages(chatId, data.messages || []);
       markRead(chatId);
       setError('');
     } catch (e) {
+      if (!isCurrent() || request !== openingRequest.current) return;
       console.error('[ChatsPanel] Impossibile caricare i messaggi:', e);
       setError(e instanceof Error ? e.message : 'Impossibile caricare i messaggi.');
     } finally {
-      setLoadingMessages(false);
+      if (isCurrent() && request === openingRequest.current) setLoadingMessages(false);
     }
   };
 
-  // Apre una NUOVA discussione con una o più nazioni. Le precedenti con gli
-  // stessi interlocutori sono archiviate: risincronizziamo l'elenco per vederle
-  // subito sotto «Archivio» invece che ancora in cima.
+  // A new topic coexists with other negotiations involving the same governments.
   const handleCreateChat = async (names: string[]) => {
-    if (names.length === 0) return;
+    if (names.length === 0 || !subject.trim() || creating) return;
+    const isCurrent = currentContext();
+    setCreating(true);
     try {
       setError('');
-      const { chat } = await chatsApi.create(gameId, names);
+      const { chat } = await chatsApi.create(gameId, names, { subject: subject.trim() });
+      if (!isCurrent()) return;
+      setSubject('');
+      setCountrySearch('');
       upsertChat(chat);
       setSelectedPolityIds(new Set());
       setShowNewChat(false);
       await openChat(chat.id);
       void refreshChats();
     } catch (e) {
+      if (!isCurrent()) return;
       console.error('[ChatsPanel] Impossibile creare la chat:', e);
       setError(e instanceof Error ? e.message : 'Impossibile creare la chat.');
+    } finally {
+      setCreating(false);
     }
   };
 
-  // Clic su una nazione nel picker: singola → crea/apri subito; con la modalità
-  // gruppo (deselezionabile) accumula la selezione e confermi col pulsante.
+  // Select one or more delegations, then explicitly open the named discussion.
   const togglePolitySelection = (id: string) => {
     setSelectedPolityIds(prev => {
       const next = new Set(prev);
@@ -192,16 +214,28 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
   // «Lascia che parlino»: le nazioni proseguono la trattativa tra loro
   const handleAutoChat = async () => {
     if (!activeChatId || autoRunning || sending) return;
+    const chatId = activeChatId;
+    const isCurrent = currentContext();
+    setError('');
     setAutoRunning(true);
     try {
-      const { replies } = await chatsApi.auto(gameId, activeChatId, 2);
+      const { replies } = await chatsApi.auto(gameId, chatId, 2);
+      if (!isCurrent()) return;
       for (const r of replies || []) {
-        appendMessage(activeChatId, r);
+        appendMessage(chatId, r);
       }
-      await chatsApi.markRead(gameId, activeChatId);
-      markRead(activeChatId);
+      await chatsApi.markRead(gameId, chatId);
+      if (!isCurrent()) return;
+      markRead(chatId);
       refreshChats();
     } catch (e) {
+      if (!isCurrent()) return;
+      // Earlier replies may already be persisted when a later delegate fails.
+      try {
+        const data = await chatsApi.messages(gameId, chatId);
+        if (isCurrent()) setMessages(chatId, data.messages || []);
+      } catch { /* preserve the messages already delivered via SSE */ }
+      if (!isCurrent()) return;
       console.error('[ChatsPanel] Impossibile far parlare le nazioni:', e);
       setError(e instanceof Error ? e.message : 'Le nazioni non riescono a proseguire la trattativa.');
     } finally {
@@ -217,6 +251,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     if (!text || !chatId || sending || autoRunning) return;
     const previousIds = new Set((useChatStore.getState().messagesByChat[chatId] ?? [])
       .map(message => message.id).filter(Boolean));
+    followMessages.current = true;
     setInputText('');
     setSending(true);
     const commandGeneration = useSimulationStore.getState().commandGeneration;
@@ -273,9 +308,10 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
 
   const activeChat = chats.find(c => c.id === activeChatId);
   const activeInterlocutors = activeChat?.participants?.filter(p => p.role !== 'player') || [];
-  const activeTitle = activeInterlocutors.length > 0
+  const participantTitle = activeInterlocutors.length > 0
     ? activeInterlocutors.map(p => p.name).join(' · ')
-    : activeChat?.polityName || 'Chat';
+    : activeChat?.polityName || 'Trattativa diplomatica';
+  const activeTitle = activeChat?.subject?.trim() || participantTitle;
 
   const flagForPolity = (polityId?: string, name?: string) => {
     const region = regions.find(r => r.owner === polityId || r.polityName === name || r.name === name);
@@ -297,40 +333,39 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     return p?.color || activeChat?.polityColor || '#888';
   };
 
-  // Riga dell'elenco: usata sia per le discussioni attive sia per l'archivio.
   const renderChatItem = (c: ChatSummary) => {
     const interlocutors = c.participants?.filter(p => p.role !== 'player') || [];
-    const title = interlocutors.length > 0
-      ? interlocutors.map(p => p.name).join(' · ')
-      : c.polityName || 'Trattativa diplomatica';
-    const stamp = formatChatStamp(c.lastMessageGameDate, c.lastMessageAt || c.createdAt);
-    const unread = c.unread > 0;
+    const names = interlocutors.map(p => p.name).join(' · ') || c.polityName;
+    const title = c.subject?.trim() || names || 'Trattativa diplomatica';
     return (
-      <div
-        key={c.id}
-        className={`chat-item${unread ? ' unread' : ''}${c.archived ? ' archived' : ''}`}
-        onClick={() => openChat(c.id)}
-        title={stamp ? `${title} · ultimo messaggio ${stamp}` : title}
-      >
-        <span className="chat-list-flags">
-          {(interlocutors.length ? interlocutors : [{ id: c.polityId, name: c.polityName }]).slice(0, 3).map((p: any, i) => (
+      <button type="button" key={c.id} className={`chat-item${c.unread ? ' unread' : ''}${c.archived ? ' archived' : ''}`}
+        onClick={() => void openChat(c.id)} aria-label={`${title}${c.unread ? `, ${c.unread} messaggi non letti` : ''}`}>
+        <span className="chat-list-flags" aria-label={names}>
+          {(interlocutors.length ? interlocutors : [{ id: c.polityId, name: c.polityName }]).slice(0, 3).map((p, i) => (
             <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
           ))}
+          {interlocutors.length > 3 && <span className="chat-flags-more">+{interlocutors.length - 3}</span>}
         </span>
-        <div className="chat-item-main">
-          <div className="chat-item-top">
-            <span className="chat-item-name">{title}</span>
-            {stamp && <time className="chat-item-date" dateTime={c.lastMessageAt || c.lastMessageGameDate}>{stamp}</time>}
-          </div>
-          {c.subject && <div className="chat-item-subject">{c.subject}</div>}
-          {interlocutors.length > 1 && <span className="group-chat-badge compact">Gruppo · {interlocutors.length}</span>}
-          {c.lastMessage && <div className="chat-item-last">{c.lastMessage}</div>}
-        </div>
-        {c.lastMessage && <span className="chat-list-reaction" title={reactionForMessage(c.lastMessage).label}>{reactionForMessage(c.lastMessage).icon}</span>}
-        {unread && <span className="chat-unread-badge" title={`${c.unread} messaggi non letti`}>{c.unread}</span>}
-      </div>
+        <span className="chat-item-main">
+          <span className="chat-item-name">{title}</span>
+          <span className="chat-item-last">{c.lastMessage
+            ? publicNarrativeText(diplomaticMessageForDisplay(c.lastMessage, c.subject, 'polity'), playerPolityName)
+            : 'La trattativa è aperta. Scrivi il primo messaggio.'}</span>
+          <span className="chat-item-participants">{names}</span>
+        </span>
+        <span className="chat-item-end">
+          {!!c.unread && <span className="chat-unread-badge">{c.unread}</span>}
+          <span aria-hidden="true" className="chat-item-chevron">›</span>
+        </span>
+      </button>
     );
   };
+  const renderChatGroups = (items: ChatSummary[]) => groupChatsByGameDate(items).map(group => (
+    <section key={group.date || 'undated'} className="chat-date-group" aria-label={formatGameDate(group.date) || 'Data non registrata'}>
+      <div className="chat-date-divider"><time dateTime={group.date || undefined}>{formatGameDate(group.date) || 'Data non registrata'}</time></div>
+      {group.chats.map(renderChatItem)}
+    </section>
+  ));
 
   // --- Thread dei messaggi ---
   if (activeChatId) {
@@ -341,11 +376,6 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
             {!uniqueMeeting && (
               <button type="button" className="btn-chat-back" onClick={() => setActiveChat(null)} aria-label="Torna alle conversazioni" title="Alle chat">←</button>
             )}
-            <span className="chat-thread-flags" aria-label={`${activeInterlocutors.length} interlocutori`}>
-              {(activeInterlocutors.length ? activeInterlocutors : [{ id: activeChat?.polityId, name: activeChat?.polityName }]).slice(0, 4).map((p: any, i) => (
-                <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
-              ))}
-            </span>
             <div className="chat-thread-identity">
               <strong className="chat-thread-title">{activeTitle}</strong>
               <time className="chat-thread-stamp" title="Ultimo messaggio nel calendario di gioco">
@@ -355,9 +385,14 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                 )}
               </time>
             </div>
-            {activeInterlocutors.length > 1 && <span className="group-chat-badge">Gruppo · {activeInterlocutors.length}</span>}
+
           </div>
-          <div className="chat-thread-actions">
+          <details className="chat-thread-details">
+            <summary>Partecipanti e opzioni · {activeInterlocutors.length + 1}</summary>
+            <div className="chat-participants">{activeChat?.participants?.map(p => (
+              <span key={p.id}><span className="chat-flag">{flagForPolity(p.id, p.name)}</span> {p.name}{p.role === 'player' ? ' (tu)' : ''}</span>
+            ))}</div>
+            <div className="chat-thread-actions">
             <button
               type="button"
               className="btn-chat-auto"
@@ -376,7 +411,8 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                 onClick={() => { if (activeChatId) archiveChat(activeChatId); }}
                 title="Sposta la discussione nell'archivio">Archivia</button>
             )}
-          </div>
+            </div>
+          </details>
         </div>
 
         {activeChat?.archived && (
@@ -385,36 +421,27 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
           </div>
         )}
 
-        <div className="chat-messages">
+        <div className="chat-messages" ref={messagesRef} onScroll={() => { if (messagesRef.current) followMessages.current = isNearBottom(messagesRef.current); }}>
           {loadingMessages && activeMessages.length === 0 ? (
             <div className="chats-empty">Caricamento messaggi...</div>
           ) : activeMessages.length === 0 ? (
             <div className="chats-empty">Nessun messaggio — inizia le negoziazioni</div>
           ) : (
-            activeMessages.map(m => (
-              <div key={m.id || `${m.role}-${m.createdAt}`} className={`chat-msg-wrap ${m.role}`}>
-                {m.role !== 'player' && m.senderName && (
+            activeMessages.map((m, index) => (
+              <React.Fragment key={m.id || `${m.role}-${m.createdAt}`}>
+                {(index === 0 || m.gameDate !== activeMessages[index - 1].gameDate) && (
+                  <div className="chat-date-divider"><time dateTime={m.gameDate}>{messageMeta(m)}</time></div>
+                )}
+                <article className={`chat-msg-wrap ${m.role}`}
+                  style={{ '--nation-color': m.role === 'player' ? '#32644e' : senderColor(m.senderName || '') } as React.CSSProperties}>
                   <div className="chat-sender">
-                    <span className="chat-flag" title={`Bandiera di ${m.senderName}`}>{flagForPolity(activeInterlocutors.find(p => p.name === m.senderName)?.id, m.senderName)}</span>
-                    <span className="chat-sender-dot" style={{ background: senderColor(m.senderName) }} />
-                    <span className="chat-sender-name">{m.senderName}</span>
-                    <span className="chat-reaction" title={reactionForMessage(m.content).label}>{reactionForMessage(m.content).icon}</span>
-                    <span className="chat-message-date">{messageMeta(m)}</span>
+                    <span className="chat-sender-name">{m.role === 'player' ? `${playerPolityName} (tu)` : m.senderName || activeChat?.polityName}</span>
                   </div>
-                )}
-                {m.role === 'player' && (
-                  <div className="chat-message-meta player-meta">
-                    <span className="chat-flag" title="La tua nazione">{flagForPolity(activeChat?.participants?.find(p => p.role === 'player')?.id)}</span>
-                    <span>{playerPolityName} · {messageMeta(m)}</span>
+                  <div className={`chat-bubble ${m.role}`}>
+                    {publicNarrativeText(diplomaticMessageForDisplay(m.content, activeChat?.subject, m.role), playerPolityName)}
                   </div>
-                )}
-                <div
-                  className={`chat-bubble ${m.role}`}
-                  style={m.role === 'polity' ? { '--nation-color': senderColor(m.senderName || '') } as React.CSSProperties : undefined}
-                >
-                  {publicNarrativeText(diplomaticMessageForDisplay(m.content, activeChat?.subject, m.role), playerPolityName)}
-                </div>
-              </div>
+                </article>
+              </React.Fragment>
             ))
           )}
           {(sending || autoRunning) && (
@@ -427,12 +454,11 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
         </div>
 
         {error && <div className="chat-error" role="alert">{error}</div>}
-        {sending && <div className="chat-loading" role="status" aria-live="polite">Invio in corso: attendo la risposta diplomatica…</div>}
         <form className="chat-input-row" onSubmit={(event) => { event.preventDefault(); void handleSend(); }}>
           <textarea
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder={activeChat?.archived ? 'Discussione archiviata — riaprila per scrivere' : 'Scrivi alla delegazione…'}
+            placeholder={activeChat?.archived ? 'Discussione archiviata — riaprila per scrivere' : 'Scrivi il tuo messaggio…'}
             aria-label="Messaggio diplomatico"
             rows={2}
             disabled={sending || autoRunning || !!activeChat?.archived}
@@ -447,9 +473,9 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
             className="btn-chat-send"
             type="submit"
             disabled={!inputText.trim() || sending || autoRunning || !!activeChat?.archived}
-            title="Invia"
+            title="Invia" aria-label="Invia messaggio"
           >
-            {sending ? '…' : 'Invia'}
+            {sending ? '…' : <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m21 3-7 18-4-7-7-4 18-7Z M10 14 21 3" /></svg>}
           </button>
         </form>
       </div>
@@ -466,74 +492,47 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
   }
   return (
     <div className="chats-panel">
-      <button className="btn-new-chat" onClick={() => { setShowNewChat(v => !v); setSelectedPolityIds(new Set()); }}>
-        {showNewChat ? '✕ Annulla' : '＋ Nuova chat'}
-      </button>
-
-      {showNewChat && (
-        <div className="new-chat-picker">
-          <div className="picker-hint">
-            Ogni trattativa è una nuova discussione: seleziona una nazione per un canale diretto, oppure più nazioni per un incontro di gruppo. Le discussioni precedenti vanno in archivio.
-          </div>
-          {polities.length === 0 ? (
-            <div className="chats-empty">Nessun paese disponibile per le negoziazioni</div>
-          ) : (
-            polities.map(p => (
-              <div
-                key={p.id}
-                className={`polity-pick-item${selectedPolityIds.has(p.id) ? ' selected' : ''}`}
-                onClick={() => togglePolitySelection(p.id)}
-              >
-                <span className="chat-color-dot" style={{ background: p.color }} />
-                <span>{p.name}</span>
-                {selectedPolityIds.has(p.id) && <span className="pick-check">✓</span>}
-              </div>
-            ))
-          )}
-          {selectedPolityIds.size >= 1 && (
-            <button
-              className="btn-create-group-chat"
-              onClick={() => handleCreateChat(
-                pickDiplomaticTargetIds(polities, selectedPolityIds)
-              )}
-            >
-              {selectedPolityIds.size === 1
-                ? 'Apri chat diretta →'
-                : `Crea trattativa (${selectedPolityIds.size} nazioni) →`}
-            </button>
-          )}
-        </div>
-      )}
-
+      <header className="chat-list-header"><h2>{showNewChat ? 'Nuova chat diplomatica' : 'Chat diplomatiche'}</h2></header>
       {error && <div className="chat-error" role="alert">{error}</div>}
       {chatLoadError && <div className="chat-error" role="alert">Impossibile aggiornare le chat: {chatLoadError}</div>}
       <div className="chats-list">
-        {activeChats.length === 0 && archivedChats.length === 0 ? (
-          <div className="chats-empty">
-            Nessuna discussione.
-            <br />
-            Premi «Nuova chat» per aprire un canale diplomatico.
-          </div>
-        ) : activeChats.length === 0 ? (
-          <div className="chats-empty">Nessuna discussione aperta · le precedenti sono in archivio</div>
-        ) : (
-          activeChats.map(renderChatItem)
-        )}
+        {showNewChat ? (
+          <form className="new-chat-picker" onSubmit={event => { event.preventDefault(); void handleCreateChat(pickDiplomaticTargetIds(polities, selectedPolityIds)); }}>
+            <label htmlFor="diplomatic-subject">Argomento della trattativa</label>
+            <input id="diplomatic-subject" value={subject} onChange={event => setSubject(event.target.value)} maxLength={120}
+              placeholder="Es. Accordo sui transiti commerciali" required disabled={creating} />
+            <p className="picker-hint">Invita una o più nazioni. Puoi tenere aperte trattative su argomenti diversi con gli stessi governi.</p>
+            <label htmlFor="diplomatic-country-search">Nazioni da invitare · {selectedPolityIds.size} selezionate</label>
+            <input id="diplomatic-country-search" type="search" value={countrySearch} onChange={event => setCountrySearch(event.target.value)} placeholder="Cerca una nazione…" />
+            <div className="polity-pick-list">
+              {polities.filter(p => p.name.toLocaleLowerCase('it').includes(countrySearch.toLocaleLowerCase('it'))).map(p => (
+                <label key={p.id} className={`polity-pick-item${selectedPolityIds.has(p.id) ? ' selected' : ''}`}>
+                  <input type="checkbox" checked={selectedPolityIds.has(p.id)} onChange={() => togglePolitySelection(p.id)} disabled={creating} />
+                  <span className="chat-flag">{flagForPolity(p.id, p.name)}</span><span>{p.name}</span>
+                </label>
+              ))}
+              {!polities.length && <p className="chats-empty">Nessun paese disponibile per le negoziazioni</p>}
+            </div>
+            <button className="btn-create-group-chat" type="submit" disabled={!subject.trim() || !selectedPolityIds.size || creating}>
+              {creating ? 'Apertura…' : `Apri trattativa · ${selectedPolityIds.size} ${selectedPolityIds.size === 1 ? 'nazione' : 'nazioni'}`}
+            </button>
+          </form>
+        ) : <>
+          {!activeChats.length && <div className="chats-empty">Nessuna discussione aperta.<br />Inizia una nuova chat per invitare le delegazioni.</div>}
+          {renderChatGroups(activeChats)}
+          {archivedChats.length > 0 && <div className="chats-archive">
+            <button type="button" className="btn-toggle-archive" onClick={() => setShowArchive(v => !v)} aria-expanded={showArchive}>
+              {showArchive ? '▾' : '▸'} Archivio ({archivedChats.length})
+            </button>
+            {showArchive && renderChatGroups(archivedChats)}
+          </div>}
+        </>}
       </div>
-
-      {archivedChats.length > 0 && (
-        <div className="chats-archive">
-          <button
-            type="button"
-            className="btn-toggle-archive"
-            onClick={() => setShowArchive(v => !v)}
-            aria-expanded={showArchive}
-          >
-            {showArchive ? '▾' : '▸'} Archivio ({archivedChats.length})
-          </button>
-          {showArchive && <div className="chats-list archived">{archivedChats.map(renderChatItem)}</div>}
-        </div>
-      )}
+      <div className="chat-list-footer">
+        <button type="button" className="btn-new-chat" disabled={creating} onClick={() => { setShowNewChat(v => !v); setSelectedPolityIds(new Set()); setCountrySearch(''); setError(''); }}>
+          {showNewChat ? 'Annulla' : 'Inizia una nuova chat'}
+        </button>
+      </div>
     </div>
   );
 };

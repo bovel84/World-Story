@@ -181,6 +181,32 @@ describe('Chat diplomatiche', () => {
     expect(replies[0].senderName).toBe('Cecoslovacchia');
   });
 
+  it('mantiene trattative e bozze indipendenti per argomento con le stesse nazioni', async () => {
+    const { session } = createGame();
+    const trade = session.ensureChat(['Polonia'], { subject: 'Transiti commerciali' });
+    const security = session.ensureChat(['Polonia'], { subject: 'Sicurezza del confine' });
+    expect(security.id).not.toBe(trade.id);
+    expect(session.ensureChat(['Polonia'], { subject: 'Transiti commerciali' }).id).toBe(trade.id);
+    await session.sendChatMessage(trade.id, 'Apriamo i valichi al commercio.');
+    const renewed = session.ensureChat(['Polonia'], { subject: 'Transiti commerciali' });
+    expect(session.getChats().map((c: any) => c.id).sort()).toEqual([security.id, renewed.id].sort());
+    expect(session.getChatMessages(trade.id)).toHaveLength(2);
+    expect(session.getChats(true).find((c: any) => c.id === trade.id)?.archived).toBe(true);
+  });
+
+  it('fa rispondere una seconda delegazione al primo intervento del gruppo', async () => {
+    const { session } = createGame();
+    const group = session.ensureChat(['Polonia', 'Cecoslovacchia'], { subject: 'Vertice di frontiera' });
+    // The selector always proposes Czechoslovakia. The second turn must still be Polish.
+    chatReply = 'Proponiamo un incontro a Praga per definire gli accessi al confine.';
+    const { replies } = await session.continueChat(group.id, 2);
+    expect(replies.map((r: any) => r.senderName)).toEqual(['Cecoslovacchia', 'Polonia']);
+    expect(capturedChatPrompt).toContain(`Cecoslovacchia: ${chatReply}`);
+    expect(capturedChatPrompt).toContain('Oggetto: Vertice di frontiera');
+    expect(capturedChatPrompt).toContain('rispondi alla delegazione che ha appena parlato');
+    expect(session.getChatMessages(group.id)).toHaveLength(2);
+  });
+
   it('rifiuta una politia inesistente e la nazione del giocatore', () => {
     const { session } = createGame();
     expect(() => session.ensureChat(['Atlantide'])).toThrow(/not found/);

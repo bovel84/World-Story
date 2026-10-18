@@ -193,23 +193,25 @@ export const chatRepository = {
    * Serve a non moltiplicare i canali quando il giocatore apre due volte la
    * stessa trattativa prima di scrivere.
    */
-  getEmptyChatByParticipants(gameId: string, ids: string[]): ChatRecord | null {
+  getEmptyChatByParticipants(gameId: string, ids: string[], subject?: string): ChatRecord | null {
     const row = db.prepare(`
       SELECT c.* FROM chats c
       WHERE c.game_id = ? AND c.participant_key = ? AND c.archived = 0
+        AND COALESCE(c.subject, '') = ?
         AND NOT EXISTS (SELECT 1 FROM chat_messages m WHERE m.chat_id = c.id)
       ORDER BY c.created_at DESC LIMIT 1
-    `).get(gameId, participantKey(ids)) as any;
+    `).get(gameId, participantKey(ids), (subject || '').trim()) as any;
     return row ? rowToChat(row) : null;
   },
 
-  /** Archivia le discussioni precedenti con lo stesso insieme di interlocutori. */
-  archiveChatsForParticipants(gameId: string, ids: string[], exceptChatId?: string): string[] {
+  /** Archivia solo lo stesso argomento con lo stesso insieme di interlocutori. */
+  archiveChatsForParticipants(gameId: string, ids: string[], exceptChatId?: string, subject?: string): string[] {
     const now = new Date().toISOString();
     const rows = db.prepare(`
       SELECT id FROM chats
       WHERE game_id = ? AND participant_key = ? AND archived = 0 AND id != ?
-    `).all(gameId, participantKey(ids), exceptChatId || '') as any[];
+        AND COALESCE(subject, '') = ?
+    `).all(gameId, participantKey(ids), exceptChatId || '', (subject || '').trim()) as any[];
     const idsToArchive = rows.map(row => String(row.id));
     if (idsToArchive.length > 0) {
       const placeholders = idsToArchive.map(() => '?').join(', ');
