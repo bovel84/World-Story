@@ -108,11 +108,10 @@
 .diplomacy-chat-wrap .btn-new-chat { width: 100%; margin: 0; background: #e9eee7 !important; }
 .diplomacy-chat-wrap .chat-msg-wrap {
   position: relative; box-sizing: border-box; flex: 0 0 auto;
-  width: 100%; max-width: 100%; min-width: 0; margin: 0 0 16px; padding: 17px 18px 18px 26px;
+  width: 100%; max-width: 100%; min-width: 0; margin: 0 0 16px; padding: 17px 18px 18px;
   border: 1px solid var(--dip-rule); border-radius: 18px;
   background: #fff; box-shadow: 0 3px 14px #20342808;
 }
-.diplomacy-chat-wrap .chat-msg-wrap::before { content: ''; position: absolute; top: 18px; left: 11px; width: 4px; height: 32px; border-radius: 4px; background: var(--nation-color, #608b70); }
 .diplomacy-chat-wrap .chat-msg-wrap.player { background: #edf3ea; }
 .diplomacy-chat-wrap .chat-sender { display: block !important; margin: 0 0 8px; }
 .diplomacy-chat-wrap .chat-sender-name { color: var(--dip-ink) !important; -webkit-text-fill-color: var(--dip-ink) !important; font: 650 16px/1.4 system-ui, sans-serif !important; }
@@ -161,7 +160,7 @@
   .diplomacy-chat-wrap :is(.chats-list, .chat-messages) { padding: 4px 12px 18px !important; }
   .diplomacy-chat-wrap .chat-item { gap: 9px; padding: 14px 11px !important; }
   .diplomacy-chat-wrap .chat-list-flags { flex-basis: 32px; }
-  .diplomacy-chat-wrap .chat-msg-wrap { padding: 15px 14px 16px 24px; }
+  .diplomacy-chat-wrap .chat-msg-wrap { padding: 15px 14px 16px; }
   .diplomacy-chat-wrap .chat-input-row { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)) !important; }
 }
 
@@ -303,18 +302,10 @@
 .diplomacy-chat-wrap .chat-msg-wrap {
   display: block;
   position: relative;
-  padding: 16px 17px 18px 34px;
+  padding: 16px 17px 18px;
   border-radius: 18px;
   border-color: #e0e4e5;
   background: #fff;
-}
-.diplomacy-chat-wrap .chat-msg-wrap::before {
-  left: 14px;
-  top: 16px;
-  bottom: 16px;
-  height: auto;
-  width: 5px;
-  border-radius: 6px;
 }
 .diplomacy-chat-wrap .chat-msg-wrap .chat-sender { min-height: 0; margin: 0 0 8px; }
 .diplomacy-chat-wrap .chat-msg-wrap .chat-sender-name {
@@ -398,8 +389,7 @@
     gap: 10px;
   }
   .diplomacy-chat-wrap .chat-list-flags { flex-basis: 42px; }
-  .diplomacy-chat-wrap .chat-msg-wrap { padding: 15px 14px 16px 32px; }
-  .diplomacy-chat-wrap .chat-msg-wrap::before { left: 13px; }
+  .diplomacy-chat-wrap .chat-msg-wrap { padding: 15px 14px 16px; }
   .diplomacy-chat-wrap .chat-msg-wrap .chat-bubble { font-size: 15px !important; }
   .diplomacy-chat-wrap .chat-input-row {
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
