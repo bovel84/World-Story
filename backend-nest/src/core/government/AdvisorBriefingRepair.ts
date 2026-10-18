@@ -107,7 +107,7 @@ export interface AdvisorBriefingRepairOutcome {
 export async function repairAdvisorBriefing(
   snapshot: VerifiedWorldSnapshot, result: AdvisorResponse, deps: AdvisorBriefingRepairDeps,
 ): Promise<AdvisorBriefingRepairOutcome> {
-  const uncovered = result.briefingCoverage?.complete === false ? uncoveredAdvisorSituations(result).filter(situation => situation.basis !== 'signal' || (situation.importance ?? 0) >= 2) : [];
+  const uncovered = result.briefingCoverage?.complete === false ? uncoveredAdvisorSituations(result).filter(situation => situation.basis !== 'signal') : [];
   const limit = deps.context?.mode === 'conversation' ? MAX_COUNCIL_ISSUES : MAX_BRIEFING_COUNCIL_ISSUES;
   const headroom = Math.max(0, limit - result.issues.length);
   // Repair authored questions, not every numeric alert or a quota of capacities.
@@ -168,7 +168,7 @@ export async function repairAdvisorBriefing(
   });
   const merged = { ...result, situations, issues: mergedIssues };
   const response = result.briefingCoverage ? withAdvisorBriefingCoverage(snapshot, merged) : merged;
-  for (const situation of uncoveredAdvisorSituations(response).filter(situation => situation.basis !== 'signal' || (situation.importance ?? 0) >= 2)) discard('Nessuna decisione verificabile dal repair', situation.id);
+  for (const situation of uncoveredAdvisorSituations(response).filter(situation => situation.basis !== 'signal')) discard('Nessuna decisione verificabile dal repair', situation.id);
   return { response, repairedSituationIds: [...new Set(response.issues.filter(issue => !existingById.has(issue.id)).flatMap(issue => issue.situationId ? [issue.situationId] : []))], discarded };
 }
 
@@ -179,7 +179,7 @@ export async function developAdvisorBriefing(
   snapshot: VerifiedWorldSnapshot, agenda: AdvisorResponse, deps: AdvisorBriefingRepairDeps,
 ): Promise<AdvisorResponse> {
   // Urgent verified signals may also justify a real choice; routine indicators do not.
-  const threads = agenda.situations.filter(situation => situation.basis !== 'signal' || (situation.importance ?? 0) >= 2);
+  const threads = agenda.situations.filter(situation => situation.basis !== 'signal');
   const developed: AdvisorResponse[] = new Array(threads.length);
   let cursor = 0;
   const worker = async () => {
