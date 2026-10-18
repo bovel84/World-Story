@@ -33,7 +33,7 @@ import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWo
 import { renderRealityConcerns } from './core/government/RealitySignals';
 import { HISTORICAL_BASELINE_RULE, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import type { NationSituationRecord } from './core/government/NationSituation';
-import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, withAdvisorRequestMode, ADVISOR_FACT_POLICY, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
+import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, withAdvisorRequestMode, isAdvisorAdditionalProposalsRequest, ADVISOR_FACT_POLICY, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
 import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat } from './core/government/NarrativeContextCompiler';
 import { COUNCIL_ISSUE_PROTOCOL, MAX_BRIEFING_COUNCIL_ISSUES, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { parseAdvisorResponse, serializeAdvisorResponse } from './core/government/AdvisorSituations';
@@ -516,7 +516,7 @@ async function validatedAdvisorText(context: RealityAdvisorContext, text: string
     strategicContext: context,
     // Il passaggio intermedio non deve troncare a otto le proposte del briefing.
     maxIssues: context.mode === 'briefing' ? MAX_BRIEFING_COUNCIL_ISSUES : undefined,
-    includeDeterministicSituations: context.mode === 'briefing',
+    includeDeterministicSituations: context.mode === 'briefing' && !isAdvisorAdditionalProposalsRequest(message),
   });
   const reply = guardRealityAdvisorOutput(context, parsed.reply);
   if (reply !== parsed.reply) return serializeAdvisorResponse({ reply, situations: [], issues: [] });
@@ -1904,7 +1904,7 @@ export class PromptEngine {
     const reply = guardRealityAdvisorOutput(context, discovered.reply);
     if (reply !== discovered.reply) return serializeAdvisorResponse({ reply, situations: [], issues: [] });
     const agenda = parseAdvisorResponse(context.verifiedWorldSnapshot, agendaText, 'advisor', {
-      strategicContext: context, includeDeterministicSituations: true,
+      strategicContext: context, includeDeterministicSituations: !isAdvisorAdditionalProposalsRequest(message),
     });
     return serializeAdvisorResponse(await developAdvisorBriefing(context.verifiedWorldSnapshot, agenda, {
       context, message, signal, complete: prompt => this.repairAdvisorBriefing(prompt, signal),
