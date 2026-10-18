@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import { publicNarrativeText } from '../../services/publicNarrative';
 import type { CheckpointImpact } from './checkpointImpact';
 import { DecisionImpactBlock } from './DecisionImpactBlock';
+import { compactEventText } from './compactEventText';
 import type { DecisionRecord } from './decisionImpact';
 import './simulationEventReader.css';
 
@@ -61,6 +62,7 @@ export function SimulationEventReader({
   decisions = [],
 }: SimulationEventReaderProps) {
   const continueButtonRef = useRef<HTMLButtonElement>(null);
+  const [expandedCheckpoint, setExpandedCheckpoint] = useState<string | null>(null);
 
   // Keep the keyboard action available on each newly disclosed event.
   useEffect(() => {
@@ -71,6 +73,11 @@ export function SimulationEventReader({
   // Read only the current disclosed checkpoint, never the future queue.
   const event = playback.event;
   const firstEventDate = playback.disclosedEvents?.[0]?.date ?? event.date;
+  const checkpointKey = `${event.id}:${playback.revision ?? 0}`;
+  const expanded = expandedCheckpoint === checkpointKey;
+  const headline = compactEventText(publicNarrativeText(event.headline, playerPolityName), 105);
+  const detail = compactEventText(publicNarrativeText(event.detail, playerPolityName), 240);
+  const canExpand = headline.shortened || detail.shortened;
 
   return (
     <AccessibleDialog
@@ -97,8 +104,12 @@ export function SimulationEventReader({
           <li key={event.id} className="simulation-reader-event is-current">
             <article>
               <time>{event.date}</time>
-              <h3>{publicNarrativeText(event.headline, playerPolityName)}</h3>
-              {event.detail && <p>{publicNarrativeText(event.detail, playerPolityName)}</p>}
+              <h3>{expanded ? publicNarrativeText(event.headline, playerPolityName) : headline.text}</h3>
+              {event.detail && <p>{expanded ? publicNarrativeText(event.detail, playerPolityName) : detail.text}</p>}
+              {canExpand && <button type="button" className="simulation-reader-more" aria-expanded={expanded}
+                onClick={() => setExpandedCheckpoint(expanded ? null : checkpointKey)}>
+                {expanded ? 'Mostra meno' : 'Leggi tutto'}
+              </button>}
             </article>
           </li>
         </ol>
