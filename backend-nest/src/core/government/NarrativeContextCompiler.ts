@@ -464,5 +464,5 @@ export function compileDiplomaticSituation(input: DiplomaticSituationInput): str
     lines.push('Non risulta altro contesto verificato su questo governo: evita di inventare un accordo, una crisi o una concessione.');
   }
   return ['[HOW YOUR GOVERNMENT SEES THIS]', ...lines,
-    'Rispondi come una posizione di governo: prendi posizione, di\' cosa accetti e cosa non accetti, e non ripetere i dati verificati che seguono.'].join('\n');
+    'Queste righe sono ci\u00f2 che il tuo governo sa, non ci\u00f2 che dir\u00e0: nella replica prendi posizione sul merito \u2014 cosa accetti, cosa rifiuti, cosa chiedi \u2014 e non ripetere i dati verificati n\u00e9 elencarli come voci di un rapporto; devono emergere dalla tua posizione, mai come elenco.'].join('\n');
 }

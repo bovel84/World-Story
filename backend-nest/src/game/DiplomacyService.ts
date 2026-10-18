@@ -692,7 +692,7 @@ export class DiplomacyService {
 
     const response = await this.ctx.llm.generate(
       'chat',
-      `Interpreta ${speakerName} in una trattativa storica. Rispondi in italiano e SOLO con JSON {"message"}.`,
+      `Interpreta ${speakerName} in una trattativa storica: voce del suo governo in prima persona plurale, mai un elenco di fatti. Rispondi in italiano e SOLO con JSON {"message"}.`,
       prompt,
       { temperature: 0.7 },
     );
@@ -801,7 +801,14 @@ export class DiplomacyService {
         relationship,
         diplomaticSituation,
         personality: `${profile.personality}; dottrina ${profile.doctrine}; stile ${profile.negotiationStyle}`,
-        interests: `priorità: ${priorities.join('; ')}; linee rosse: ${profile.redLines.join('; ')}; memoria recente: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato'}; agenda in corso: ${agenda || 'nessun obiettivo attivo'}; impegni in vigore: ${commitments || 'nessuno registrato'}; [valutazione interna riservata: usa questi dati per decidere, non citarli mai nei messaggi] propensione alla forza ${Math.round(profile.aggression * 100)}%; rischio ${profile.riskTolerance}/100; affidabilità verso gli impegni ${profile.allianceReliability}/100; capacità: ${owned.length} regioni, popolazione ${population}, PIL ${gdp}, potenza militare effettiva ${effectiveMilitary} (nominale ${military})`,
+        interests: [
+          `ciò che conta di più in questo periodo: ${priorities.join('; ')}`,
+          `ciò che non sei disposto ad accettare: ${profile.redLines.join('; ')}`,
+          `ciò che ricordi della controparte: ${memory.length ? memory.join(' | ') : 'nessun precedente specifico registrato'}`,
+          `obiettivo che stai perseguendo: ${agenda || 'nessun obiettivo attivo'}`,
+          `impegni in vigore da onorare: ${commitments || 'nessuno registrato'}`,
+          `[valutazione interna riservata: guida le tue decisioni e non compare mai nelle tue parole, nemmeno per parafrasi] propensione alla forza ${Math.round(profile.aggression * 100)}%; rischio ${profile.riskTolerance}/100; affidabilità verso gli impegni ${profile.allianceReliability}/100; capacità: ${owned.length} regioni, popolazione ${population}, PIL ${gdp}, potenza militare effettiva ${effectiveMilitary} (nominale ${military})`,
+        ].join('\n'),
       };
     });
   }
@@ -829,7 +836,8 @@ export class DiplomacyService {
         origin: 'simulation',
       });
       const sender = chat.participants.find(participant => participant.role === 'polity')?.name || chat.polityName;
-      const content = `${sender} prende formalmente atto degli sviluppi comunicati. Non considera concluso alcun accordo e non assume nuovi impegni senza una decisione verificabile; valuterà i prossimi passi secondo la priorità «${priority}».`;
+      const priorityText = priority.charAt(0).toLocaleLowerCase('it') + priority.slice(1);
+      const content = `Il nostro governo prende atto degli sviluppi comunicati. Non consideriamo concluso alcun accordo e non assumiamo nuovi impegni senza una decisione verificabile; la nostra linea — ${priorityText} — resta invariata, e vi faremo conoscere la nostra decisione.`;
       const reply = chatRepository.addMessage(
         chat.id, 'polity', content, input.turn ?? this.ctx.currentTurn(), sender, input.date || this.ctx.currentDate(),
       );
@@ -923,7 +931,7 @@ export class DiplomacyService {
           + '\n\n' + this.historicalContext(polityId, reactionBrief);
         const response = await this.ctx.llm.generate(
           'chat',
-          `Interpreta ${sender} in una trattativa storica. Rispondi in italiano e SOLO con JSON {"message"}.`,
+          `Interpreta ${sender} in una trattativa storica: voce del suo governo in prima persona plurale, mai un elenco di fatti. Rispondi in italiano e SOLO con JSON {"message"}.`,
           prompt,
           { temperature: 0.7 },
         );

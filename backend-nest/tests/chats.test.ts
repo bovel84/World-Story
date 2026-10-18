@@ -161,7 +161,7 @@ describe('Chat diplomatiche', () => {
     expect(capturedChatPrompt).toContain('Proponiamo un patto di non aggressione');
     expect(capturedChatPrompt).toContain('Lore europeo del dopoguerra');
     expect(capturedChatPrompt).toContain('[Difficoltà: Normale]');
-    expect(capturedChatPrompt).toContain('Personalità politica');
+    expect(capturedChatPrompt).toContain('Carattere del governo');
 
     expect(session.getChats()[0].lastMessage).toBe(chatReply);
     expect(session.getChats()[0].unread).toBe(1);
