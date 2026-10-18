@@ -327,12 +327,6 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
   const activeChats = orderedChats.filter(c => !c.archived);
   const archivedChats = orderedChats.filter(c => c.archived);
 
-  // Colore del mittente dai partecipanti della chat attiva
-  const senderColor = (name: string): string => {
-    const p = activeChat?.participants?.find(pp => pp.name === name);
-    return p?.color || activeChat?.polityColor || '#888';
-  };
-
   const renderChatItem = (c: ChatSummary) => {
     const interlocutors = c.participants?.filter(p => p.role !== 'player') || [];
     const names = interlocutors.map(p => p.name).join(' · ') || c.polityName;
@@ -439,8 +433,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                 {(index === 0 || m.gameDate !== activeMessages[index - 1].gameDate) && (
                   <div className="chat-date-divider"><time dateTime={m.gameDate}>{messageMeta(m)}</time></div>
                 )}
-                <article className={`chat-msg-wrap ${m.role}`}
-                  style={{ '--nation-color': m.role === 'player' ? '#32644e' : senderColor(m.senderName || '') } as React.CSSProperties}>
+                <article className={`chat-msg-wrap ${m.role}`}>
                   <div className="chat-sender">
                     <span className="chat-sender-name">{m.role === 'player' ? `${playerPolityName} (tu)` : m.senderName || activeChat?.polityName}</span>
                   </div>
