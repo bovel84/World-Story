@@ -39,6 +39,8 @@ describe('una sola misura di lunghezza per il corpo del dispaccio', () => {
     const immersion = leggi('prompts/immersion.ts');
     // Guardia: la costante deve esistere ed essere esportata.
     expect(immersion).toMatch(/export const EVENT_BODY_WORDS\s*=/);
+    expect(immersion).toMatch(/20-35 parole in tutto, massimo 240 caratteri/);
+    expect(immersion).toMatch(/EVENT_HEADLINE_GUIDE.*85 caratteri/);
 
     // Le tre misure vecchie che si contraddicevano non devono restare **nel
     // codice** (il commento che le racconta è ammesso: è la memoria del perché).

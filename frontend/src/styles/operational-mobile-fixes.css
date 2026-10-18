@@ -197,3 +197,39 @@
   .news-flash-overlay .news-flash-footer .news-flash-actions { width: 100% !important; }
   .news-flash-overlay .news-flash-footer .news-flash-actions button { flex: 1 1 0; }
 }
+
+
+/* Eventi brevi: un solo comando discreto per recuperare la cronaca completa.
+   Il testo integrale rimane nel documento e nell'archivio, non si elimina. */
+.news-flash-overlay .news-flash-body .news-flash-more,
+.simulation-reader-scrim .simulation-event-reader .simulation-reader-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid #a5baa8 !important;
+  border-radius: 8px !important;
+  background: #edf3eb !important;
+  color: #29543c !important;
+  -webkit-text-fill-color: #29543c !important;
+  font: 650 13px/1.3 system-ui, sans-serif;
+  cursor: pointer;
+}
+.news-flash-overlay .news-flash-body .news-flash-more:hover,
+.simulation-reader-scrim .simulation-event-reader .simulation-reader-more:hover {
+  background: #dcebdd !important;
+}
+.news-flash-overlay .news-flash-order {
+  margin-top: 12px;
+  color: #465e50;
+}
+.news-flash-overlay .news-flash-order summary {
+  cursor: pointer;
+  font: 600 12px/1.4 system-ui, sans-serif;
+  color: #365c45;
+}
+.news-flash-overlay .news-flash-order p {
+  margin-top: 8px;
+}

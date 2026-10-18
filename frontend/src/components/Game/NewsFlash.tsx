@@ -1,8 +1,9 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { AccessibleDialog } from '../ui/AccessibleDialog';
 import type { FeedItem } from './EventFeed';
 import { publicNarrativeText } from '../../services/publicNarrative';
 import { classifyDispatch } from './dispatchCategory';
+import { compactEventText } from './compactEventText';
 
 interface NewsFlashProps {
   item: FeedItem | null;
@@ -26,8 +27,16 @@ const SECTION: Record<FeedItem['kind'], string> = {
  */
 export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive, playerPolityName, locationLabel }: NewsFlashProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   if (!item) return null;
   const category = classifyDispatch(item.text, item.detail);
+  const headline = compactEventText(publicNarrativeText(item.text.replace(/^Evento \d+:\s*/, ''), playerPolityName), 105);
+  const detail = compactEventText(
+    item.detail ? publicNarrativeText(item.detail, playerPolityName) : 'Non sono ancora disponibili ulteriori particolari su questo sviluppo.',
+    240,
+  );
+  const expanded = expandedId === item.id;
+  const canExpand = headline.shortened || detail.shortened;
 
   return (
     <AccessibleDialog
@@ -47,18 +56,22 @@ export function NewsFlash({ item, pendingCount, onClose, onNext, onOpenArchive, 
         </header>
         <div className="news-flash-body">
           <span className="news-flash-mark" aria-hidden="true">▤</span>
-          <h2 id="news-flash-title">{publicNarrativeText(item.text.replace(/^Evento \d+:\s*/, ''), playerPolityName)}</h2>
-          <p>{item.detail
-            ? publicNarrativeText(item.detail, playerPolityName)
-            : 'Non sono ancora disponibili ulteriori particolari su questo sviluppo.'}</p>
+          <h2 id="news-flash-title">{expanded ? publicNarrativeText(item.text.replace(/^Evento \d+:\s*/, ''), playerPolityName) : headline.text}</h2>
+          <p>{expanded && item.detail ? publicNarrativeText(item.detail, playerPolityName) : detail.text}</p>
+          {canExpand && (
+            <button type="button" className="news-flash-more" aria-expanded={expanded}
+              onClick={() => setExpandedId(expanded ? null : item.id)}>
+              {expanded ? 'Mostra meno' : 'Leggi tutto'}
+            </button>
+          )}
           {/* §3.2/8: l'ordine da cui nasce il dispaccio, quando esiste. Nel
               focolaio centrale il giocatore vede subito la causa che ha voluto;
               un dispaccio del mondo non ne ha e il blocco non compare. */}
           {item.actionText ? (
-            <p className="news-flash-order" role="note">
-              <span className="article-order-label">L'ordine:</span>{' '}
-              {publicNarrativeText(item.actionText, playerPolityName)}
-            </p>
+            <details className="news-flash-order" role="note">
+              <summary>L'ordine che ha generato la notizia</summary>
+              <p>{publicNarrativeText(item.actionText, playerPolityName)}</p>
+            </details>
           ) : null}
         </div>
         <footer className="news-flash-footer">

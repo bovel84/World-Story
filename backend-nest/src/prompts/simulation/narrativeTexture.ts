@@ -21,8 +21,8 @@ import { EVENT_BODY_WORDS } from '../immersion';
  * il modello deve attingere i fatti dal contesto, non dagli esempi.
  */
 export const NARRATIVE_TEXTURE_EXAMPLES: readonly string[] = [
-  'Il ministero del Commercio sospende il rilascio delle licenze di export dopo che tre delegazioni straniere hanno disertato il tavolo negoziale: la misura entra in vigore entro il mese e riapre la questione delle scorte di grano, finora rinviata.',
-  'La guarnigione di frontiera riceve l’ordine di arretrare di due giornate di marcia: ufficiali e sindaci locali protestano, il comando giustifica la mossa con la necessità di accorciare le linee, ma il confine resta ora esposto a un’incursione rapida.',
+  'Il ministero del Commercio sospende le licenze di export dopo il fallimento dei colloqui. Le scorte di grano diventano la priorità del governo.',
+  'La guarnigione arretra dalla frontiera per accorciare le linee. I sindaci protestano: alcuni valichi restano scoperti e cresce il rischio di incursioni.',
 ];
 
 /**
