@@ -17,6 +17,7 @@ import type { Region } from '../../types';
 import { publicNarrativeText } from '../../services/publicNarrative';
 import { formatGameDate, formatChatStamp, orderChatsByLatest } from './chatTimeline';
 import { isNewDiplomaticMessagePersisted, pickDiplomaticTargetIds } from './diplomaticChatNavigation';
+import { diplomaticMessageForDisplay } from './diplomaticOpeningView';
 
 interface ChatsPanelProps {
   gameId: string;
@@ -411,7 +412,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                   className={`chat-bubble ${m.role}`}
                   style={m.role === 'polity' ? { '--nation-color': senderColor(m.senderName || '') } as React.CSSProperties : undefined}
                 >
-                  {publicNarrativeText(m.content, playerPolityName)}
+                  {publicNarrativeText(diplomaticMessageForDisplay(m.content, activeChat?.subject, m.role), playerPolityName)}
                 </div>
               </div>
             ))
