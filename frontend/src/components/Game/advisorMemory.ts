@@ -46,6 +46,10 @@ function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
     const anchorKeys = Array.isArray(issue.anchorKeys)
       ? [...new Set(issue.anchorKeys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0).map(key => key.trim()))]
       : [];
+    // Keep narrative-only proposals portable; the server rehydrates their evidence.
+    const evidenceKeys = Array.isArray(issue.evidenceKeys)
+      ? [...new Set(issue.evidenceKeys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0).map(key => key.trim()))]
+      : [];
     // P01/P03 — le MOSSE della proposta: prosa, titolo + content. Senza questa
     // riga le opzioni si perdevano al salvataggio e la scheda tornava senza mosse.
     const options = Array.isArray(issue.options)
@@ -56,13 +60,14 @@ function sanitizeIssues(raw: unknown): CouncilIssue[] | undefined {
         return optionTitle && content ? [{ title: optionTitle, content }] : [];
       })
       : [];
-    // verifiedFacts OR signalKeys OR anchorKeys = issue persistibile.
-    if (!verifiedFacts.length && !signalKeys.length && !anchorKeys.length) return [];
+    // At least one resolvable source, including political evidence, is required.
+    if (!verifiedFacts.length && !signalKeys.length && !anchorKeys.length && !evidenceKeys.length) return [];
     return [{
       id, title, question, verifiedFacts,
       ...(situationId ? { situationId } : {}),
       ...(signalKeys.length ? { signalKeys } : {}),
       ...(anchorKeys.length ? { anchorKeys } : {}),
+      ...(evidenceKeys.length ? { evidenceKeys } : {}),
       ...(options.length ? { options } : {}),
       suggestedMinisters: issue.suggestedMinisters.filter(seat => typeof seat === 'string') as CouncilIssue['suggestedMinisters'],
       origin: issue.origin as CouncilIssue['origin'],

@@ -33,11 +33,11 @@ import { buildVerifiedWorldSnapshot, type VerifiedWorldGameData, type VerifiedWo
 import { renderRealityConcerns } from './core/government/RealitySignals';
 import { HISTORICAL_BASELINE_RULE, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import type { NationSituationRecord } from './core/government/NationSituation';
-import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, withAdvisorRequestMode, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
+import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, guardRealityAdvisorOutput, renderSignedActs, verifiedRequestCorrection, withAdvisorStrategicContext, withAdvisorRequestMode, ADVISOR_FACT_POLICY, VERIFIED_FACT_POLICY, type RealityAdvisorContext } from './core/government/RealityAdvisor';
 import { compileNarrativeSituation, renderNarrativeContext, narrativeRoleForSeat } from './core/government/NarrativeContextCompiler';
 import { COUNCIL_ISSUE_PROTOCOL, MAX_BRIEFING_COUNCIL_ISSUES, parseCouncilIssues, serializeCouncilIssues } from './core/government/CouncilIssue';
 import { parseAdvisorResponse, serializeAdvisorResponse } from './core/government/AdvisorSituations';
-import { ADVISOR_BRIEFING_REPAIR_SYSTEM, repairAdvisorBriefing } from './core/government/AdvisorBriefingRepair';
+import { ADVISOR_BRIEFING_REPAIR_SYSTEM, developAdvisorBriefing, repairAdvisorBriefing } from './core/government/AdvisorBriefingRepair';
 import { buildConverterPrompt, parseConverterResponse, buildBatchConverterPrompt, parseBatchConverterResponse } from './prompts/converter';
 import { buildNarrationPrompt, parseNarrationResponse } from './prompts/narration';
 import { buildNarrativeMemory } from './prompts/narrative-memory';
@@ -1860,28 +1860,29 @@ export class PromptEngine {
     }
 
     const context = advisorRequestContext(game, message);
+    const factPolicy = isMinisterRequest(game, message) ? VERIFIED_FACT_POLICY : ADVISOR_FACT_POLICY;
     const correction = verifiedRequestCorrection(context.verifiedWorldSnapshot, message);
     if (correction) return correction;
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
     const prompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, getJevConfig().enabled && game.ministerMemoryRequest ? 'minister' : 'advisor', game.ministerDialogueSeat);
     if (context.mode === 'briefing' && !isMinisterRequest(game, message)) {
       const agendaPrompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, 'advisor', undefined, 'agenda');
-      const discovery = await this.llm.generate('advisor', VERIFIED_FACT_POLICY, agendaPrompt, {
-        temperature: 0.45, maxTokens: 4000, singleAttempt: true, signal,
+      const discovery = await this.llm.generate('advisor', factPolicy, agendaPrompt, {
+        temperature: 0.5, maxTokens: 8000, singleAttempt: true, signal,
       });
       return this.finishAdvisorDiscovery(context, discovery.content, message,
-        async () => (await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, {
+        async () => (await this.llm.generate('advisor', factPolicy, prompt, {
           temperature: 0.5, singleAttempt: true, signal,
         })).content, signal);
     }
-    const response = await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, { temperature: 0.5, signal });
+    const response = await this.llm.generate('advisor', factPolicy, prompt, { temperature: 0.5, signal });
     return validatedAdvisorText(context, response.content,
       isMinisterRequest(game, message) ? undefined : proposalPrompt => this.repairAdvisorBriefing(proposalPrompt, signal), message);
   }
 
   /** Phase 1 extracts independently verified situations. Phase 2 elaborates only
    * those situations through the existing canonical CouncilIssue validator.
-   * Failed discovery may use one legacy full completion; never a third attempt. */
+   * Failed discovery may use one full completion. Valid threads are developed separately. */
   private async finishAdvisorDiscovery(
     context: RealityAdvisorContext, discoveredText: string, message: string,
     legacyCompletion: () => Promise<string>, signal?: AbortSignal,
@@ -1900,17 +1901,23 @@ export class PromptEngine {
       const fallback = await legacyCompletion();
       return validatedAdvisorText(context, fallback, undefined, message);
     }
-    return validatedAdvisorText(context, agendaText,
-      prompt => this.repairAdvisorBriefing(prompt, signal), message);
+    const reply = guardRealityAdvisorOutput(context, discovered.reply);
+    if (reply !== discovered.reply) return serializeAdvisorResponse({ reply, situations: [], issues: [] });
+    const agenda = parseAdvisorResponse(context.verifiedWorldSnapshot, agendaText, 'advisor', {
+      strategicContext: context, includeDeterministicSituations: true,
+    });
+    return serializeAdvisorResponse(await developAdvisorBriefing(context.verifiedWorldSnapshot, agenda, {
+      context, message, signal, complete: prompt => this.repairAdvisorBriefing(prompt, signal),
+    }));
   }
 
   /**
-   * One bounded proposal completion for chat/briefing/stream. Canonical
+   * One proposal development request (per situation during a national briefing). Canonical
    * validation and merging stay in the shared advisor response pipeline.
    */
   async repairAdvisorBriefing(prompt: string, signal?: AbortSignal): Promise<string> {
     const response = await this.llm.generate('advisor', ADVISOR_BRIEFING_REPAIR_SYSTEM, prompt, {
-      temperature: 0.35, maxTokens: 4000, singleAttempt: true, signal,
+      temperature: 0.5, maxTokens: 6000, singleAttempt: true, signal,
     });
     return response.content;
   }
@@ -1940,6 +1947,7 @@ export class PromptEngine {
       }, signal, realityContextFor(game).verifiedWorldSnapshot);
     }
     const context = advisorRequestContext(game, message);
+    const factPolicy = isMinisterRequest(game, message) ? VERIFIED_FACT_POLICY : ADVISOR_FACT_POLICY;
     const correction = verifiedRequestCorrection(context.verifiedWorldSnapshot, message);
     if (correction) return correction;
     const preset = await advisorPresetStyle(builder, game, message, history, vars);
@@ -1947,15 +1955,15 @@ export class PromptEngine {
     // Progress is observable, but unvalidated prose is never published.
     if (context.mode === 'briefing' && !isMinisterRequest(game, message)) {
       const agendaPrompt = buildRealityAdvisorPrompt(context, message, preset.history, preset.style, 'advisor', undefined, 'agenda');
-      const discovery = await this.llm.stream('advisor', VERIFIED_FACT_POLICY, agendaPrompt, progress => {
+      const discovery = await this.llm.stream('advisor', factPolicy, agendaPrompt, progress => {
         if (typeof progress === 'number') onToken(progress);
-      }, { temperature: 0.45, maxTokens: 4000, singleAttempt: true, signal });
+      }, { temperature: 0.5, maxTokens: 8000, singleAttempt: true, signal });
       return this.finishAdvisorDiscovery(context, discovery.content, message,
-        async () => (await this.llm.generate('advisor', VERIFIED_FACT_POLICY, prompt, {
+        async () => (await this.llm.generate('advisor', factPolicy, prompt, {
           temperature: 0.5, singleAttempt: true, signal,
         })).content, signal);
     }
-    const response = await this.llm.stream('advisor', VERIFIED_FACT_POLICY, prompt, progress => {
+    const response = await this.llm.stream('advisor', factPolicy, prompt, progress => {
       if (typeof progress === 'number') onToken(progress);
     }, { temperature: 0.5, signal });
     return validatedAdvisorText(context, response.content,

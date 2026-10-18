@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CABINET_SEATS } from '../src/core/government/Cabinet';
+import { buildStrategicThreadEvidence } from '../src/core/government/StrategicThreads';
 import { buildRealitySignals } from '../src/core/government/RealitySignals';
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-reality-advisor-'));
@@ -23,7 +24,7 @@ const provider: any = {
 beforeAll(async () => {
   const database = await import('../src/database'); db = database.default; database.initDatabase();
   const { worldRepository } = await import('../src/repositories');
-  worldRepository.createWithRegions({ id: 'reality-world', name: 'Reality World', description: '', startDate: '1951-01-01', basePrompt: '', historicalAccuracy: 0.8 }, [
+  worldRepository.createWithRegions({ id: 'reality-world', name: 'Reality World', description: '', startDate: '1951-01-01', basePrompt: 'Scenario alternativo: una riforma tributaria è aperta e i sindacati discutono la distribuzione degli oneri.', historicalAccuracy: 0.8 }, [
     { id: 'reality-world-UGA', name: 'Uganda', owner: 'UGA', color: '#223344', population: 5_000_000, gdp: 100, militaryPower: 0, flag: 'UGA', coastal: false, borders: [], objects: [] },
   ]);
   const { initSessionRegistry } = await import('../src/session-registry');
@@ -43,6 +44,22 @@ const post = (route: string, body: unknown) => fetch(base + route, { method: 'PO
 const issue = (key = 'treasury') => ({ id: 'proposal-1', title: 'Programma ferroviario', question: 'Come finanziarlo?', origin: 'president', createdDate: 'forged', sourceRefs: ['forged'], suggestedMinisters: ['lavori', 'tesoro'], verifiedFacts: [{ key, label: 'forged', value: 'FORGED_PORT_KAMPALA_999', source: 'client', sourceRef: 'forged' }] });
 
 describe('reality advisor API and minister trust boundary', () => {
+  it('preserves preset evidence from advisor context through focus and Council opening', async () => {
+    const context = session.getAdvisorEvidenceContext();
+    const evidence = buildStrategicThreadEvidence(context.verifiedWorldSnapshot, context).find(item => item.sourceRef === 'presetContext.premise')!;
+    expect(evidence.text).toContain('riforma tributaria');
+    const political = { ...issue(), verifiedFacts: [], evidenceKeys: [evidence.key], title: 'Riforma tributaria', question: 'Quale distribuzione degli oneri negoziamo?' };
+    const focused = await post('/advisor/reality', { message: 'Approfondiamo la riforma.', advisorContext: { focusIssue: political } });
+    expect(focused.status).toBe(200);
+    const focus = (await focused.json()).advisorContext.focusIssue;
+    expect(focus.verifiedContext[0].text).toBe(evidence.text);
+    const opened = await post('/government/minister/tesoro/opening', { sourceIssue: political });
+    expect(opened.status).toBe(200);
+    expect(captured.at(-1)).toContain(evidence.text);
+    const rejected = await post('/government/minister/tesoro/opening', { sourceIssue: { ...political, evidenceKeys: ['invented'] } });
+    expect(rejected.status).toBe(400);
+  });
+
   it('GET context is deterministic and structured, never calls the model', async () => {
     const count = captured.length;
     const response = await fetch(base + '/advisor/context');

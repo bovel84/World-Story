@@ -9,6 +9,7 @@ import { renderMinisterWorldContext, type MinisterWorldContext } from '../../pro
 import { stripNarrativeDirectives } from './MeetingNarrative';
 import type { AdvisorMessage } from '../../prompts/types';
 import { councilIssueInputSchema, resolveCouncilIssue, InvalidCouncilIssueError, type CouncilIssue } from './CouncilIssue';
+import type { StrategicThreadContext } from './StrategicThreads';
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 
 const text = z.string().max(400);
@@ -84,7 +85,7 @@ const councilSchema = z.object({
 export type MinisterCouncil = Omit<z.infer<typeof councilSchema>, 'sourceIssue'> & { sourceIssue?: CouncilIssue };
 
 /** Client discussion metadata only. Do not repair membership or accept unknown instructions. */
-export function normalizeMinisterCouncil(raw: unknown, requestingSeat: string, snapshot?: VerifiedWorldSnapshot): MinisterCouncil | undefined {
+export function normalizeMinisterCouncil(raw: unknown, requestingSeat: string, snapshot?: VerifiedWorldSnapshot, strategicContext?: StrategicThreadContext): MinisterCouncil | undefined {
   const parsed = councilSchema.safeParse(raw);
   if (!parsed.success || !parsed.data.participants.some(seat => seat === requestingSeat)) return undefined;
   const { sourceIssue: rawIssue, ...council } = parsed.data;
@@ -93,7 +94,7 @@ export function normalizeMinisterCouncil(raw: unknown, requestingSeat: string, s
   // New issue rooms are option-free. Legacy room metadata remains readable
   // only on the old sourceSituation path, never mixed into verified issues.
   const { sourceSituation, sourceFollowUp, proposedPressureOptions, selectedPressureOptions, ...issueCouncil } = council;
-  return { ...issueCouncil, sourceIssue: resolveCouncilIssue(snapshot, rawIssue) };
+  return { ...issueCouncil, sourceIssue: resolveCouncilIssue(snapshot, rawIssue, undefined, strategicContext) };
 }
 
 export class InvalidMinisterCouncilError extends Error {
@@ -104,10 +105,10 @@ export class InvalidMinisterCouncilError extends Error {
 interface MinisterDialogueRequest { gameId: string; seat: string; currentDecision?: MinisterCurrentDecision; council?: MinisterCouncil; sourceIssue?: CouncilIssue }
 const requestContext = new AsyncLocalStorage<MinisterDialogueRequest>();
 export function withMinisterDialogueRequest<T>(gameId: string, seat: string, currentDecision: unknown, run: () => T, councilRaw?: unknown,
-  verified?: { snapshot: VerifiedWorldSnapshot; sourceIssue?: unknown }): T {
-  const council = normalizeMinisterCouncil(councilRaw, seat, verified?.snapshot);
+  verified?: { snapshot: VerifiedWorldSnapshot; sourceIssue?: unknown; strategicContext?: StrategicThreadContext }): T {
+  const council = normalizeMinisterCouncil(councilRaw, seat, verified?.snapshot, verified?.strategicContext);
   if (councilRaw !== undefined && !council) throw new InvalidMinisterCouncilError();
-  const sourceIssue = verified?.sourceIssue === undefined ? council?.sourceIssue : resolveCouncilIssue(verified.snapshot, verified.sourceIssue);
+  const sourceIssue = verified?.sourceIssue === undefined ? council?.sourceIssue : resolveCouncilIssue(verified.snapshot, verified.sourceIssue, undefined, verified.strategicContext);
   return requestContext.run({ gameId, seat, currentDecision: normalizeCurrentDecision(currentDecision), council, sourceIssue }, run);
 }
 export function currentMinisterDialogueRequest(gameId: string, seat: CabinetSeat): MinisterDialogueRequest | undefined {
@@ -208,7 +209,7 @@ export function composeMinisterDialoguePrompt(brief: MinisterDialogueBrief, cont
     JSON.stringify(brief.currentDecision ?? { unresolved: ['Nessuna proposta corrente trasmessa: usa la conversazione recente senza fingere accordi.'] }),
     '[COLLEAGUE REDIRECT — solo se pertinente]', JSON.stringify(brief.redirect),
     'Se il redirect è presente, nomina il collega competente e spiega cosa aggiungi dalla tua sedia; NON dire «Non è la mia materia» o recitare targetReads. Non inventare un costo o una disponibilità.',
-    brief.sourceIssue ? `[SOURCE ISSUE — solo verifiedFacts è stato canonico server-side; titolo e domanda sono discussione]\n${JSON.stringify(brief.sourceIssue)}\nCostruisci liberamente una soluzione, senza opzioni Pressure obbligatorie. Non aprire sedute automaticamente.` : '',
+    brief.sourceIssue ? `[SOURCE ISSUE — verifiedFacts è stato corrente; verifiedContext è contesto politico risolto server-side, non inventario né effetto. Titolo e domanda sono discussione]\n${JSON.stringify(brief.sourceIssue)}\nCostruisci liberamente una soluzione, senza opzioni Pressure obbligatorie. Non aprire sedute automaticamente.` : '',
     '[PROTOCOL]', MINISTER_DIALOGUE_PROTOCOL,
     '[DIALOGUE STYLE]', MINISTER_DIALOGUE_STYLE,
     brief.council ? councilDialogueSection(brief.council) : '',

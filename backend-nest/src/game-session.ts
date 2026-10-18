@@ -36,7 +36,7 @@ import { renderRealityConcerns } from './core/government/RealitySignals';
 import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, isAdvisorBriefingRequest, withAdvisorStrategicContext, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { generateHistoricalBaseline, awaitHistoricalBaseline, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import { advisorReplyWithProposals, parseAdvisorResponse, resolveFocusSituation } from './core/government/AdvisorSituations';
-import type { CouncilIssue } from './core/government/CouncilIssue';
+import { resolveCouncilIssue, type CouncilIssue } from './core/government/CouncilIssue';
 import type { CurrentReactionAction } from './core/simulation/ReactionContext';
 import { WorldIntelService } from './game/WorldIntelService';
 import { NpcTurnService } from './game/NpcTurnService';
@@ -3688,7 +3688,7 @@ export class GameSession {
     const own = this.cachedHistoricalBaseline(this.playerPolityId);
     // Il focus è risolto DOPO il contesto strategico: serve la cronaca completa
     // (finestra + veto risoluzioni) per non riattivare una crisi già chiusa.
-    const result = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), focusIssue, own?.historicalBackground, undefined, mode);
+    const result = buildRealityAdvisorContext(this.getVerifiedWorldSnapshot(), undefined, own?.historicalBackground, undefined, mode);
     // H05 — la situazione della nazione entra come seconda fonte (già generata in
     // apertura; qui è sola lettura, nessuna chiamata al provider).
     const nationSituation = this.cachedNationSituation(this.playerPolityId);
@@ -3703,10 +3703,15 @@ export class GameSession {
     const relatedSituations = this.mentionedNpcPolityIds([query]).slice(0, 3)
       .flatMap(id => { const record = this.cachedNationSituation(id); return record ? [record] : []; });
     if (relatedSituations.length) result.advisorContext.polityNationSituations = relatedSituations;
+    result.advisorContext.presetContext = { name: (this.worldName ?? '').slice(0, 200), startDate: this.historicalStartDate, premise: (this.worldBasePrompt ?? '').slice(0, 2500) };
     result.advisorContext = withAdvisorStrategicContext(result.advisorContext, this.historicalStartDate, this.results, query);
+    if (focusIssue !== undefined) result.advisorContext.focusIssue = resolveCouncilIssue(result.advisorContext.verifiedWorldSnapshot, focusIssue, undefined, result.advisorContext);
     if (focusSituation !== undefined) result.advisorContext.focusSituation = resolveFocusSituation(result.advisorContext.verifiedWorldSnapshot, focusSituation, result.advisorContext);
     return result;
   }
+
+  /** Read-only server context for revalidating political proposals in Council. */
+  getAdvisorEvidenceContext(): RealityAdvisorContext { return this.advisorContext(); }
 
   private advisorContext(query = '', focusIssue?: unknown, focusSituation?: unknown, mode: 'briefing' | 'conversation' = 'conversation'): RealityAdvisorContext { return this.advisorResult(query, focusIssue, focusSituation, mode).advisorContext; }
 
@@ -4001,7 +4006,7 @@ export class GameSession {
     // inclusi). Il testo PUBBLICO (proattivo/semplice) non deve mai contenere
     // blocchi fenced: si pubblica solo la prosa.
     if (ministerSeat) return text;
-    return advisorReplyWithProposals(parseAdvisorResponse(this.getVerifiedWorldSnapshot(), text, 'advisor', { includeDeterministicSituations: false }));
+    return advisorReplyWithProposals(parseAdvisorResponse(this.getVerifiedWorldSnapshot(), text, 'advisor', { includeDeterministicSituations: false, strategicContext: gameData.advisorContext }));
   }
 
   /** Apertura automatica: solo letture, stesso provider, nessun percorso di decisione/memoria. */
@@ -4228,7 +4233,7 @@ export class GameSession {
     gameData.advisorContext = this.advisorContext(message);
     const text = await this.gameController.getAdvisorStreamWithPrompts(gameData, message, history, onToken);
     // Public text has no fenced blocks, but concrete proposals remain visible.
-    return advisorReplyWithProposals(parseAdvisorResponse(this.getVerifiedWorldSnapshot(), text, 'advisor', { includeDeterministicSituations: false }));
+    return advisorReplyWithProposals(parseAdvisorResponse(this.getVerifiedWorldSnapshot(), text, 'advisor', { includeDeterministicSituations: false, strategicContext: gameData.advisorContext }));
   }
 
   // =========================================================================

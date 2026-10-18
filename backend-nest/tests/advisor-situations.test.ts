@@ -286,9 +286,9 @@ describe('Strategic threads grounded in server evidence', () => {
       players: [{ id: 'p', name: 'Presidente', regionId: 'home', polityId: 'UGA' }], playerPolityId: 'UGA', actions: [], results: [],
       advisorContext: { ...buildRealityAdvisorContext(snapshot).advisorContext, ...strategicContext } } as never, 'fammi il quadro');
     const parsed = parseAdvisorResponse(snapshot, serialized, 'advisor', { strategicContext });
-    // The first-stage situation remains valid; premature options are discarded
-    // and regenerated in the second completion, not accepted from discovery.
-    expect(generate).toHaveBeenCalledTimes(2);
+    // A question without alternatives receives one targeted development retry.
+    // If the provider still omits options, retain the grounded question.
+    expect(generate).toHaveBeenCalledTimes(3);
     expect(parsed.situations[0].kind).toBe('opportunity');
     expect(parsed.situations[0].importance).toBe(1);
     expect(parsed.issues[0].situationId).toBe('integrazione');
