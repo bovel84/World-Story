@@ -91,7 +91,7 @@ function persistJevConversation(session: any, gameId: string, seat: string, mess
 /** Resolve discussion facts BEFORE they enter the async minister prompt scope. */
 function verifiedMinisterSource(session: any, body: any) {
   if (body?.sourceIssue === undefined && body?.council?.sourceIssue === undefined) return undefined;
-  return { snapshot: session.getVerifiedWorldSnapshot(), sourceIssue: body?.sourceIssue };
+  return { snapshot: session.getVerifiedWorldSnapshot(), sourceIssue: body?.sourceIssue, strategicContext: session.getAdvisorEvidenceContext?.() };
 }
 
 export function registerAdvisorRoutes(router: Router): void {
@@ -327,7 +327,7 @@ router.post('/:id/government/minister/:seat/opening', async (req, res) => {
     if (controller.signal.aborted) return;
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
     const situation = req.body?.sourceIssue !== undefined
-      ? councilIssueSituation(resolveCouncilIssue(session.getVerifiedWorldSnapshot(), req.body.sourceIssue))
+      ? councilIssueSituation(resolveCouncilIssue(session.getVerifiedWorldSnapshot(), req.body.sourceIssue, undefined, session.getAdvisorEvidenceContext?.()))
       : parseSituationBrief(req.body?.situation);
     const reply = await session.getMinisterOpening(seat, controller.signal, situation);
     if (!controller.signal.aborted && !res.destroyed) res.json(reply);

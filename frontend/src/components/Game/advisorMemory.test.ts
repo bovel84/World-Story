@@ -48,6 +48,14 @@ const anchorIssue = (over: Partial<CouncilIssue> = {}): CouncilIssue => ({
 });
 
 describe('advisorMemory', () => {
+  it('retains political-only proposals and choices after reload', () => {
+    (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
+    const political = anchorIssue({ anchorKeys: undefined, evidenceKeys: ['historical:reform'],
+      options: [{ title: 'Negoziare', content: 'Negoziamo la distribuzione degli oneri.' }, { title: 'Procedere', content: 'Procediamo con una compensazione mirata.' }],
+    });
+    saveAdvisorMessages('political', [{ role: 'assistant', content: 'Una riforma da discutere.', issues: [political] }]);
+    expect(loadAdvisorMessages('political')[0].issues?.[0]).toEqual(political);
+  });
   it('mantiene direttive visuali, scope originale e rifiuti sul messaggio esatto', () => {
     (globalThis as { localStorage?: Storage }).localStorage = fakeStorage();
     const message = { role: 'assistant' as const, content: 'Contesto territoriale.',

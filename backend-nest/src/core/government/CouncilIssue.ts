@@ -6,6 +6,7 @@ import { buildRealitySignals } from './RealitySignals';
 import { buildCouncilProposalAnchors } from './CouncilProposalAnchors';
 import type { VerifiedWorldSnapshot } from './VerifiedWorldSnapshot';
 import type { SituationBrief } from './MinisterOpening';
+import { resolveStrategicThreadEvidence, type StrategicThreadContext, type StrategicThreadEvidence } from './StrategicThreads';
 
 export type CouncilIssueOrigin = 'advisor' | 'president' | 'minister' | 'event' | 'follow-up';
 /**
@@ -34,6 +35,9 @@ export interface CouncilIssue {
   signalKeys?: string[];
   /** Chiavi degli anchor canonici (opportunità) che hanno originato la scheda. */
   anchorKeys?: string[];
+  /** Political context, resolved again by the server; never an inventory or an effect. */
+  evidenceKeys?: string[];
+  verifiedContext?: StrategicThreadEvidence[];
   /** Presentation link only; never a replacement for canonical proposal facts. */
   situationId?: string;
   verifiedFacts: Array<{ key: string; label: string; value: string; source: string; sourceRef: string }>;
@@ -66,9 +70,10 @@ export const councilIssueInputSchema = z.object({
   // distinto per non confondere «ciò che merita attenzione» con «ciò che può
   // sostenere una proposta». Il server risolve sempre factKeys/sourceRefs.
   anchorKeys: z.array(key).min(1).max(24).optional(),
+  evidenceKeys: z.array(key).min(1).max(8).optional(),
   suggestedMinisters: z.array(z.enum(CABINET_SEATS)).min(1).max(7),
   origin: z.enum(['advisor', 'president', 'minister', 'event', 'follow-up']).optional(),
-}).refine(value => Boolean(value.factKeys?.length || value.verifiedFacts?.length || value.signalKeys?.length || value.anchorKeys?.length), { message: 'Verified fact keys or signal keys required' });
+}).refine(value => Boolean(value.factKeys?.length || value.verifiedFacts?.length || value.signalKeys?.length || value.anchorKeys?.length || value.evidenceKeys?.length), { message: 'Verified source keys required' });
 
 export class InvalidCouncilIssueError extends Error {
   constructor(message = 'Council issue non valida: chiavi di fatto o di segnale richieste') {
@@ -133,12 +138,18 @@ function resolveAnchorLinks(snapshot: VerifiedWorldSnapshot, anchorKeys: readonl
  * **nomina** (mai in silenzio): la scheda muore per la ragione vera, non per una
  * generica assenza di fatti.
  */
-export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknown, origin?: CouncilIssueOrigin): CouncilIssue {
+export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknown, origin?: CouncilIssueOrigin, context: StrategicThreadContext = {}): CouncilIssue {
   const parsed = councilIssueInputSchema.safeParse(raw);
   if (!parsed.success) throw new InvalidCouncilIssueError();
   const input = parsed.data;
   const linked = resolveSignalLinks(snapshot, input.signalKeys ?? []);
   const linkedAnchors = resolveAnchorLinks(snapshot, input.anchorKeys ?? []);
+  let evidence: StrategicThreadEvidence[];
+  try {
+    evidence = input.evidenceKeys?.length ? resolveStrategicThreadEvidence(snapshot, input.evidenceKeys, context, linked.signalKeys.length > 0) : [];
+  } catch (error) {
+    throw new InvalidCouncilIssueError(error instanceof Error ? error.message : 'Invalid political context');
+  }
   // Con signalKeys O anchorKeys presenti sono loro l'AUTORITÀ: factKeys/verifiedFacts
   // del client sono ignorati. Solo in loro assenza vale il percorso legacy fail-closed.
   const hasSignals = linked.signalKeys.length > 0 || linkedAnchors.anchorKeys.length > 0;
@@ -155,6 +166,7 @@ export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknow
   const sourceRefs = hasSignals
     ? [...new Set([...linked.sourceRefs, ...linkedAnchors.sourceRefs])]
     : [...new Set(verifiedFacts.map(fact => fact.sourceRef))];
+  for (const item of evidence) if (!sourceRefs.includes(item.sourceRef)) sourceRefs.push(item.sourceRef);
   // Una signal canonica senza factKeys resta valida se porta un riferimento canonico.
   // Se non resta NULLA, il motivo nomina le chiavi scartate (mai in silenzio):
   // la scheda muore per la ragione vera, non per una generica assenza di fatti.
@@ -172,6 +184,7 @@ export function resolveCouncilIssue(snapshot: VerifiedWorldSnapshot, raw: unknow
     // del client non può aggiungere chiavi inventate.
     ...(linked.signalKeys.length ? { signalKeys: linked.signalKeys } : {}),
     ...(linkedAnchors.anchorKeys.length ? { anchorKeys: linkedAnchors.anchorKeys } : {}),
+    ...(evidence.length ? { evidenceKeys: evidence.map(item => item.key), verifiedContext: evidence } : {}),
     ...(input.situationId ? { situationId: input.situationId } : {}),
     verifiedFacts, suggestedMinisters: [...new Set(input.suggestedMinisters)],
     origin: origin ?? input.origin ?? 'advisor', sourceRefs,
@@ -203,7 +216,7 @@ export const ADVISOR_ACTION_PROTOCOL = [
 /** Advisor alternatives are generated with the issue, in the same completion. */
 export const ADVISOR_COUNCIL_ISSUE_PROTOCOL = [
   'Il CONSULENTE presenta situazioni e AZIONI POSSIBILI; il CONSIGLIO verifica e sviluppa la proposta scelta dal Presidente. Le alternative non sono fatti, autorizzazioni o esiti: nessuna azione viene eseguita senza la firma.',
-  'Se identifichi una questione concreta che richiede una decisione del Presidente o del Governo, DEVI emettere la relativa scheda fenced ```council_issue, una per questione distinta, con JSON {"title":"...","question":"...","options":[{"title":"azione 1","content":"...azione concreta e compromesso..."},{"title":"azione 2","content":"...strategia differente..."},{"title":"azione 3","content":"...terza via verificabile..."},{"title":"azione 4","content":"...quarta via, se fondata..."}],"situationId":"tema-politico","signalKeys":["..."],"anchorKeys":["..."],"suggestedMinisters":["guerra","tesoro"]}. Usa situationId solo per una situazione presente; includi solo le liste di chiavi pertinenti e non vuote. Scrivi le alternative SOLO in options della council_issue, mai duplicate nella advisor_situation o nella prosa.',
+  'Se identifichi una questione concreta che richiede una decisione del Presidente o del Governo, DEVI emettere la relativa scheda fenced ```council_issue, una per questione distinta, con JSON {"title":"...","question":"...","options":[{"title":"azione 1","content":"...azione concreta e compromesso..."},{"title":"azione 2","content":"...strategia differente..."},{"title":"azione 3","content":"...terza via verificabile..."},{"title":"azione 4","content":"...quarta via, se fondata..."}],"situationId":"tema-politico","signalKeys":["..."],"anchorKeys":["..."],"suggestedMinisters":["guerra","tesoro"]}. Usa situationId solo per una situazione presente; includi solo le liste di chiavi pertinenti e non vuote. Per una questione politica documentata puoi usare evidenceKeys della situazione e del registro STRATEGIC THREAD EVIDENCE anche senza signalKeys o anchorKeys: sono contesto politico, mai prova di inventari o effetti. Scrivi le alternative SOLO in options della council_issue, mai duplicate nella advisor_situation o nella prosa.',
   'Presenta tutte e sole le questioni strategiche realmente distinte e salienti che meritano una decisione: possono essere nessuna, una o più. Non duplicare lo stesso problema e non creare questioni per riempire una quota. Ogni questione deve poter essere portata separatamente al Consiglio, con fonti canoniche e solo ministri pertinenti alla domanda.',
   `Sedie ammesse: ${CABINET_SEATS.join(', ')}. Usa solo chiavi presenti in facts del VerifiedWorldSnapshot se ricorri a factKeys; preferisci signalKeys dai CURRENT STRATEGIC SIGNALS o anchorKeys dai COUNCIL PROPOSAL ANCHORS. Non generare valori, sourceRefs, fatti nuovi, costi inventati o effetti.`,
   ...ADVISOR_ACTION_PROTOCOL,
@@ -335,6 +348,7 @@ function duplicatesSignedAct(snapshot: VerifiedWorldSnapshot, issue: Pick<Counci
 
 /** Strip invalid/unfinished/duplicate proposals; model text never supplies canonical facts. */
 export interface CouncilIssueParseOptions {
+  strategicContext?: StrategicThreadContext;
   /** Limite server-side; il briefing può coprire più delle otto questioni di una chat. */
   maxIssues?: number;
   /** Motivo dello scarto: callback per i test, altrimenti il server logga. */
@@ -348,7 +362,7 @@ export function parseCouncilIssues(snapshot: VerifiedWorldSnapshot, text: string
   const reply = text.replace(/```council_issue\b([^]*?)(?:```|$)/gi, (_block, json: string) => {
     try {
       if (issues.length < limit) {
-        const issue = resolveCouncilIssue(snapshot, JSON.parse(json.trim()), origin);
+        const issue = resolveCouncilIssue(snapshot, JSON.parse(json.trim()), origin, options.strategicContext);
         // Un atto già firmato è una decisione PRESA: riproporlo non è una nuova
         // questione. Deterministico, così il filtro non dipende dal prompt.
         const signed = duplicatesSignedAct(snapshot, issue);
@@ -379,7 +393,8 @@ export function serializeCouncilIssues(result: { reply: string; issues: CouncilI
 export function councilIssueSituation(issue: CouncilIssue): SituationBrief {
   return {
     factsVerified: true,
-    title: issue.title, briefing: 'Tema proposto per la discussione; i fatti correnti sono elencati separatamente.',
+    title: issue.title, briefing: ['Tema proposto per la discussione; i fatti correnti sono elencati separatamente.',
+      ...(issue.verifiedContext ?? []).map(item => `Contesto ${item.kind}: ${item.text}`)].join('\n'),
     decisionQuestion: issue.question,
     verifiedFacts: issue.verifiedFacts.map(fact => `${fact.label}: ${fact.value}`),
     source: issue.sourceRefs.join('; '), suggestedMinisters: issue.suggestedMinisters, originType: issue.origin,

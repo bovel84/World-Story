@@ -2068,6 +2068,9 @@ export interface CouncilIssue {
   signalKeys?: string[];
   /** Chiavi degli anchor canonici: il server le ricalcola, mai il client. */
   anchorKeys?: string[];
+  /** Contesto politico ricalcolato dal server, distinto dagli inventari. */
+  evidenceKeys?: string[];
+  verifiedContext?: Array<{ key: string; kind: 'historical' | 'history' | 'current'; text: string; sourceRef: string }>;
   /** Collegamento presentazionale alla situazione d'origine; mai fonte di fatti. */
   situationId?: string;
   verifiedFacts: Array<{ key: string; label: string; value: string; source: string; sourceRef: string }>;
