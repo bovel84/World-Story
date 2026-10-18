@@ -132,12 +132,27 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     const generation = useSimulationStore.getState().commandGeneration;
     const owns = () => requestRef.current === controller && !controller.signal.aborted && scopeRef.current === scope
       && useSimulationStore.getState().commandGeneration === generation;
+    const requestingMore = /(?:^|\s)(?:nuov[ei]|altr[ei]|ulteriori|aggiuntiv[ei]|diverse|più)(?=\s|$)/iu.test(text)
+      && /\b(?:proposte|situazioni|azioni|opzioni|mosse|alternative)\b/i.test(text);
     const history = currentTurnMessages(advisorMessages, currentTurn)
-      .filter(message => !message.proactive && message.content.trim()).slice(-20)
+      .filter(message => !message.proactive && message.content.trim()).slice(-18)
       .map(message => ({ role: message.role, content: message.content }));
+    // The opening is genuine advisor history, not an invented request. The
+    // model needs its titles to avoid restating the same political decisions.
+    if (requestingMore) {
+      const previousTitles = [
+        ...(opening?.situations ?? []).map(situation => situation.title),
+        ...(opening?.issues ?? []).map(issue => issue.title),
+        ...activeMessages.flatMap(message => [...(message.situations ?? []).map(item => item.title), ...(message.issues ?? []).map(item => item.title)]),
+      ];
+      const distinctTitles = [...new Set(previousTitles)].slice(-30);
+      if (distinctTitles.length) history.unshift({
+        role: 'assistant', content: `Questioni già proposte in questo turno, da NON duplicare:\n${distinctTitles.join('\n')}`.slice(0, 2400),
+      });
+    }
     // WS-CONSULENTE-SITUAZIONI — Focus canonico: al server vanno TUTTI i
     // riferimenti (signalKeys + evidenceKeys), mai titolo o sintesi.
-    const activeSituation = explicitIssue ? undefined : explicitSituation ?? situationFocus;
+    const activeSituation = requestingMore ? undefined : explicitIssue ? undefined : explicitSituation ?? situationFocus;
     const focusPayload = activeSituation ? buildSituationFocusPayload(activeSituation) : undefined;
     const previous: GovernmentVisualMessage | undefined = [...activeMessages].reverse().find(message => message.role === 'assistant');
     const geographicKeys = activeSituation?.signalKeys ?? (explicitIssue ?? focus)?.signalKeys
@@ -147,9 +162,9 @@ export function AdvisorChat({ gameId, chartData, scopeKey = gameId, onOpenIssue,
     if (raw === undefined) setInput('');
     setError(''); setAdvisorStreaming(true);
     try {
-      const result = await advisorApi.reality(gameId, text, history, explicitSituation ? undefined : explicitIssue ?? focus, controller.signal, focusPayload);
+      const result = await advisorApi.reality(gameId, text, history, requestingMore || explicitSituation ? undefined : explicitIssue ?? focus, controller.signal, focusPayload);
       if (!owns()) return;
-      if (result.advisorContext.mode === 'briefing') {
+      if (result.advisorContext.mode === 'briefing' && !requestingMore) {
         // Replace the current agenda, not the conversation or previous turns.
         setAdvisorMessages(useChatStore.getState().advisorMessages.map(message =>
           message.turn === currentTurn ? { ...message, situations: [], issues: [] } : message));

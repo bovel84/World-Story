@@ -52,8 +52,10 @@ export function ForcesPanel({
         <div>
           <div className="forces-panel-kicker">Forze</div>
           <div className="forces-panel-title">
-            {troubled === 0
-              ? 'Nessun reparto segnalato'
+            {!objects
+              ? 'Quadro operativo non disponibile'
+              : troubled === 0
+              ? 'Nessuna criticità operativa segnalata'
               : `${troubled} ${troubled === 1 ? 'reparto richiede' : 'reparti richiedono'} attenzione`}
           </div>
         </div>

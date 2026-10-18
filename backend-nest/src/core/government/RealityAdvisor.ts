@@ -76,13 +76,21 @@ export const ADVISOR_FACT_POLICY = VERIFIED_FACT_POLICY + '\nECCEZIONE ESPLICITA
 export const ADVISOR_OPENING_REQUEST = '[INITIAL HISTORICAL OPENING] Il Presidente apre il Governo alla data di divergenza. Racconta in modo naturale come il paese arriva a questo momento, usando i fatti concreti della HISTORICAL BASELINE e collegandoli ai problemi presenti; poi interpreta i problemi reali e descrivi le SITUAZIONI che meritano attenzione e formula per ciascuna una domanda politica concreta ancora aperta, con fonti e ministri competenti, e alternative concrete nelle options della council_issue, come richiesto dal BRIEFING MODE. All\'apertura la HISTORICAL BASELINE pesa molto: puoi usare nomi, luoghi e attori reali che spiegano l\'eredità che il Presidente eredita, purché non contraddicano il CURRENT STATE e senza inventare cifre, forze, accordi o territori non verificati. Un problema attestato come ancora attivo alla vigilia della divergenza non è già concluso solo perché la fonte storica usa l’imperfetto: valuta separatamente i diversi fronti e interessi documentati, senza confondere precedenti remoti o piani con fatti correnti. La prosa resta in due frasi brevi; i dettagli stanno nelle schede: non elencare la storia come un dossier, non ripetere la baseline, niente intestazioni tecniche. Se la baseline non è disponibile, evita un\'introduzione storica inventata: interpreta lo stato verificato.';
 export const ADVISOR_TURN_BRIEFING_REQUEST = '[TURN BRIEFING] Il Presidente torna al Governo. Parti dagli sviluppi dall’ultima riunione, dai programmi, dagli atti firmati (non ancora eseguiti) e dagli effetti misurati. Usa soprattutto PLAYER HISTORY e i segnali attuali. Non ripresentare le origini del paese né salutare come a inizio mandato. Descrivi le SITUAZIONI rilevanti e formula per ciascuna una domanda politica concreta ancora aperta, con fonti e ministri competenti, e alternative concrete nelle options della council_issue, come richiesto dal BRIEFING MODE, in brevi paragrafi; non inventare cambiamenti quando manca una baseline confrontabile.';
 
+/** The president may ask for MORE political options after the opening. This is a
+ * new agenda pass, not a free-form reply which loses all structured cards. */
+export function isAdvisorAdditionalProposalsRequest(message: string): boolean {
+  const text = message.normalize('NFKC').toLocaleLowerCase('it').trim().replace(/[.!?]+$/g, '').trim();
+  return /^(?:(?:dammi|fammi|crea|genera|prepara|trova|mostrami|sviluppa|elabora|voglio|vorrei|proponi|proponimi|quali sono|quali altre|cerca)\s+)?(?:(?:delle|le|degli|gli|alcune|alcuni|più|altre|altri|nuove|nuovi|ulteriori|aggiuntive|aggiuntivi|diverse)\s+)*(?:proposte|situazioni|azioni|opzioni|mosse|alternative)(?:\s+(?:nuove|nuovi|altre|altri|aggiuntive|aggiuntivi|diverse|ulteriori|strategiche))?$/.test(text)
+    && /(?:^|\s)(?:nuov[ei]|altr[ei]|ulteriori|aggiuntiv[ei]|diverse|più)(?=\s|$)/u.test(text);
+}
+
 /** A broad agenda request is not a focused follow-up. Anchored patterns avoid
  * treating «fammi il punto sul Sudan» or a quoted/negated briefing as refresh. */
 export function isAdvisorBriefingRequest(message: string): boolean {
   const text = message.normalize('NFKC').toLocaleLowerCase('it').trim()
     .replace(/^[\s]*(?:per favore[, ]+|puoi\s+|potresti\s+)/, '')
     .replace(/[.!?]+$/g, '').trim();
-  return /^(?:briefing|(?:dammi|fammi|rifai|aggiorna)(?: un| il)? briefing|(?:dammi|fammi) (?:il|un) quadro(?: generale| strategico| della situazione)?|(?:dammi|fammi) (?:la|una) situazione(?: strategica| generale| attuale)?|aggiornami sulla situazione(?: strategica| generale| attuale)?|cosa richiede attenzione|quali sono le priorit[àa]|fammi il punto(?: della situazione)?)$/.test(text);
+  return /^(?:briefing|(?:dammi|fammi|rifai|aggiorna)(?: un| il)? briefing|(?:dammi|fammi) (?:il|un) quadro(?: generale| strategico| della situazione)?|(?:dammi|fammi) (?:la|una) situazione(?: strategica| generale| attuale)?|aggiornami sulla situazione(?: strategica| generale| attuale)?|cosa richiede attenzione|quali sono le priorit[àa]|fammi il punto(?: della situazione)?)$/.test(text) || isAdvisorAdditionalProposalsRequest(message);
 }
 
 /** An explicit national refresh clears even a stale client-side focus. */
@@ -403,6 +411,7 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
   if (audience === 'advisor') context = withAdvisorRequestMode(context, message);
   const structuredAgenda = audience === 'advisor' && (context.mode === 'briefing' || !!context.focusSituation);
   const agendaOnly = audience === 'advisor' && context.mode === 'briefing' && phase === 'agenda';
+  const askingForMore = isAdvisorAdditionalProposalsRequest(message);
   const recent = history.filter(item => (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string').slice(-20);
   // Il NARRATIVE CONTEXT COMPILER sta PRIMA del fact registry: il modello entra
   // nella stanza, poi riceve le cifre come guardrail. Nessuna chiamata LLM in più.
@@ -459,6 +468,7 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
     agendaOnly ? '' : audience === 'advisor' ? COUNCIL_ANCHOR_PROTOCOL : '',
     audience === 'advisor' ? SITUATION_BASE_PROTOCOL : '',
     agendaOnly ? [
+      ...(askingForMore ? ['RICHIESTA DI ULTERIORI PROPOSTE: tratta le questioni già citate in MEMORY / OPEN QUESTIONS come agenda esistente, non ripeterle con altri titoli. Cerca altre decisioni DOCUMENTATE e distinguibili, anche di opportunità, se esistono. Se nessuna nuova questione è sostenuta da prove, dillo chiaramente e non riciclare le precedenti.'] : []),
       'FASE 1 DI 2 — AGENDA POLITICA. Interpreta l’intero contesto, seleziona solo questioni autonome e documentate (interni, fronti, diplomazia, economia, riforme quando pertinenti), senza quota fissa e senza inventare fatti.',
       'Prima seleziona tutte le vicende politiche aperte documentate nel contesto nazionale: non fermarti al primo segnale urgente e non lasciare riforme, negoziati o programmi soltanto nella prosa introduttiva. Ogni vicenda autonoma deve diventare una situazione, con le sue prove. Le scorte sono vincoli delle strategie, non sostituiscono l’agenda nazionale. Non aggiungere temi per riempire categorie vuote.',
       'Emetti un blocco fenced ```advisor_situation per ciascun tema: JSON {"id":"tema-univoco","title":"...","summary":"...","kind":"problem","signalKeys":["..."],"evidenceKeys":["..."]}. Usa solo chiavi presenti nei registri; per vicende storiche usa evidenceKeys, per segnali correnti anche signalKeys. Una prova storica dopo la divergenza richiede continuità corrente verificata.',

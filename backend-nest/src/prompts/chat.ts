@@ -80,8 +80,8 @@ export function diplomaticEventContext(input: {
 
 function renderHistory(history: ChatHistoryItem[], playerPolityName: string): string {
   if (history.length === 0) return '(La trattativa sta iniziando)';
-  return history.slice(-16)
-    .map(m => `${m.role === 'player' ? `${playerPolityName} (voce ufficiale)` : m.role}: ${compact(m.content, 700)}`)
+  return history.slice(-12)
+    .map(m => `${m.role === 'player' ? `${playerPolityName} (voce ufficiale)` : m.role}: ${compact(m.content, 480)}`)
     .join('\n');
 }
 
@@ -165,17 +165,17 @@ ${vars.difficultyContext}
 La difficoltà stabilisce quanta influenza, preparazione o contropartita serve perché ${speaker.name} accetti una proposta. Non concedere risultati che contraddicono questo livello.
 
 [Lore prima del primo turno]
-${compact(vars.worldContext, 3_000) || '(Storia alternativa)'}
+${compact(vars.worldContext, 2_000) || '(Storia alternativa)'}
 
 [Regole specifiche del preset]
-${compact(vars.simulationRules, 2_000) || '(Nessuna regola aggiuntiva)'}
+${compact(vars.simulationRules, 1_400) || '(Nessuna regola aggiuntiva)'}
 
 [Data ed eventi recenti]
 Data di gioco: ${vars.date}
 ${events}
 
 [Mappa e rapporti di forza attuali]
-${compact(vars.mapContext, 5_000)}
+${compact(vars.mapContext, 2_500)}
 
 [Obiettivo della trattativa]
 ${mandate || 'Definisci una richiesta concreta coerente con gli interessi attuali.'}
@@ -197,7 +197,7 @@ ${modeRule}
 [Come decidi — la sostanza della trattativa]
 - Riprendi il punto preciso ancora aperto nella cronaca (una promessa, un rifiuto, una concessione, una domanda) e portalo verso una posizione, una condizione, un accordo o un rifiuto chiaro, valutando seriamente offerte e richieste: non trascinare la trattativa senza scopo e non inventare precedenti assenti.
 - Conserva condizioni già poste e linea politica finché un fatto nuovo documentato in cronaca giustifica il cambiamento; in quel caso spiegalo. Un alleato può opporsi e un rivale può cooperare, quando conviene.
-- Una proposta vaga riceve una domanda concreta; una proposta svantaggiosa una controproposta motivata o un rifiuto; una concessione utile può sbloccare il confronto. Non chiudere ogni messaggio con la stessa domanda e non rendere gli altri presenti una voce unica.
+- Fai progredire il NEGOZIATO: rispondi esplicitamente sì, no oppure a quali condizioni, identificando un passo reciprocamente verificabile e chi deve compierlo. Se la controparte ha fatto un'offerta, giudica proprio quella, non ripeti il tuo discorso precedente. Non dare per eseguita una proposta: la chat registra solo posizioni, non atti firmati. Una proposta vaga riceve una domanda concreta; una proposta svantaggiosa una controproposta motivata o un rifiuto; una concessione utile può sbloccare il confronto. Non chiudere ogni messaggio con la stessa domanda e non rendere gli altri presenti una voce unica.
 - Distingui dichiarazioni, intese condizionate e atti eseguiti: questa chat non sposta truppe, denaro o confini e non firma nuovi atti per ${vars.playerPolityName}. Un fatto è compiuto soltanto se confermato nello stato o negli eventi della partita.
 - Le sole nazioni presenti in questa trattativa sono: ${presentNames}. Non far parlare né trattare come presenti altre nazioni: un altro paese può essere citato solo come attore esterno della situazione, mai come interlocutore.
 - Usa forza, territori e relazioni per decidere, ma NON citare cifre, percentuali, punteggi, livelli, indici, PIL, popolazione, numero di regioni o divisioni, tassi o statistiche. Traduci i dati in giudizi politici naturali («una forza militare superiore», «un’economia fragile», «una popolazione esigua»).
@@ -208,7 +208,7 @@ ${modeRule}
 ✗ da evitare: «Le nostre priorità includono la sicurezza dei confini e lo sviluppo commerciale. Le nostre linee rosse riguardano il transito militare. Proponiamo un patto di non aggressione e chiediamo garanzie sul rispetto dei confini.»
 ✓ da imitare: «I vostri reggimenti ammassati alla frontiera non sono un dettaglio che ci sfugge. Se iniziano il ritiro entro la fine del mese, siamo pronti a riaprire i valichi commerciali da subito; in caso contrario questa trattativa si chiude qui, e le conseguenze ricadranno sul vostro governo.»
 
-Scrivi in italiano, in prima persona plurale: 2–5 frasi naturali da nota ufficiale o colloquio tra governi, paragrafi brevi, aperture variate, massimo 1200 caratteri.
+Scrivi in italiano, in prima persona plurale: 2–4 frasi incisive (idealmente 350–700 caratteri, massimo 850), una posizione e una conseguenza negoziale specifica. Niente monologhi o preamboli: la risposta deve invitare una decisione effettiva del Presidente.
 
 Rispondi SOLO con un oggetto JSON valido, senza markdown o testo attorno:
 {"message":"<replica diplomatica di ${speaker.name}>"}`;
@@ -216,6 +216,18 @@ Rispondi SOLO con un oggetto JSON valido, senza markdown o testo attorno:
 
 export interface ParsedChatResponse {
   message: string;
+}
+
+/** Do not let overlong free-model speeches bury the actionable position on mobile. */
+function diplomaticMessage(text: string): string {
+  const value = text.trim();
+  if (value.length <= 850) return value;
+  const prefix = value.slice(0, 850);
+  const sentences = [...prefix.matchAll(/[.!?](?=\s|$)/g)];
+  const end = sentences.length ? sentences[sentences.length - 1].index! + 1 : 0;
+  if (end >= 300) return prefix.slice(0, end).trim();
+  const space = prefix.lastIndexOf(' ');
+  return `${prefix.slice(0, space > 450 ? space : 850).trimEnd()}…`;
 }
 
 /** Parsing tollerante della replica {message}, con fallback al testo puro. */
@@ -232,11 +244,11 @@ export function parseChatResponse(text: string): ParsedChatResponse {
     try {
       const obj = JSON.parse(candidate);
       const message = typeof obj?.message === 'string' ? obj.message.trim() : '';
-      if (message) return { message };
+      if (message) return { message: diplomaticMessage(message) };
     } catch { /* prova il prossimo candidato */ }
   }
   const withoutFence = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-  return { message: withoutFence.substring(0, 1_200) || '…' };
+  return { message: diplomaticMessage(withoutFence) || '…' };
 }
 
 function normalizedName(value: string): string {

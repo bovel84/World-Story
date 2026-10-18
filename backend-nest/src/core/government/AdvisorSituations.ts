@@ -401,15 +401,16 @@ export function parseAdvisorResponse(snapshot: VerifiedWorldSnapshot, text: stri
   const parsedIssues = parseCouncilIssues(snapshot, parsedSituations.reply, origin, {
     ...options, ...(briefing ? { maxIssues: MAX_BRIEFING_COUNCIL_ISSUES } : {}),
   });
+  const situations = options.includeDeterministicSituations
+    ? mergeAdvisorSituations(snapshot, parsedSituations.situations)
+    : parsedSituations.situations;
   const result: AdvisorResponse = {
     reply: parsedIssues.reply,
-    situations: options.includeDeterministicSituations
-      ? mergeAdvisorSituations(snapshot, parsedSituations.situations)
-      : parsedSituations.situations,
+    situations,
     // Il Consulente scarta le proposte solo istruttorie; i ministri restano invariati.
     issues: origin === 'advisor' || origin === 'president'
       ? parsedIssues.issues.filter(issue => !isPreparatoryCouncilIssue(issue)
-        && (!issue.situationId || parsedSituations.situations.some(situation => situation.id === issue.situationId)))
+        && (!issue.situationId || situations.some(situation => situation.id === issue.situationId)))
       : parsedIssues.issues,
   };
   // Solo questioni validate del modello/repair coprono le situazioni.

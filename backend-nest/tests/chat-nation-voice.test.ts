@@ -15,7 +15,7 @@
  *     accettiamo e quale passo reciproco proponiamo») non c'è più.
  */
 import { describe, it, expect } from 'vitest';
-import { buildChatPrompt } from '../src/prompts/chat';
+import { buildChatPrompt, parseChatResponse } from '../src/prompts/chat';
 
 const VARS = {
   playerPolityName: 'Regno di Cambogia',
@@ -73,6 +73,12 @@ describe('la chat diplomatica parla come una nazione, non come un elencatore di 
 
   it('la vecchia formula a slot non c’è più nel prompt', () => {
     expect(prompt).not.toContain('cosa vogliamo ottenere, quale limite non accettiamo e quale passo reciproco proponiamo');
+  });
+
+  it('il testo diplomatico restituito rimane leggibile su mobile anche con risposte prolisse', () => {
+    const verbose = Array.from({ length: 10 }, (_, i) => `Condizione ${i + 1}: negoziamo soltanto dopo un passo reciproco verificabile.`).join(' ');
+    expect(parseChatResponse(JSON.stringify({ message: verbose })).message.length).toBeLessThanOrEqual(850);
+    expect(parseChatResponse(verbose).message.length).toBeLessThanOrEqual(850);
   });
 
   it('il messaggio di reazione automatica NON narra in terza persona', () => {
