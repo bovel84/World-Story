@@ -180,7 +180,7 @@
   .game-shell-desk .forces-panel .obj-open { min-height: 42px; padding: 8px 12px; font-size: 12px; }
   .news-flash-overlay .news-flash {
     width: min(560px, 100%) !important;
-    max-height: min(64dvh, 610px) !important;
+    max-height: min(58dvh, 570px) !important;
   }
   .news-flash-overlay .news-flash-header { gap: 8px; padding: 12px 14px; }
   .news-flash-overlay .news-flash-body { max-height: none !important; padding: 16px 16px 12px !important; }
