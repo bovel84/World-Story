@@ -977,6 +977,11 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
   const ordered = orderedRegions(regions);
   const coastal = coastalFirst(regions);
   const totalFormations = Math.max(0, Math.round(nonNegative(account.forces)));
+  // In the historical PA, these are security services / police, NOT a regular
+  // national army. Engine manpower stays untouched; the display discloses the
+  // nature of this approximate security establishment to the player.
+  const securityServices = input.polityId === 'PSE' && Number(input.date.slice(0, 4)) >= 1994
+    && Number(input.date.slice(0, 4)) <= 2000;
   const plan = formationPlan({ epoch, units });
   const objects: OperatingObject[] = [];
   const conventions: string[] = [
@@ -985,6 +990,8 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
     'Produzione e input di un impianto: contributo marginale calcolato dal motore (`advanceStock`) sullo stesso profilo, non una formula riscritta.',
     'Le navi rappresentate sono derivate dalle unità navali dell\'arsenale: il motore conta gli scafi per tipo, non i singoli esemplari.',
   ];
+
+  if (securityServices) conventions.push('Autorità Palestinese 1994–2000: le forze iniziali sono principalmente servizi di sicurezza e polizia; i reparti aggregati del motore NON attestano un esercito convenzionale né divisioni storiche.');
 
   // ── Forze armate (contenitore) ed eserciti ────────────────────────────────
   const armyShapesList = armyShapes({ polityId: input.polityId, regions, formations: totalFormations });
@@ -995,15 +1002,17 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
   objects.push({
     id: 'force',
     kind: 'force',
-    label: 'Forze armate',
-    subtitle: `${n(totalFormations)} reparti · ${n(manpower.activePersonnel)} uomini in armi`,
+    label: securityServices ? 'Forze di sicurezza palestinesi' : 'Forze armate',
+    subtitle: securityServices
+      ? `${n(manpower.activePersonnel)} addetti alla sicurezza · ${n(totalFormations)} gruppi operativi (stima del motore)`
+      : `${n(totalFormations)} reparti · ${n(manpower.activePersonnel)} uomini in armi`,
     status: armyStatus(readiness.readinessPct),
     statusLabel: OPERATING_STATUS_LABEL[armyStatus(readiness.readinessPct)],
     parentId: null,
     regionId: null,
     regionName: null,
     facts: [
-      fact('personale', 'Uomini in armi', manpower.activePersonnel + manpower.mobilizedPersonnel, 'numero'),
+      fact('personale', securityServices ? 'Personale di sicurezza' : 'Uomini in armi', manpower.activePersonnel + manpower.mobilizedPersonnel, 'numero'),
       fact('personale', 'Riserva addestrata', manpower.reservePersonnel, 'numero'),
       fact('personale', 'Riservisti richiamabili', manpower.availableReserve, 'numero'),
       fact('capacita', 'Prontezza', readiness.readinessPct, 'pct', readinessTone(readiness)),
@@ -1024,7 +1033,9 @@ export function operatingPicture(input: OperationalInput): OperatingPicture {
       enabled: !plan.blocked,
       blockedReason: plan.blocked ? plan.blockedReason : null,
     }],
-    why: plan.basis,
+    why: securityServices
+      ? `Aggregato simulato di polizia e servizi di sicurezza, non un esercito convenzionale. Numero e organizzazione dei gruppi sono stime del motore, non un inventario storico. ${plan.basis}`
+      : plan.basis,
   });
 
   // ── Impianti ──────────────────────────────────────────────────────────────
