@@ -33,7 +33,7 @@ import { buildVerifiedWorldSnapshot, type VerifiedWorldSnapshot } from './core/g
 import { readPreviousVerifiedWorldSnapshot } from './core/government/VerifiedWorldSnapshotHistory';
 import { derivedInfrastructureObjects } from './core/simulation/DerivedInfrastructure';
 import { renderRealityConcerns } from './core/government/RealitySignals';
-import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, isAdvisorBriefingRequest, withAdvisorStrategicContext, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
+import { buildRealityAdvisorContext, guardRealityAdvisorOutput, verifiedRequestCorrection, renderSignedActs, advisorOpeningRequest, isAdvisorBriefingRequest, isAdvisorAdditionalProposalsRequest, withAdvisorStrategicContext, type RealityAdvisorContext, type RealityAdvisorResult } from './core/government/RealityAdvisor';
 import { generateHistoricalBaseline, awaitHistoricalBaseline, renderPolityHistoricalBaselines, type PolityHistoricalBaseline } from './core/government/HistoricalBaseline';
 import { advisorReplyWithProposals, parseAdvisorResponse, resolveFocusSituation } from './core/government/AdvisorSituations';
 import { resolveCouncilIssue, type CouncilIssue } from './core/government/CouncilIssue';
@@ -3979,7 +3979,7 @@ export class GameSession {
     }
     this.assertFenceValid(fence);
     const result = parseAdvisorResponse(context.advisorContext.verifiedWorldSnapshot, text, 'president', {
-      includeDeterministicSituations: mode === 'briefing', strategicContext: context.advisorContext,
+      includeDeterministicSituations: mode === 'briefing' && !isAdvisorAdditionalProposalsRequest(message), strategicContext: context.advisorContext,
     });
     // PromptEngine already performs the single proposal repair (chat + stream).
     // Revalidate the final transport here, without spending another completion.
