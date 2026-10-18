@@ -1,0 +1,199 @@
+/**
+ * Mobile operational desk — light edition.
+ * Scoped fixes for Forces/ObjectsBoard and the world dispatch reader.
+ * Presentation only: no simulation data or map behavior changes.
+ */
+
+/* The operational board was authored for a dark desk; the light theme now
+   supplies an ivory surface. Keep the semantics but restore ink contrast. */
+.game-shell-desk .forces-panel {
+  --forces-ink: #26382f;
+  --forces-muted: #52675a;
+  --forces-rule: #cdd6c9;
+  color: var(--forces-ink);
+}
+.game-shell-desk .forces-panel-header {
+  min-width: 0;
+}
+.game-shell-desk .forces-panel-kicker {
+  color: #77602f !important;
+  -webkit-text-fill-color: #77602f !important;
+}
+.game-shell-desk .forces-panel-title {
+  color: #243c2f !important;
+  -webkit-text-fill-color: #243c2f !important;
+  overflow-wrap: anywhere;
+}
+.game-shell-desk .forces-panel-note,
+.game-shell-desk .forces-panel .obj-intro {
+  color: var(--forces-muted) !important;
+  -webkit-text-fill-color: var(--forces-muted) !important;
+}
+.game-shell-desk .forces-panel .obj-sector,
+.game-shell-desk .forces-panel .obj-object,
+.game-shell-desk .forces-panel .obj-why.block,
+.game-shell-desk .forces-panel .obj-chain,
+.game-shell-desk .forces-panel .obj-action {
+  background: #fffdf7 !important;
+  color: var(--forces-ink) !important;
+  border-color: var(--forces-rule);
+}
+.game-shell-desk .forces-panel .obj-sector {
+  border-top-color: #779381;
+  box-shadow: 0 2px 8px rgb(38 56 47 / 5%);
+}
+.game-shell-desk .forces-panel .obj-sector.tone-positive { border-top-color: #4fa374; }
+.game-shell-desk .forces-panel .obj-sector.tone-warning { border-top-color: #bd8e3d; }
+.game-shell-desk .forces-panel :is(.obj-sector.tone-critical, .obj-sector.tone-negative) { border-top-color: #c96a64; }
+.game-shell-desk .forces-panel .obj-object.tone-positive { border-left-color: #4fa374; }
+.game-shell-desk .forces-panel .obj-object.tone-warning { border-left-color: #bd8e3d; }
+.game-shell-desk .forces-panel :is(.obj-object.tone-critical, .obj-object.tone-negative) { border-left-color: #c96a64; }
+.game-shell-desk .forces-panel :is(
+  .obj-sector-name, .obj-detail-head b, .obj-object-name, .obj-chain b,
+  .obj-action-head b, .obj-facts dd, .obj-chain li em, .obj-delta td
+) {
+  color: var(--forces-ink) !important;
+  -webkit-text-fill-color: var(--forces-ink) !important;
+}
+.game-shell-desk .forces-panel :is(
+  .obj-sector-count, .obj-sector-headline, .obj-facts dt, .obj-object-kind,
+  .obj-object-sub, .obj-section h5, .obj-detail-head span, .obj-why summary,
+  .obj-why p, .obj-chain li span, .obj-chain p, .obj-conventions li,
+  .obj-delta th, .obj-note, .obj-empty
+) {
+  color: var(--forces-muted) !important;
+  -webkit-text-fill-color: var(--forces-muted) !important;
+}
+.game-shell-desk .forces-panel .obj-problems li,
+.game-shell-desk .forces-panel .obj-problems em {
+  color: #405848 !important;
+  -webkit-text-fill-color: #405848 !important;
+}
+.game-shell-desk .forces-panel .obj-problems li.tone-warning { border-left-color: #b78431; }
+.game-shell-desk .forces-panel .obj-problems li.tone-critical { border-left-color: #b9524c; }
+.game-shell-desk .forces-panel :is(.obj-problem, .obj-blocked, .obj-blocked-hint) {
+  color: #85531c !important;
+  -webkit-text-fill-color: #85531c !important;
+}
+.game-shell-desk .forces-panel .obj-problem.tone-critical { color: #a63e37 !important; }
+.game-shell-desk .forces-panel .obj-facts .tone-positive dd,
+.game-shell-desk .forces-panel .obj-delta tr.tone-positive td:nth-child(3) {
+  color: #256944 !important; -webkit-text-fill-color: #256944 !important;
+}
+.game-shell-desk .forces-panel .obj-facts .tone-warning dd,
+.game-shell-desk .forces-panel .obj-delta tr.tone-warning td:nth-child(3) {
+  color: #805e20 !important; -webkit-text-fill-color: #805e20 !important;
+}
+.game-shell-desk .forces-panel .obj-facts .tone-critical dd,
+.game-shell-desk .forces-panel .obj-delta tr.tone-critical td:nth-child(3) {
+  color: #a3413a !important; -webkit-text-fill-color: #a3413a !important;
+}
+.game-shell-desk .forces-panel :is(
+  .obj-open, .obj-back, .obj-cancel, .obj-action-button
+) {
+  border: 1px solid #9ab3a0 !important;
+  background: #eef3e9 !important;
+  color: #28563b !important;
+  -webkit-text-fill-color: #28563b !important;
+}
+.game-shell-desk .forces-panel :is(.obj-open, .obj-back, .obj-cancel, .obj-action-button):hover:not(:disabled) {
+  background: #dcebdd !important;
+  border-color: #5d8467 !important;
+}
+.game-shell-desk .forces-panel .obj-action-button.active,
+.game-shell-desk .forces-panel .obj-confirm:not(:disabled) {
+  background: #32644e !important;
+  border-color: #28543d !important;
+  color: #fffdf7 !important;
+  -webkit-text-fill-color: #fffdf7 !important;
+}
+.game-shell-desk .forces-panel .obj-action-button:disabled {
+  opacity: .65;
+}
+.game-shell-desk .forces-panel .obj-unit-target label,
+.game-shell-desk .forces-panel .obj-action-line,
+.game-shell-desk .forces-panel .obj-action-head span {
+  color: #405848 !important;
+}
+.game-shell-desk .forces-panel .obj-unit-target select {
+  background: #fffdf7 !important;
+  color: #26382f !important;
+  border-color: #9ab3a0 !important;
+}
+
+/* The newspaper must scroll in its body, not lose half its space to a
+   stacked, full-width footer. Keep the geographic map visible above it. */
+.news-flash-overlay .news-flash {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+}
+.news-flash-overlay .news-flash-header,
+.news-flash-overlay .news-flash-footer { flex: 0 0 auto; }
+.news-flash-overlay .news-flash-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.news-flash-overlay .news-flash-footer {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #eee6d6 !important;
+}
+.news-flash-overlay .news-flash-footer .news-flash-actions {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  width: auto !important;
+  min-width: 0;
+}
+.news-flash-overlay .news-flash-footer .news-flash-archive {
+  width: auto !important;
+  flex: 0 0 auto;
+}
+.news-flash-overlay .news-flash-footer .news-flash-pending {
+  display: none;
+}
+.news-flash-overlay .news-flash-footer :is(.news-flash-archive, .news-flash-actions) {
+  grid-column: auto !important;
+}
+.news-flash-overlay .news-flash-footer button {
+  min-height: 44px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .game-shell-desk .forces-panel { gap: 10px; }
+  .game-shell-desk .forces-panel-header { padding-right: 44px; gap: 5px; }
+  .game-shell-desk .forces-panel-title { font-size: clamp(17px, 4.8vw, 21px); line-height: 1.25; }
+  .game-shell-desk .forces-panel-note { font-size: 12px; line-height: 1.45; }
+  .game-shell-desk .forces-panel .obj-sectors { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .game-shell-desk .forces-panel .obj-sector { padding: 12px; }
+  .game-shell-desk .forces-panel .obj-facts { gap: 9px 12px; }
+  .game-shell-desk .forces-panel .obj-facts dt { font-size: 11px; }
+  .game-shell-desk .forces-panel .obj-facts dd { font-size: 14px; overflow-wrap: anywhere; }
+  .game-shell-desk .forces-panel .obj-open { min-height: 42px; padding: 8px 12px; font-size: 12px; }
+  .news-flash-overlay .news-flash {
+    width: min(560px, 100%) !important;
+    max-height: min(58dvh, 570px) !important;
+  }
+  .news-flash-overlay .news-flash-header { gap: 8px; padding: 12px 14px; }
+  .news-flash-overlay .news-flash-body { max-height: none !important; padding: 16px 16px 12px !important; }
+  .news-flash-overlay .news-flash-body h2 { font-size: clamp(20px, 5.4vw, 24px) !important; line-height: 1.25; }
+  .news-flash-overlay .news-flash-body p { font-size: 15px; line-height: 1.5; }
+  .news-flash-overlay .news-flash-footer {
+    padding: 9px 12px calc(9px + env(safe-area-inset-bottom)) !important;
+  }
+  .news-flash-overlay .news-flash-footer button { padding: 0 9px !important; }
+}
+@media (max-width: 359px) {
+  .news-flash-overlay .news-flash-footer { display: grid !important; grid-template-columns: 1fr !important; }
+  .news-flash-overlay .news-flash-footer .news-flash-archive { width: 100% !important; }
+  .news-flash-overlay .news-flash-footer .news-flash-actions { width: 100% !important; }
+  .news-flash-overlay .news-flash-footer .news-flash-actions button { flex: 1 1 0; }
+}

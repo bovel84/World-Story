@@ -7,6 +7,7 @@ import './index.css';
 import './editorial.css';
 // Light editorial palette follows legacy styles so the browser sees one coherent theme.
 import './styles/light-palette.css';
+import './styles/operational-mobile-fixes.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
