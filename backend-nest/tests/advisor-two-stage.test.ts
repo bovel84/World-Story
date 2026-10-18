@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PromptEngine } from '../src/prompt-builder';
 import { buildVerifiedWorldSnapshot } from '../src/core/government/VerifiedWorldSnapshot';
-import { buildRealityAdvisorContext, buildRealityAdvisorPrompt } from '../src/core/government/RealityAdvisor';
+import { buildRealityAdvisorContext, buildRealityAdvisorPrompt, isAdvisorBriefingRequest, isAdvisorAdditionalProposalsRequest } from '../src/core/government/RealityAdvisor';
 import { buildRealitySignals } from '../src/core/government/RealitySignals';
 import { buildStrategicThreadEvidence } from '../src/core/government/StrategicThreads';
 import { resolveCouncilIssue } from '../src/core/government/CouncilIssue';
 import { normalizeMinisterCouncil } from '../src/core/government/MinisterDialogue';
-import { parseAdvisorResponse } from '../src/core/government/AdvisorSituations';
+import { buildAdvisorSituations, parseAdvisorResponse } from '../src/core/government/AdvisorSituations';
 
 const fenced = (tag: string, value: unknown) => '```' + tag + '\n' + JSON.stringify(value) + '\n```';
 
@@ -131,6 +131,28 @@ describe('Political agenda development and Council handoff', () => {
     });
     await expect(new PromptEngine({ generate } as never).getAdvisor(f.game as never, 'fammi il quadro', [], controller.signal)).rejects.toThrow();
     expect(generate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('Explicit new proposals after a political briefing', () => {
+  it('routes explicit additional requests to a new two-stage briefing without hijacking focused questions', () => {
+    for (const message of ['Dammi altre proposte', 'crea nuove situazioni', 'Proponimi ulteriori alternative']) {
+      expect(isAdvisorAdditionalProposalsRequest(message), message).toBe(true);
+      expect(isAdvisorBriefingRequest(message), message).toBe(true);
+    }
+    expect(isAdvisorAdditionalProposalsRequest('Approfondiamo la questione di Gerusalemme')).toBe(false);
+    expect(isAdvisorAdditionalProposalsRequest('fammi il quadro')).toBe(false);
+  });
+
+  it('retains a council decision grounded only in a verified urgent signal on transport', () => {
+    const f = fixture();
+    const signal = buildAdvisorSituations(f.snapshot).find(s => s.signalKeys.includes('food-coverage'))!;
+    expect(signal).toBeDefined();
+    const result = parseAdvisorResponse(f.snapshot,
+      fenced('council_issue', { ...f.issue, situationId: signal.id }), 'advisor',
+      { strategicContext: f.context, includeDeterministicSituations: true });
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].situationId).toBe(signal.id);
   });
 });
 
