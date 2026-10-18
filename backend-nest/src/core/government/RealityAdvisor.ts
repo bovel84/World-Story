@@ -80,8 +80,8 @@ export const ADVISOR_TURN_BRIEFING_REQUEST = '[TURN BRIEFING] Il Presidente torn
  * new agenda pass, not a free-form reply which loses all structured cards. */
 export function isAdvisorAdditionalProposalsRequest(message: string): boolean {
   const text = message.normalize('NFKC').toLocaleLowerCase('it').trim().replace(/[.!?]+$/g, '').trim();
-  return /^(?:(?:dammi|fammi|crea|genera|prepara|trova|mostrami|sviluppa|elabora|voglio|vorrei|proponi|proponimi|quali sono|quali altre|cerca)\s+)?(?:(?:delle|le|degli|gli|alcune|alcuni|più|altre|altri|nuove|nuovi)\s+)*(?:proposte|situazioni|azioni|opzioni|mosse|alternative)(?:\s+(?:nuove|nuovi|altre|altri|aggiuntive|aggiuntivi|diverse|ulteriori|strategiche))?$/.test(text)
-    && /\b(?:nuov[ei]|altr[ei]|ulteriori|aggiuntiv[ei]|diverse|più)\b/.test(text);
+  return /^(?:(?:dammi|fammi|crea|genera|prepara|trova|mostrami|sviluppa|elabora|voglio|vorrei|proponi|proponimi|quali sono|quali altre|cerca)\s+)?(?:(?:delle|le|degli|gli|alcune|alcuni|più|altre|altri|nuove|nuovi|ulteriori|aggiuntive|aggiuntivi|diverse)\s+)*(?:proposte|situazioni|azioni|opzioni|mosse|alternative)(?:\s+(?:nuove|nuovi|altre|altri|aggiuntive|aggiuntivi|diverse|ulteriori|strategiche))?$/.test(text)
+    && /(?:^|\s)(?:nuov[ei]|altr[ei]|ulteriori|aggiuntiv[ei]|diverse|più)(?=\s|$)/u.test(text);
 }
 
 /** A broad agenda request is not a focused follow-up. Anchored patterns avoid
