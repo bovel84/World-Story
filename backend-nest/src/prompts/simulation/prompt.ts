@@ -7,7 +7,7 @@
  * Estratto da `prompts/simulation.ts` (Fase 3): comportamento invariato.
  */
 import { PromptVariables } from '../types';
-import { buildImmersionContract, EVENT_DESCRIPTION_GUIDE } from '../immersion';
+import { buildImmersionContract, EVENT_DESCRIPTION_GUIDE, EVENT_HEADLINE_GUIDE } from '../immersion';
 import { buildGovernmentNarrativeGuard } from '../government';
 import { CONSTRAINED_NARRATIVE_BUDGETS, type NarrativeBudgets } from '../../llm/modelTier';
 import { buildNarrativeTextureBlock } from './narrativeTexture';
@@ -234,7 +234,7 @@ ${buildNpcAgencyGuard(vars)}
 ${buildDomesticReactionGuard(vars)}
 
 *Qualità dei dispacci.* Ogni evento è un breve articolo verificabile, non un titolo generico.
-- Titolo: soggetto + verbo d’azione + luogo/oggetto concreto (massimo 12 parole). Per un ordine del giocatore, usa il nome della sua politia o della controparte coinvolta. Mai “Tensioni crescono”, “Nuova crisi”, “Bollettino”, “Evento”, una cifra di bilancio o formule vaghe.
+- Titolo: ${EVENT_HEADLINE_GUIDE}, con luogo/oggetto concreto se documentato. Per un ordine del giocatore, usa il nome della sua politia o della controparte coinvolta. Mai “Tensioni crescono”, “Nuova crisi”, “Bollettino”, “Evento”, una cifra di bilancio o formule vaghe.
 - Corpo: ${EVENT_DESCRIPTION_GUIDE}. Chiarisci perché questa notizia conta nel contesto della partita, non limitarti a registrare l'esito dell'ordine.
 - Usa cifre solo se presenti nello stato o proporzionate e necessarie; non inventare presidenti, ministri o dati statistici non forniti. Distingui chiaramente proposta, misura avviata e risultato ottenuto.
 ${opts?.texture ? `
@@ -247,11 +247,11 @@ ${buildNarrativeTextureBlock()}` : ''}
 Se il periodo non produce una svolta, **non emettere l'evento**: meglio una cronaca corta e vera che un dispaccio riempito. Il numero di eventi è il risultato della simulazione, non una quota da raggiungere. NON interrompere però la simulazione a metà: se gli eventi sono troppi per il budget, distribuiscili lungo il periodo invece di troncare.
 - Tono da cronaca storica: sobrio, concreto, senza linguaggio da videogame né aggettivi promozionali. Preferisci la precisione di un dispaccio d’agenzia o di un articolo di prima pagina.
 
-*Notizie sugli scontri.* Quando due o più politie vengono alle armi, il dispaccio di battaglia è una cronaca militare completa, non un titolo riassuntivo:
+*Notizie sugli scontri.* Anche una battaglia resta un dispaccio breve (vale la stessa guida condivisa), ma riferisce l'esito concreto:
 - nomina chi attacca e chi difende, il fronte o la provincia contesa e la data o il periodo;
-- descrivi l'andamento (sfondamento, controffensiva, assedio, ritirata, bombardamento, blocco navale) con coerenza rispetto a forze e geografia;
-- riporta l'esito e le perdite in forma proporzionata e plausibile (vittime, prigionieri, mezzi, territorio perduto o riconquistato), senza inventare cifre precise non giustificate;
-- aggiungi la conseguenza immediata (provincia occupata, governo in fuga, tregua, appello internazionale) e una reazione della controparte nel campo "reactions".
+- menziona soltanto la manovra decisiva (sfondamento, ritirata, assedio, blocco navale) se attestata da forze e geografia;
+- riporta l'esito e le eventuali perdite solo se attestate, senza inventare cifre;
+- indica la conseguenza immediata in una sola frase; la risposta dettagliata della controparte appartiene al campo strutturato "reactions", non a un altro paragrafo.
 
 *Volume della cronaca.* Nei salti lunghi non limitarti a un solo dispaccio: copri cause e conseguenze con più eventi distinti e datati (mobilitazioni, scontri, occupazioni, dichiarazioni, trattative, effetti economici), mantenendo ogni evento agganciato a una causa verificabile. Meglio 4-8 dispacci concreti e collegati che un unico riassunto generico.
 
