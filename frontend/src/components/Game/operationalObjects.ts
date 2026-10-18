@@ -214,11 +214,12 @@ export function sectorCards(
   if (force) {
     cards.push({
       id: 'forze',
-      label: 'Forze armate',
+      label: force.label,
       headline: force.subtitle ?? force.label,
       status: force.status,
       facts: [
-        { label: 'Uomini in armi', value: factValue(force, 'Uomini in armi') },
+        { label: force.facts.some(fact => fact.label === 'Personale di sicurezza') ? 'Personale di sicurezza' : 'Uomini in armi',
+          value: factValue(force, 'Personale di sicurezza') !== '—' ? factValue(force, 'Personale di sicurezza') : factValue(force, 'Uomini in armi') },
         { label: 'Riserva', value: factValue(force, 'Riserva addestrata') },
         { label: 'Prontezza', value: factValue(force, 'Prontezza') },
         { label: 'Spesa militare', value: factValue(force, 'Spesa militare') },
