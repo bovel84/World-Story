@@ -460,7 +460,8 @@ export function buildRealityAdvisorPrompt(context: RealityAdvisorContext, messag
     JSON.stringify(audience === 'minister'
       ? { date: context.verifiedWorldSnapshot.date, polityId: context.verifiedWorldSnapshot.polityId, facts: context.verifiedWorldSnapshot.facts, unavailable: context.verifiedWorldSnapshot.unavailable }
       : advisorFactRegistry(context.verifiedWorldSnapshot)),
-    COMPACT_CONVERSATION_STYLE,
+    // The minister dossier already includes a 650-character dialogue rule; avoid doubling it.
+    audience === 'minister' ? '' : COMPACT_CONVERSATION_STYLE,
     agendaOnly ? 'PRIMA FASE: prosa introduttiva non oltre 240 caratteri e soli blocchi advisor_situation. Non generare council_issue, options, atti o decisioni già prese. Le alternative saranno elaborate in una seconda chiamata sulle sole situazioni validate.' : audience === 'advisor'
       ? 'Rispondi naturalmente in italiano: prosa breve secondo MESSAGGI BREVI; il limite riguarda SOLO la prosa e NON i blocchi JSON advisor_situation/council_issue, che devono includere tutte le situazioni fondate e 3-5 alternative per questione quando giustificate. Le proposte restano ipotesi da verificare. Non generare missioni per riempire il silenzio.'
       : 'Rispondi naturalmente in italiano, secondo MESSAGGI BREVI. Le proposte restano ipotesi da verificare. Non generare missioni per riempire il silenzio.',
