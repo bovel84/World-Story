@@ -549,14 +549,16 @@ export class DiplomacyService {
    * condivisa (chiave ordinata) e due viste di percezione separate. Best-effort:
    * non lancia mai e non modifica lo stato deterministico.
    */
-  private recordDiplomaticExchange(chat: ChatRecord, playerText: string, reply: ChatMessageRecord): void {
+  private recordDiplomaticExchange(chat: ChatRecord, previousText: string, reply: ChatMessageRecord, previousSender?: string): void {
     try {
-      const player = this.ctx.playerPolityId();
+      // In auto mode the previous voice can be another NPC, never the player by implication.
+      const previousSpeaker = diplomaticSpeaker(chat.participants, previousSender);
+      const player = previousSpeaker?.id ?? this.ctx.playerPolityId();
       const speaker = diplomaticSpeaker(chat.participants, reply.senderName);
       const counterparty = speaker?.id ?? chat.polityId;
       if (!player || !counterparty || player === counterparty) return;
       const branchId = this.ctx.fenceContext().branchId;
-      const playerName = this.ctx.publicPolityName(player);
+      const playerName = previousSpeaker?.name ?? this.ctx.publicPolityName(player);
       const counterpartyName = speaker?.name ?? this.ctx.publicPolityName(counterparty);
       const matrix = this.matrix();
       const replyText = typeof reply.content === 'string' ? reply.content.trim() : '';
@@ -568,7 +570,7 @@ export class DiplomacyService {
         a: player,
         b: counterparty,
         eventType: 'diplomatic_exchange',
-        text: `Trattativa tra ${playerName} e ${counterpartyName}. ${playerName}: ${playerText || '(nessun messaggio)'}. ${counterpartyName}: ${replyText}.`,
+        text: `Trattativa${chat.subject ? ` «${chat.subject}»` : ''} tra ${playerName} e ${counterpartyName}. ${previousText ? `${playerName}: ${previousText}. ` : ''}${counterpartyName}: ${replyText}`,
         sourceEventId: `chat:${chat.id}:${reply.id}`,
         views: [
           { observer: player, subject: counterparty, text: `${playerName} verso ${counterpartyName}: ${matrix.get(player, counterparty)}.` },
@@ -601,6 +603,8 @@ export class DiplomacyService {
       const history = chatRepository.getMessages(chatId)
         .map(m => ({ role: m.role === 'player' ? 'player' : (m.senderName || chat.polityName), content: m.content }));
       const reply = await this.generateChatReply(chat, history, '', 'auto', fence);
+      const previous = history[history.length - 1];
+      this.recordDiplomaticExchange(chat, previous?.content || '', reply, previous?.role);
       replies.push(reply);
     }
     return { replies };
@@ -642,7 +646,8 @@ export class DiplomacyService {
       });
     }
 
-    const participantsVars = this.chatParticipantVarsFor(chat);
+    const memoryQuery = `${chat.subject || ''} ${playerMessage || history[history.length - 1]?.content || ''}`.trim();
+    const participantsVars = this.chatParticipantVarsFor(chat, memoryQuery, history[history.length - 1]?.role);
 
     const lastSpeaker = history[history.length - 1]?.role;
     const candidates = mode === 'auto' && participantsVars.length > 1
@@ -684,7 +689,7 @@ export class DiplomacyService {
       respondingParticipant,
       worldContext: this.ctx.worldBasePrompt() || 'Storia alternativa',
       simulationRules: this.ctx.worldSimulationRules() || '',
-      mapContext: this.buildChatMapContext(),
+      mapContext: this.buildChatMapContext([respondingParticipant.polityId, ...polityParticipants.map(p => p.id)]),
       difficultyContext: difficultyPromptBlock(this.ctx.difficulty()),
       date: this.ctx.currentDate(),
       recentEvents,
@@ -699,7 +704,7 @@ export class DiplomacyService {
       'chat',
       `Interpreta ${speakerName} in una trattativa storica: voce del suo governo in prima persona plurale, mai un elenco di fatti. Rispondi in italiano e SOLO con JSON {"message"}.`,
       prompt,
-      { temperature: 0.7, maxTokens: 450 },
+      { temperature: 0.7, maxTokens: 900 },
     );
     const parsed = parseChatResponse(response.content);
     // F04 passo 3: verifica del fence PRIMA della scrittura — una risposta
@@ -733,7 +738,7 @@ export class DiplomacyService {
    * (regioni, popolazione, PIL, forza) + personalità. Condivisa da repliche
    * normali e reazioni automatiche agli ordini.
    */
-  private chatParticipantVarsFor(chat: ChatRecord) {
+  private chatParticipantVarsFor(chat: ChatRecord, query = chat.subject || '', previousSender?: string) {
     const polityParticipants = chat.participants.filter(
       p => p.role !== 'player' && p.id !== this.ctx.playerPolityId()
     );
@@ -777,15 +782,20 @@ export class DiplomacyService {
       // fatto condiviso e percezione di questa nazione, tenuti separati.
       // Best-effort: un problema di memoria non deve far fallire la risposta.
       try {
-        const diplomatic = getDiplomaticMemory({
-          gameId: this.ctx.gameId,
-          branchId: this.ctx.fenceContext().branchId,
-          observer: p.id,
-          subject: this.ctx.playerPolityId(),
-          query: '',
-        });
-        const jev = [diplomatic.shared.text, diplomatic.view.text].filter(Boolean).join('\n');
-        if (jev) memory.push(jev);
+        const previous = diplomaticSpeaker(chat.participants, previousSender);
+        const subjects = [...new Set([this.ctx.playerPolityId(), previous?.id])]
+          .filter((id): id is string => !!id && id !== p.id);
+        for (const subject of subjects) {
+          const diplomatic = getDiplomaticMemory({
+            gameId: this.ctx.gameId,
+            branchId: this.ctx.fenceContext().branchId,
+            observer: p.id, subject, query,
+            maxTokens: Math.floor(1_800 / subjects.length),
+            asOf: { gameDate: this.ctx.currentDate(), turn: this.ctx.currentTurn() },
+          });
+          const jev = [diplomatic.shared.text, diplomatic.view.text].filter(Boolean).join('\n');
+          if (jev) memory.push(jev);
+        }
       } catch (error) {
         console.warn('[JEV] memoria diplomatica non disponibile per il colloquio:', error);
       }
@@ -806,6 +816,8 @@ export class DiplomacyService {
         name: p.name,
         relationship,
         diplomaticSituation,
+        delegationRelations: polityParticipants.filter(other => other.id !== p.id)
+          .map(other => `${other.name}: ${this.matrix().get(p.id, other.id)}`).join('; '),
         personality: `${profile.personality}; dottrina ${profile.doctrine}; stile ${profile.negotiationStyle}`,
         interests: [
           `ciò che conta di più in questo periodo: ${priorities.join('; ')}`,
@@ -927,7 +939,7 @@ export class DiplomacyService {
           respondingParticipant: responding,
           worldContext: this.ctx.worldBasePrompt() || 'Storia alternativa',
           simulationRules: this.ctx.worldSimulationRules() || '',
-          mapContext: this.buildChatMapContext(),
+          mapContext: this.buildChatMapContext([polityId]),
           difficultyContext: difficultyPromptBlock(this.ctx.difficulty()),
           date: input.date || this.ctx.currentDate(),
           recentEvents: input.eventHeadlines.slice(0, 8),
@@ -969,8 +981,8 @@ export class DiplomacyService {
     }
   }
 
-  /** Descrizione compatta della mappa per il prompt: «Politia: regione1, regione2». */
-  private buildChatMapContext(): string {
+  /** Keep the governments at the table ahead of unrelated map entries. */
+  private buildChatMapContext(participantIds: string[]): string {
     const byOwner = new Map<string, DiplomacyRegion[]>();
     for (const region of this.ctx.regions().values()) {
       if (region.owner === 'neutral') continue;
@@ -978,8 +990,10 @@ export class DiplomacyService {
       byOwner.get(region.owner)!.push(region);
     }
     const lines: string[] = [];
-    for (const regions of byOwner.values()) {
-      lines.push(`${regions[0].name}: ${regions.map(r => r.name).join(', ')}`);
+    for (const id of new Set([this.ctx.playerPolityId(), ...participantIds])) {
+      const regions = byOwner.get(id);
+      if (!regions?.length) continue;
+      lines.push(`${this.ctx.publicPolityName(id)}: ${regions.slice(0, 8).map(r => r.name).join(', ')}${regions.length > 8 ? ', altri territori' : ''}`);
     }
     return lines.join('\n');
   }

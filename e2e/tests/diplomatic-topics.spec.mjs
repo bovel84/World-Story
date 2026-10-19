@@ -1,7 +1,7 @@
 import { test, expect } from 'playwright/test';
 import { installMockApi, MOCK_GAME_ID } from '../mock-api.mjs';
 
-for (const width of [390, 1280]) test(`trattative per argomento a ${width}px`, async ({ page }) => {
+for (const width of [360, 390, 1280]) test(`trattative per argomento a ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 844 });
   installMockApi(page);
   const participants = [
@@ -33,6 +33,10 @@ for (const width of [390, 1280]) test(`trattative per argomento a ${width}px`, a
       const reply = { ...messages[0], id: 'm5', content: 'Polonia, possiamo discutere i controlli congiunti al vertice di Praga.', seq: 5 };
       messages.push(reply); result = { replies: [reply] };
     } else if (path.endsWith('/read')) result = { ok: true };
+    else if (path.endsWith('/archive')) {
+      const chat = chats.find(chat => path.includes(`/${chat.id}/`));
+      chat.archived = true; result = { chat };
+    }
     else if (req.method() === 'POST') {
       created = body;
       const chat = { ...chats[0], id: 'new-topic', subject: body.subject, lastMessage: null, unread: 0 };
@@ -50,13 +54,23 @@ for (const width of [390, 1280]) test(`trattative per argomento a ${width}px`, a
   await expect(page.getByRole('heading', { name: 'Chat diplomatiche' })).toBeVisible();
   await expect(page.locator('.chat-item')).toHaveCount(2);
   await expect(page.locator('.chat-date-divider').first()).toHaveText('1 feb 1951');
+  // Check computed styles: unread/hover previously restored the dark theme.
+  const firstChat = page.locator('.chat-item').first();
+  await firstChat.hover();
+  await expect(firstChat).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(firstChat.locator('.chat-item-name')).toHaveCSS('-webkit-text-fill-color', 'rgb(32, 36, 38)');
+  await expect(firstChat).toHaveCSS('border-left-width', '1px');
   await page.screenshot({ path: `/tmp/diplomacy-inbox-${width}.png` });
-  await page.getByRole('button', { name: /Coordinamento per la sicurezza/ }).click();
+  await page.getByRole('button', { name: /^Coordinamento per la sicurezza/ }).click();
   await expect(page.locator('.chat-thread-title')).toHaveText(chats[0].subject);
   await expect(page.locator('.chat-bubble')).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Chiudi chat diplomatiche' })).toBeVisible();
   const composer = page.getByRole('textbox', { name: 'Messaggio diplomatico' });
   await expect(composer).toBeVisible();
+  await expect(page.locator('.chat-turn-hint')).toHaveText('Le delegazioni attendono la vostra risposta');
+  await expect(page.locator('.chat-bubble').first()).toHaveCSS('border-left-width', '0px');
+  expect(await page.locator('.chat-bubble').first().evaluate(el => getComputedStyle(el, '::before').content)).toBe('none');
+  await expect(page.locator('.chat-bubble').first()).toHaveCSS('font-size', width <= 360 ? '16px' : '17px');
   await page.screenshot({ path: `/tmp/diplomacy-thread-${width}.png` });
   expect(await page.locator('.chats-panel').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   const box = await composer.boundingBox();
@@ -64,11 +78,15 @@ for (const width of [390, 1280]) test(`trattative per argomento a ${width}px`, a
   await composer.fill('Concordiamo sul vertice e chiediamo osservatori congiunti.');
   await page.getByRole('button', { name: 'Invia messaggio' }).click();
   await expect(page.locator('.chat-bubble')).toHaveCount(4);
-  await page.locator('.chat-thread-details summary').click();
+  await page.getByRole('button', { name: 'Mostra partecipanti e opzioni' }).click();
   await expect(page.locator('.chat-participants')).toContainText('Cecoslovacchia');
   await page.getByRole('button', { name: 'Prosegui dialogo' }).click();
   await expect(page.locator('.chat-bubble')).toHaveCount(5);
   await page.getByRole('button', { name: 'Torna alle conversazioni' }).click();
+  await page.getByRole('button', { name: 'Archivia la conversazione Accordo sui transiti commerciali' }).click();
+  await expect(page.locator('.chat-item')).toHaveCount(1);
+  await page.getByRole('button', { name: /Archivio \(1\)/ }).click();
+  await expect(page.locator('.chat-item')).toHaveCount(2);
   await page.getByRole('button', { name: 'Inizia una nuova chat' }).click();
   await page.getByLabel('Argomento della trattativa').fill('Cooperazione ferroviaria');
   await page.locator('.polity-pick-item input').first().check();

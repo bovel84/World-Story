@@ -15,7 +15,7 @@
  *     accettiamo e quale passo reciproco proponiamo») non c'è più.
  */
 import { describe, it, expect } from 'vitest';
-import { buildChatPrompt, parseChatResponse } from '../src/prompts/chat';
+import { buildChatPrompt, parseChatResponse, diplomaticOpeningText, diplomaticPrecedents } from '../src/prompts/chat';
 
 const VARS = {
   playerPolityName: 'Regno di Cambogia',
@@ -75,10 +75,29 @@ describe('la chat diplomatica parla come una nazione, non come un elencatore di 
     expect(prompt).not.toContain('cosa vogliamo ottenere, quale limite non accettiamo e quale passo reciproco proponiamo');
   });
 
-  it('il testo diplomatico restituito rimane leggibile su mobile anche con risposte prolisse', () => {
-    const verbose = Array.from({ length: 10 }, (_, i) => `Condizione ${i + 1}: negoziamo soltanto dopo un passo reciproco verificabile.`).join(' ');
-    expect(parseChatResponse(JSON.stringify({ message: verbose })).message.length).toBeLessThanOrEqual(850);
-    expect(parseChatResponse(verbose).message.length).toBeLessThanOrEqual(850);
+  it('conserva la condizione finale di una trattativa e i suoi paragrafi anche oltre il vecchio taglio', () => {
+    const reasoning = 'Il valico resta essenziale per i convogli civili, ma dobbiamo evitare che il passaggio favorisca nuove tensioni. ';
+    const terms = `${reasoning.repeat(9)}\n\nAccettiamo soltanto se gli osservatori sono scelti da entrambe le delegazioni.`;
+    expect(terms.length).toBeGreaterThan(850);
+    expect(parseChatResponse(JSON.stringify({ message: terms })).message).toBe(terms);
+    expect(parseChatResponse(terms).message).toBe(terms);
+    expect(diplomaticOpeningText('Transiti', terms)).toBe(terms);
+    const prompt = buildChatPrompt({ ...VARS, history: [{ role: 'Vietnam', content: terms }] });
+    expect(prompt).toContain('Accettiamo soltanto se gli osservatori sono scelti da entrambe le delegazioni.');
+  });
+
+  it('recupera una concessione pertinente uscita dalla coda senza presentarla come accordo eseguito', () => {
+    const concession = { role: 'Vietnam', content: 'Accettiamo osservatori congiunti al valico di Ha Tien, purché siano civili.' };
+    const irrelevant = { role: 'player', content: 'Il raccolto nelle province interne resta soddisfacente.' };
+    const history = [irrelevant, concession, ...Array.from({ length: 14 }, (_, i) => ({
+      role: i % 2 ? 'player' : 'Vietnam', content: `Discussione procedurale sul calendario: intervento ${i}.`,
+    })), { role: 'Vietnam', content: 'Rettifichiamo: sul valico di Ha Tien accettiamo anche delegati delle dogane.' }];
+    expect(diplomaticPrecedents(history, 'Osservatori al valico di Ha Tien')).toEqual([concession]);
+    const prompt = buildChatPrompt({ ...VARS, history, subject: 'Osservatori al valico di Ha Tien' });
+    expect(prompt).toContain(concession.content);
+    expect(prompt).toContain(history[history.length - 1].content);
+    expect(prompt).toContain('le rettifiche e le intese successive nella cronaca prevalgono');
+    expect(prompt).not.toContain(irrelevant.content);
   });
 
   it('il messaggio di reazione automatica NON narra in terza persona', () => {
