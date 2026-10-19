@@ -138,7 +138,7 @@ afterAll(() => {
 });
 
 describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
-  it.each(['intervene', 'complete'])('apre il canale al checkpoint, senza anticipare il futuro (%s)', async (ending) => {
+  it('chiude il salto al contatto e impedisce di proseguire nel futuro senza un nuovo salto', async () => {
     diplomaticContacts = [
       { participants: ['POL'], eventHeadline: 'Evento alpha', topic: 'Chiediamo garanzie sulla frontiera.', kind: 'negotiation' },
       { participants: ['POL'], eventHeadline: 'Evento beta', topic: 'Proponiamo il secondo vertice.', kind: 'summit' },
@@ -149,30 +149,26 @@ describe('Rotte HTTP del playback scaglionato (§9.3)', () => {
       const broadcasts: any[] = [];
       session.setSSEBroadcaster((type: string, data: any) => broadcasts.push({ type, data }));
       const skip = await callRoute('POST', `/games/${gameId}/time-skip`, { jump_days: 90 });
-      expect(skip.body.type).toBe('awaiting_next');
+      expect(skip.body).toMatchObject({ type: 'intervened', newDate: '1951-01-20' });
+      expect(session.getPausedRunInfo()).toBeNull();
       const chats = session.getChats();
       expect(chats).toHaveLength(1);
       expect(session.getChatMessages(chats[0].id).map((m: any) => m.content))
         .toEqual(['Chiediamo garanzie sulla frontiera.']);
       expect(session.getChatMessages(chats[0].id)[0].gameDate).toBe('1951-01-20');
       expect(broadcasts.filter(e => e.type === 'chat_message')).toHaveLength(1);
-      if (ending === 'intervene') {
-        const outcome = await callRoute('POST', `/games/${gameId}/intervene`, {
-          simulationId: skip.body.simulationId, eventId: skip.body.event.id,
-          revision: skip.body.revision,
-        });
-        expect(outcome.status).toBe(200);
-        expect(session.getChats(true)).toHaveLength(1);
-      } else {
-        await callRoute('POST', `/games/${gameId}/simulations/${skip.body.simulationId}/next`);
-        const done = await callRoute('POST', `/games/${gameId}/simulations/${skip.body.simulationId}/next`);
-        expect(done.body.type).toBe('run_completed');
-        expect(session.getChats(true)).toHaveLength(2);
-      }
+      const refused = await callRoute('POST', `/games/${gameId}/simulations/${skip.body.simulationId}/next`);
+      expect(refused.status).toBe(409);
+      expect(refused.body.code).toBe('simulation_not_paused');
+      expect(session.getCurrentDate()).toBe('1951-01-20');
+      expect(session.getChats(true)).toHaveLength(1);
+      expect(broadcasts.filter(e => e.type === 'turn_complete')).toEqual([
+        expect.objectContaining({ data: expect.objectContaining({ intervened: true, newDate: '1951-01-20' }) }),
+      ]);
       const messages = session.getChats(true).flatMap((c: any) => session.getChatMessages(c.id));
       expect(messages.filter((m: any) => m.content === 'Chiediamo garanzie sulla frontiera.')).toHaveLength(1);
       expect(messages.some((m: any) => m.content.includes('non deve esistere'))).toBe(false);
-      expect(broadcasts.filter(e => e.type === 'chat_message')).toHaveLength(ending === 'complete' ? 2 : 1);
+      expect(broadcasts.filter(e => e.type === 'chat_message')).toHaveLength(1);
     } finally { diplomaticContacts = []; }
   });
 

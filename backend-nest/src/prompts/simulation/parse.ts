@@ -248,7 +248,7 @@ function normalizeReaction(raw: any): SimulationPolityReaction | null {
     role: roleAliases[normalizedToken(raw.role)] || 'counterparty',
     stance: stanceAliases[normalizedToken(raw.stance || raw.position)] || 'neutral',
     response: response.substring(0, 2_000),
-    note: note?.substring(0, 800),
+    note,
     priority: firstString(raw.priority, raw.interest)?.substring(0, 300),
     counterAction: counterAction?.substring(0, 800),
   };

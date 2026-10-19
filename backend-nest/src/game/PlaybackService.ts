@@ -202,7 +202,7 @@ export class PlaybackService {
     // M06 µ5f (quarta revisione B2): closeReason vive FUORI dal try, così la
     // completion dell'ultimo evento è invocata DOPO il catch: un suo fault
     // non ripassa dal rollback pre-step sopra un run già chiuso 'failed'.
-    let closeReason: 'paused_budget' | 'completed' | 'game_over' | null = null;
+    let closeReason: 'paused_budget' | 'completed' | 'game_over' | 'intervened' | null = null;
     const endingGuard = this.ctx.deferGameOver();
     try {
     // Effetti mappa dell’evento: solo ora la proposta diventa applicata.
@@ -380,6 +380,10 @@ export class PlaybackService {
         });
         this.state.pausedRun = null;
         closeReason = 'game_over';
+      } else if (reactionChatBroadcasts.some(payload => payload.archived !== true)) {
+        // The invitation is playable at this checkpoint. End the run here so
+        // the player can answer; later proposals must be regenerated afterwards.
+        closeReason = 'intervened';
       } else if (remainingEvents === 0) {
         if (state.incomplete) closeReason = 'paused_budget';
         else if (eventDate >= state.destination) closeReason = 'completed';

@@ -56,7 +56,7 @@ export class CommitmentService {
    * Applica le proposte al registro. Idempotente e conservativa: le proposte
    * malformate vengono scartate, non interpretate.
    */
-  apply(proposals: readonly CommitmentProposal[]): CommitmentResult {
+  apply(proposals: readonly CommitmentProposal[], date = this.ctx.currentDate()): CommitmentResult {
     const empty: CommitmentResult = { commitments: [], created: [], updated: [], written: 0 };
     // Anche senza proposte il registro va rivisto: le scadenze scorrono e un
     // ultimatum non resta aperto in eterno perché nessuno ha parlato.
@@ -64,7 +64,7 @@ export class CommitmentService {
     try {
       const current = this.all();
       const result = applyCommitmentProposals(current, proposals, {
-        date: this.ctx.currentDate(),
+        date,
         turn: this.ctx.currentTurn(),
       });
       const changed = [...result.created, ...result.updated];

@@ -476,3 +476,38 @@ describe('DiplomacyService — continuità delle trattative', () => {
   });
 
 });
+
+
+describe('DiplomacyService — prima battuta completa e oggetto distinto', () => {
+  it('preserva una nota lunga dal parser al database e autentica il mittente sulla nota, non sul titolo', async () => {
+    const { parseSimulationResponse, parseIncrementalSimulationRecord } = await import('../src/prompts/simulation/parse');
+    const note = 'Il valico resta essenziale per i commercianti delle due sponde, ma le interruzioni registrate nella cronaca rendono fragile qualsiasi intesa limitata alle dichiarazioni. '
+      + 'Per il nostro governo riaprire i transiti significa anche evitare che il contenzioso commerciale si trasformi in uno scontro politico permanente con il vostro paese. '
+      + 'Proponiamo quindi di discutere un protocollo per i passaggi civili, con controlli concordati e una verifica congiunta delle contestazioni, lasciando a un tavolo separato le richieste sul transito militare. '
+      + 'Non chiediamo di rinunciare alle vostre prerogative: siamo disponibili a rivedere le modalità dei controlli se potete indicare una soluzione che protegga entrambe le parti. '
+      + 'Una dichiarazione comune sarebbe utile soltanto dopo aver chiarito questi punti, senza presentare come concluso un accordo che dobbiamo ancora negoziare. '
+      + 'Potete confermare se accettate questa distinzione tra accesso civile e questione militare, oppure presentarci una modifica precisa del protocollo?';
+    expect(note.length).toBeGreaterThan(800);
+    const event = { headline: 'Nota di Parigi', description: 'La Francia invia una nota riservata.', date: '1951-01-10', mapChanges: [],
+      reactions: [{ actorId: 'FRA', polityName: 'Francia', role: 'counterparty', stance: 'conditional',
+        response: 'Parigi propone di separare transiti civili e questione militare.', note }] };
+    const parsed = parseSimulationResponse(JSON.stringify({ events: [event], narration: 'Nota inviata.' }));
+    expect(parsed.events[0].reactions?.[0].note).toBe(note);
+    const streamed = parseIncrementalSimulationRecord({ type: 'event', ...event });
+    expect(streamed?.type === 'event' && streamed.event.reactions?.[0].note).toBe(note);
+    const gameId = 'dip-complete-opening';
+    db.prepare("INSERT INTO games (id, world_id, current_turn, current_date) VALUES (?, 'dip-world', 1, '1951-01-01')").run(gameId);
+    const d = makeService({ gameId });
+    const start = { polityName: 'FRA', participants: ['FRA'], topic: 'Accesso civile al valico', message: note,
+      eventHeadline: event.headline, alreadyNarrated: true };
+    const options = { turn: 1, fallbackDate: '1951-02-20', deliveryDate: '1951-02-20', simulationId: 'complete-opening',
+      requireEventLink: true, events: parsed.events };
+    const spoofed = d.openSimulationChats([{ ...start, message: 'Una nota non presente nel dispaccio.' }], options);
+    expect(spoofed.broadcasts).toHaveLength(0);
+    const result = d.openSimulationChats([start], options);
+    expect(result.broadcasts).toHaveLength(1);
+    const chat = d.getChats()[0];
+    expect(chat.subject).toBe('Accesso civile al valico');
+    expect(d.getChatMessages(chat.id)[0]).toMatchObject({ content: note, gameDate: '1951-02-20', senderName: 'Francia' });
+  });
+});

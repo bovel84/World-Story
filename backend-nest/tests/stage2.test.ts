@@ -23,7 +23,7 @@ let capturedPrompt = '';
 /** Счётчик вызовов механики consolidation */
 let consolidationCalls = 0;
 /** Режим ответа заглушки на механику jump */
-let jumpMode: 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_player_contact' | 'auto_foreign_contact' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'auto_news_batch' | 'auto_horizon' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
+let jumpMode: 'contacts_batch' | 'normal' | 'voided' | 'auto' | 'auto_future' | 'auto_player_contact' | 'auto_foreign_contact' | 'auto_multi' | 'auto_late_reaction' | 'world' | 'outcome' | 'outcome_past' | 'outcome_complete' | 'no_event' | 'intervene' | 'auto_same' | 'auto_news_batch' | 'auto_horizon' | 'fixed_same' | 'multi' | 'budget' | 'move_accepted' = 'normal';
 /** Testo dell'ordine a cui la risposta `move_accepted` attribuisce un esito accettato. */
 let moveOrderText = '';
 /** projectId da copiare nell'outcome di chiusura del fixture F01. */
@@ -33,6 +33,25 @@ const WORLD_ID = 'stage2_world';
 
 function jumpResponse(): any {
   switch (jumpMode) {
+    case 'contacts_batch':
+      return {
+        events: [
+          { headline: 'La Polonia interpella la ФРГ', description: 'Varsavia chiede al governo della ФРГ di aprire i colloqui di confine.',
+            date: '1951-01-10', mapChanges: [] },
+          { headline: 'La Francia invita la ФРГ', description: 'Parigi propone alla ФРГ un confronto sui transiti commerciali.',
+            date: '1951-02-05', mapChanges: [] },
+          { headline: 'Cambia il controllo della regione ceca', description: 'Sviluppo successivo ai due inviti.',
+            date: '1951-02-20', mapChanges: [{ type: 'transfer', regionName: 'Чехословакия', newOwner: 'Polonia' }] },
+        ],
+        narration: 'Due inviti e un successivo sviluppo.', voided: [],
+        startChat: [
+          { participants: ['Polonia'], topic: 'Colloqui sul confine', message: 'Chiediamo di aprire i colloqui sul confine.',
+            kind: 'ultimatum', eventHeadline: 'La Polonia interpella la ФРГ' },
+          { participants: ['Francia'], topic: 'Transiti commerciali', message: 'Proponiamo un incontro sui transiti commerciali.',
+            kind: 'negotiation', eventHeadline: 'La Francia invita la ФРГ' },
+        ],
+        worldChanges: { regionOwners: {}, regionColors: {} }, targetDate: '1951-02-20',
+      };
     case 'move_accepted':
       // Un ordine di movimento accettato SENZA `move_unit`: il motore deve
       // completare lo spostamento (reconcileAcceptedMoves) o spiegare il blocco.
@@ -1656,5 +1675,56 @@ describe('ARMY-MOVE — le truppe si muovono e i blocchi sono espliciti', () => 
     const events = session.getResults().at(-1).events.join(' | ');
     expect(events).toContain('Movimento non eseguito');
     jumpMode = 'normal';
+  });
+});
+
+
+describe('Consegna delle discussioni durante il salto temporale', () => {
+  it('riceve insieme le chat del batch alla data di arrivo e fa decorrere da lì il nuovo ultimatum', async () => {
+    jumpMode = 'contacts_batch';
+    try {
+      const { session } = createGame();
+      const delivered: any[] = [];
+      session.setSSEBroadcaster((type: string, payload: any) => { if (type === 'chat_message') delivered.push(payload); });
+      await session.processWorldAdvance(0);
+      expect(session.getCurrentDate()).toBe('1951-02-20');
+      const chats = session.getChats();
+      expect(chats).toHaveLength(2);
+      for (const chat of chats) {
+        expect(session.getChatMessages(chat.id)).toEqual([
+          expect.objectContaining({ gameDate: '1951-02-20', role: 'polity' }),
+        ]);
+        expect(chat.lastMessageGameDate).toBe('1951-02-20');
+      }
+      expect(delivered).toHaveLength(2);
+      expect(delivered.every(payload => payload.message.gameDate === '1951-02-20')).toBe(true);
+      const worldEvents = session.getResults().flatMap((result: any) => result.timelineEvents || [])
+        .filter((event: any) => event.source === 'world');
+      expect(worldEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ headline: 'La Polonia interpella la ФРГ', date: '1951-01-10' }),
+        expect.objectContaining({ headline: 'La Francia invita la ФРГ', date: '1951-02-05' }),
+      ]));
+      expect(session.getCommitments().commitments).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'ultimatum', status: 'active', createdDate: '1951-02-20', deadline: '1951-03-22' }),
+      ]));
+    } finally { jumpMode = 'normal'; }
+  });
+
+  it('ferma il playback al contatto: la chat è utilizzabile e gli eventi successivi restano futuri', async () => {
+    jumpMode = 'contacts_batch';
+    try {
+      const { session } = createGame();
+      const result = await session.processWorldAdvance(60);
+      expect(result).toMatchObject({ type: 'intervened', paused: false, newDate: '1951-01-10' });
+      expect(session.getCurrentDate()).toBe('1951-01-10');
+      expect(session.getPausedRunInfo()).toBeNull();
+      expect(session.getChats()).toHaveLength(1);
+      const chat = session.getChats()[0];
+      expect(session.getChatMessages(chat.id)[0].gameDate).toBe('1951-01-10');
+      expect(session.getRegion(`${WORLD_ID}_CZE`).owner).toBe('CZE');
+      expect(session.getResults().flatMap((entry: any) => entry.events)).not.toContain('La Francia invita la ФРГ');
+      await expect(session.sendChatMessage(chat.id, 'Accettiamo di discutere le modalità del confronto.')).resolves.toBeTruthy();
+      expect(session.getChatMessages(chat.id).filter((message: any) => message.role === 'player')).toHaveLength(1);
+    } finally { jumpMode = 'normal'; }
   });
 });
