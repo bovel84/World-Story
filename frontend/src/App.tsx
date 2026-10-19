@@ -243,6 +243,7 @@ function App() {
     applyCheckpointRegions,
     setPausedReader,
     restorePausedReader,
+    applyRunCompletion: playbackBundle.applyRunCompletion,
     pausedReader,
     handleTimelineOpen,
     resetForRewind,

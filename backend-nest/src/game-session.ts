@@ -2645,10 +2645,9 @@ export class GameSession {
         return [{
           polityName: polityId,
           participants: [polityId],
-          // Il canale diplomatico parla con la voce della nazione: usiamo la sua
-          // nota diretta quando c'è, altrimenti la decisione (senza etichette
-          // da bollettino come «Misura annunciata»).
-          topic: (reaction.note && reaction.note.trim())
+          // Keep the subject separate from the nation's complete spoken note.
+          topic: event.headline,
+          message: (reaction.note && reaction.note.trim())
             || [reaction.response, reaction.counterAction].filter(Boolean).join(' '),
           kind: 'statement' as const,
           eventHeadline: event.headline,
@@ -3529,15 +3528,17 @@ export class GameSession {
    * resta l'autorità sullo stato: qui si applicano, non si inventano.
    */
   private recordCommitments(input: {
+    date?: string;
     startChat?: readonly { participants?: string[]; polityName?: string; kind?: string; topic?: string; eventHeadline?: string }[];
     proposals?: unknown;
     updates?: unknown;
     sourceEventIdByHeadline?: Map<string, string>;
   }): CommitmentResult {
     if (this.isStrictGame()) return { commitments: [], created: [], updated: [], written: 0 };
+    const date = input.date || this.currentDate;
     const proposals = [
       ...this.commitments.fromChatStarts(input.startChat ?? [], {
-        date: this.currentDate,
+        date,
         issuer: this.playerPolityId,
         sourceEventIdByHeadline: input.sourceEventIdByHeadline,
       }),
@@ -3546,10 +3547,10 @@ export class GameSession {
     if (proposals.length === 0) {
       // Anche senza nuove proposte le scadenze scorrono: un ultimatum non resta
       // aperto in eterno solo perché nessuno ha parlato.
-      const result = this.commitments.apply([]);
+      const result = this.commitments.apply([], date);
       return result;
     }
-    return this.commitments.apply(proposals);
+    return this.commitments.apply(proposals, date);
   }
 
   /**

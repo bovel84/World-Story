@@ -15,6 +15,7 @@
  *  - il 409 non è un errore generico: si riconcilia e si riapre il checkpoint.
  */
 import { gameApi } from '../services/api';
+import type { RunCompletionOutcome } from './useSimulationPlayback';
 import type { GameEnding } from '../services/api';
 import { useActionsStore, useChatStore, useGameStore, useUIStore } from '../stores';
 import { shouldResetSuggestions } from '../components/Game/suggestionsLifecycle';
@@ -27,6 +28,7 @@ export interface UseWorldAdvanceOptions {
   applyCheckpointRegions: (changedRegions: any[] | undefined) => void;
   setPausedReader: React.Dispatch<React.SetStateAction<any>>;
   restorePausedReader: (game: any) => Promise<void>;
+  applyRunCompletion: (outcome: RunCompletionOutcome) => Promise<void>;
   pausedReader: any;
   handleTimelineOpen: () => Promise<void>;
   resetForRewind: () => void;
@@ -50,6 +52,7 @@ export function useWorldAdvance({
   applyCheckpointRegions,
   setPausedReader,
   restorePausedReader,
+  applyRunCompletion,
   pausedReader,
   handleTimelineOpen,
   resetForRewind,
@@ -161,6 +164,18 @@ export function useWorldAdvance({
           currentTurn: result.newTurn!,
           currentDate: result.newDate!,
         } : prev);
+      } else if (result.type === 'intervened') {
+        // A new diplomatic note may close the very first checkpoint. HTTP is
+        // authoritative even when the terminal SSE was missed.
+        await applyRunCompletion({
+          type: result.type,
+          simulationId: result.simulationId || '',
+          actions: result.actions,
+          result: result.result,
+          newDate: result.newDate ?? result.result?.periodEnd ?? currentGame.currentDate ?? '',
+          newTurn: result.newTurn ?? currentGame.currentTurn,
+        });
+        publishEventDetails(result.result?.eventDetails || []);
       } else if (result.type === 'no_event_found') {
         // Nessun checkpoint è stato creato: la UI conserva data, mappa,
         // cronaca e coda e comunica soltanto l'esito della ricerca.

@@ -79,6 +79,7 @@ export interface TurnPipelineContext {
   refreshPeacetimePressures(): void;
   /** GAMEPLAY-LONG: registra gli impegni nati nel turno (registro strutturato). */
   recordCommitments(input: {
+    date?: string;
     startChat?: readonly { participants?: string[]; polityName?: string; kind?: string; topic?: string; eventHeadline?: string }[];
     proposals?: unknown;
     updates?: unknown;
@@ -582,6 +583,7 @@ export class TurnPipelineService {
         {
           turn: this.state.currentTurn,
           fallbackDate: period.end,
+          deliveryDate: period.end,
           simulationId: simulationRunId || undefined,
           events: appliedEvents,
           playerActionEventHeadlines: linkedPlayerEvents,
@@ -592,6 +594,7 @@ export class TurnPipelineService {
       // strutturato (ultimatum dalle chat, proposte validate del modello): la
       // cronaca potrà essere riassunta, il registro no.
       const commitmentEffects = this.ctx.recordCommitments({
+        date: period.end,
         // Una startChat respinta non può lasciare ultimatum/promesse fantasma.
         startChat: chatEffects.acceptedStarts,
         proposals: (promptResult as { commitments?: unknown }).commitments,

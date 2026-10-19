@@ -287,6 +287,8 @@ export class DiplomacyService {
     options: {
       turn: number;
       fallbackDate: string;
+      /** Batch contacts arrive when the jump ends; event dates stay in the chronicle. */
+      deliveryDate?: string;
       simulationId?: string;
       events?: Array<{ headline: string; date: string; description?: string; reactions?: Array<{ actorId?: string; polityName?: string; note?: string }> }>;
       requireEventLink?: boolean;
@@ -346,7 +348,7 @@ export class DiplomacyService {
         const initiator = resolver.resolve(start.polityName || start.participants?.[0] || '');
         const linkedDirectNote = start.alreadyNarrated && !!initiator && !initiator.isNew
           && linkedEvent.reactions?.some(reaction => reaction.note?.trim()
-            && reaction.note.trim() === start.topic.trim()
+            && reaction.note.trim() === (start.message?.trim() || start.topic.trim())
             && resolver.resolve(reaction.actorId || reaction.polityName || '')?.polityId === initiator.polityId);
         if (!playerMentioned && !playerActionLinked && !linkedDirectNote) {
           console.warn('[GameSession] startChat ignorata: il giocatore non è coinvolto nel dispaccio:', eventHeadline);
@@ -439,12 +441,12 @@ export class DiplomacyService {
         const sender = chat.participants.find(p => p.id === initiatorId && p.role === 'polity')
           || chat.participants.find(p => p.role === 'polity');
         if (!sender) continue;
-        const gameDate = linkedEvent?.date || options.fallbackDate;
+        const gameDate = options.deliveryDate || linkedEvent?.date || options.fallbackDate;
         const topic = this.ctx.publicText(start.topic) || 'Consultazione diplomatica';
         // A direct note already quoted in the event must stay byte-identical;
         // explicit invitations instead use the model's own spoken opening.
         const opening = start.alreadyNarrated
-          ? topic
+          ? this.ctx.publicText(start.message) || topic
           : diplomaticOpeningText(topic, this.ctx.publicText(start.message));
         // Replayed SSE/checkpoints must not deliver the same dispatch twice
         // even when the reaction appended to a pre-existing bilateral thread.

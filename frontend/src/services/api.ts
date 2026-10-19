@@ -1696,7 +1696,7 @@ export const gameApi = {
    * Time-skip: process pending actions OR just advance date
    */
   timeSkip: async (gameId: string, jumpDays?: number, idempotencyKey?: string): Promise<{
-    type: 'actions_processed' | 'date_advanced' | 'world_advanced' | 'no_event_found' | 'simulation_replayed' | 'awaiting_next';
+    type: 'actions_processed' | 'date_advanced' | 'world_advanced' | 'no_event_found' | 'simulation_replayed' | 'awaiting_next' | 'intervened';
     paused?: boolean;
     event?: { id: string; date: string; headline: string; detail: string; source: string; sourceActionIds?: string[] };
     remaining?: number;
