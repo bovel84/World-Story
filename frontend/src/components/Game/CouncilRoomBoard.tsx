@@ -99,8 +99,8 @@ export function CouncilRoomBoard({
   );
   const openQuestions = councilOpenQuestions(room);
   const invitations = room.invitations.filter(invitation => !room.participants.includes(invitation.minister));
-  const prepareReason = !hasDraftableMeasures
-    ? 'Nessuna misura definita: indica una proposta concreta prima di preparare la bozza comune.'
+  const prepareReason = !hasDraftableMeasures && !canPrepare
+    ? 'Nessuna misura definita: indica una proposta concreta o discuti le condizioni con i ministri prima di preparare la bozza comune.'
     : busy
       ? 'Attendi la fine dell’intervento in corso.'
       : !canPrepare
@@ -309,6 +309,7 @@ export function CouncilRoomBoard({
           Prepara bozza comune
         </button>
         {prepareReason ? <p id={prepareReasonId} className="council-board-action-reason">{prepareReason}</p> : null}
+        {!hasDraftableMeasures && canPrepare && !busy ? <p className="council-board-action-note">Le posizioni ministeriali permettono di avviare la redazione. Le clausole concrete dovranno emergere prima di creare l’atto.</p> : null}
       </div>
 
       {children}

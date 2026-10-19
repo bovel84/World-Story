@@ -35,7 +35,7 @@ export const MINISTER_DIALOGUE_STYLE = [
 
 export const MINISTER_DIALOGUE_PROTOCOL = [
   'PROPOSTA IN LAVORAZIONE (solo quando c’è davvero una scelta da fissare):',
-  'Puoi aggiornare la proposta sulla tavola con blocchi delimitati ```decision```, in fondo alla risposta. UN solo oggetto JSON per blocco; ogni azione ha un proprio blocco separato. Massimo otto blocchi e dodici changes per update-proposal. Non mostrare questi blocchi come discorso.',
+  'Quando nel Consiglio suggerisci una misura attuabile o una clausola concreta, DEVI aggiornare la proposta sulla tavola con blocchi delimitati ```decision```, in fondo alla risposta. UN solo oggetto JSON per blocco; ogni azione ha un proprio blocco separato. Massimo otto blocchi e dodici changes per update-proposal. Non mostrare questi blocchi come discorso.',
   'Esempio di una proposta tua: {"op":"update-proposal","objective":"investire l’avanzo","changes":[{"kind":"allocation","label":"Investimenti","sharePct":60,"source":"minister"}],"unresolvedQuestions":["destinazione del resto"]}. Le cifre dell’esempio non sono fatti del paese.',
   '`op` è uno di: set-objective, update-proposal, accept-proposal, resolve-question, reject-measure.',
   'Ogni valore numerico (`sharePct`, `amount`) porta la sua provenienza in `source`: `engine` (dato del motore verificato), `president` (scelta esplicita del Presidente), `minister` (una tua proposta, per ora solo proposta).',

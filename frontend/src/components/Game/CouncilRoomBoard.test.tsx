@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CouncilRoomBoard } from './CouncilRoomBoard';
 import {
-  confirmCouncilProposal, createCouncilRoom, type CouncilRoomState,
+  confirmCouncilProposal, councilCanPrepare, createCouncilRoom, type CouncilRoomState,
 } from './councilRoom';
 import { applyDecisionBatch } from './decisionWorkspace';
 import { seatSpeaker } from './councilMeeting';
@@ -219,6 +219,23 @@ describe('CouncilRoomBoard — Tavola del Consiglio', () => {
     expect(position(html, 'istruzione')).not.toContain('Da aggiornare');
   });
 
+  it('enables drafting after a conditional political debate without inventing a measure', () => {
+    const room: CouncilRoomState = {
+      ...createCouncilRoom({ id: 'political-debate', scopeKey: 'turn-1', initiatorMinister: 'esteri' }),
+      topic: 'Negoziare il piano egiziano',
+      positions: { esteri: {
+        status: 'conditional', reason: 'Accogliere il piano solo dopo la garanzia civile negoziata.', revision: 0,
+      } },
+      messages: [{ id: 'speech-1', role: 'assistant', kind: 'speech', seat: 'esteri',
+        content: 'Accolgo il piano con una garanzia civile da negoziare.' }],
+    };
+    expect(councilCanPrepare(room)).toBe(true);
+    const html = renderToStaticMarkup(<CouncilRoomBoard room={room} canPrepare={councilCanPrepare(room)} onPrepare={() => {}} />);
+    expect(button(html, 'Prepara bozza comune')).not.toContain('disabled');
+    expect(html).toContain('Le posizioni ministeriali permettono di avviare la redazione');
+    expect(section(html, 'PROPOSTA ATTUALE')).toContain('Nessuna misura');
+  });
+
   it.each([
     { canPrepare: true, busy: false, disabled: false },
     { canPrepare: false, busy: false, disabled: true },
@@ -250,7 +267,7 @@ describe('CouncilRoomBoard — Tavola del Consiglio', () => {
         measures: proposal.measures.filter(measure => measure.status === 'rejected' || measure.status === 'unresolved'),
       })),
     };
-    const html = renderToStaticMarkup(<CouncilRoomBoard room={room} canPrepare onPrepare={() => {}} />);
+    const html = renderToStaticMarkup(<CouncilRoomBoard room={room} canPrepare={false} onPrepare={() => {}} />);
 
     expect(button(html, 'Prepara bozza comune')).toContain('disabled');
     expect(html).toContain('Nessuna misura definita');
