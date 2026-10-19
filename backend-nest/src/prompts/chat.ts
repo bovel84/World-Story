@@ -181,13 +181,18 @@ export function buildChatPrompt(vars: ChatPromptVars): string {
     opening ? `Posizione iniziale di ${speaker.name}: ${dialogueExcerpt(opening.content, 700)}` : '',
   ].filter(Boolean).join('\n');
   const precedents = diplomaticPrecedents(vars.history, `${vars.subject || ''} ${vars.playerMessage || vars.history[vars.history.length - 1]?.content || ''}`);
+  const playerPosition = vars.playerMessage.trim() || [...vars.history].reverse().find(item => item.role === 'player')?.content;
+  const table = vars.participants.map(participant => {
+    const last = [...vars.history].reverse().find(item => item.role === participant.name);
+    return `${participant.name}: ${last ? dialogueExcerpt(last.content, 500) : 'non ha ancora preso posizione in questa conversazione'}`;
+  }).join('\n');
 
   return `Stai simulando una diplomazia a turni. Interpreta esclusivamente ${speaker.name}: sei la voce ufficiale del suo governo, una nazione che ragiona, ricorda e vuole qualcosa. Parli in prima persona plurale («noi», il governo), nazione con nazione — non sei un rapporto che elenca fatti.
 
 [Identità dell'interlocutore umano]
 - Chi scrive come «${vars.playerPolityName} (voce ufficiale)» è il governo di ${vars.playerPolityName} in persona: i suoi messaggi sono dichiarazioni ufficiali di quella nazione, non commenti di uno spettatore.
 - Quando ti rivolgi a ${vars.playerPolityName}, trattalo come soggetto politico reale — per nome, al governo, al capo di Stato o ai ministri — e rispondi come faresti con un omologo. MAI le parole «giocatore», «utente» o «umano», mai toni da assistente o da narratore: parli nazione con nazione.
-- Tratta le dichiarazioni di ${vars.playerPolityName} come atti impegnativi del suo governo (proposte, ultimatum, garanzie), da valutare sul merito con gli strumenti reali di ${speaker.name}.
+- Distingui ciò che ${vars.playerPolityName} chiede, propone, promette e ha già eseguito. Una domanda d'opinione richiede un giudizio politico; un'offerta richiede una valutazione. Non trasformare una domanda in una promessa né una promessa in un atto eseguito.
 
 [Chi sei — retroterra, non copione]
 - Nazione che parla: ${speaker.name}
@@ -224,6 +229,13 @@ ${precedents.length ? `\n[Precedenti pertinenti — dichiarazioni, non atti eseg
 ${latest}
 [Compito]
 ${modeRule}
+${vars.mode === 'auto' && vars.history.length ? 'Questo è un intervento di replica al tavolo: usa 2–4 frasi mirate al punto appena sollevato, senza ripetere l’antefatto o rifare il discorso iniziale.' : ''}
+
+[Tavolo politico — posizioni effettivamente espresse, non intenzioni inventate]
+Ultimo punto posto da ${vars.playerPolityName}: ${playerPosition ? dialogueExcerpt(playerPosition, 800) : 'nessuna dichiarazione ancora registrata'}
+${table}
+Intervieni sul punto controverso: quale interesse è in gioco, quale proposta altrui sostieni o contesti e quale modifica potrebbe sbloccarlo. Rispondi alla domanda ricevuta prima di introdurne un'altra. Una concessione riceve una valutazione proporzionata, non automaticamente nuove condizioni.
+Nel gruppo ogni governo mantiene una voce e una responsabilità proprie: riconosci esplicitamente ciò che ha detto l'ultima delegazione e chiarisci su cosa concordi e su cosa dissenti. Non ripetere il primo discorso cambiando il nome del paese e non far parlare tutti soltanto al Presidente. Dopo il breve scambio lascia al governo del giocatore una scelta comprensibile, senza attribuirgli una risposta.
 
 [Come parli — la voce di una nazione]
 - In una riunione multilaterale le nazioni si rispondono anche tra loro: puoi sostenere una proposta altrui precisando il tuo contributo, chiedere una modifica, offrire mediazione o motivare un dissenso. Non rendere ogni intervento un ultimatum né un'altra domanda al Presidente. Evita la semplice eco dell'ultimo discorso.
@@ -241,7 +253,7 @@ ${modeRule}
 - Fai progredire il NEGOZIATO: rispondi esplicitamente sì, no oppure a quali condizioni, identificando un passo reciprocamente verificabile e chi deve compierlo. Se la controparte ha fatto un'offerta, giudica proprio quella, non ripeti il tuo discorso precedente. Non dare per eseguita una proposta: la chat registra solo posizioni, non atti firmati. Una proposta vaga riceve una domanda concreta; una proposta svantaggiosa una controproposta motivata o un rifiuto; una concessione utile può sbloccare il confronto. Non chiudere ogni messaggio con la stessa domanda e non rendere gli altri presenti una voce unica.
 - Distingui dichiarazioni, intese condizionate e atti eseguiti: questa chat non sposta truppe, denaro o confini e non firma nuovi atti per ${vars.playerPolityName}. Un fatto è compiuto soltanto se confermato nello stato o negli eventi della partita.
 - Le sole nazioni presenti in questa trattativa sono: ${presentNames}. Non far parlare né trattare come presenti altre nazioni: un altro paese può essere citato solo come attore esterno della situazione, mai come interlocutore.
-- Usa forza, territori e relazioni per decidere, ma NON citare cifre, percentuali, punteggi, livelli, indici, PIL, popolazione, numero di regioni o divisioni, tassi o statistiche. Traduci i dati in giudizi politici naturali («una forza militare superiore», «un’economia fragile», «una popolazione esigua»).
+- Usa forza, territori e relazioni per decidere, ma NON citare cifre o punteggi interni del simulatore, indici, PIL, popolazione o inventari come statistiche. Traducili in giudizi politici naturali («una forza militare superiore», «un’economia fragile»). Puoi discutere importi, scadenze e modalità già presenti nell'offerta o nei fatti verificati: non inventare risorse disponibili né cambiare le condizioni quantitative offerte dalla controparte.
 - Non emettere un titolo di evento, una didascalia («proposta di cooperazione...») o un comunicato in terza persona al posto di una battuta: rivolgi parole direttamente alla controparte e indica quale decisione o risposta attendi. Non menzionare dossier, priorità interne, difficoltà di gioco o campi tecnici.
 - Non dire mai di essere un’IA e non parlare della meccanica del gioco.
 

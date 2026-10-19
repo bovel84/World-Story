@@ -183,8 +183,9 @@ chatsRouter.post('/:id/chats/:chatId/messages', async (req, res) => {
 
   try {
     const session = getSessionRegistry().getSessionOrThrow(req.params.id);
-    const { message, reply } = await session.sendChatMessage(req.params.chatId, content);
-    res.json({ message: messagePayload(message), reply: messagePayload(reply) });
+    const { message, reply, replies, continuationError } = await session.sendChatMessage(req.params.chatId, content);
+    res.json({ message: messagePayload(message), reply: messagePayload(reply),
+      replies: replies.map(messagePayload), continuationError });
   } catch (e: any) {
     respondRouteError(res, e, 'Failed to send chat message');
   }

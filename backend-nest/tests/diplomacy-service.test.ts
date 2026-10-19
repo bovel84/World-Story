@@ -234,7 +234,8 @@ describe('DiplomacyService — canali', () => {
     const d = makeService();
     const result = d.openSimulationChats(
       [{ polityName: 'Francia', topic: 'Proposta di intesa', kind: 'negotiation',
-        participants: ['Francia'], eventHeadline: 'Vertice' }],
+        participants: ['Francia'], eventHeadline: 'Vertice',
+        message: 'Possiamo ora discutere il protocollo di verifica. Quali garanzie proponete?' }],
       { turn: 5, fallbackDate: '1951-05-01', simulationId: 'run-2',
         events: [{ headline: 'Vertice', description: 'La Francia interpella il Giocatore.', date: '1951-05-01' }], requireEventLink: true },
     );
@@ -394,4 +395,84 @@ describe('DiplomacyService — conversazione LLM', () => {
     d.getChatMessages(chat.id);
     expect(typeof d.buildChatTranscripts()).toBe('string');
   });
+});
+
+describe('DiplomacyService — continuità delle trattative', () => {
+  it('archivia il ritiro di un’offerta documentato da un evento, conservando la nota e il thread', () => {
+    const d = makeService();
+    const chat = d.ensureChat(['Francia'], { subject: 'Offerta conclusa' });
+    const result = d.openSimulationChats([{ participants: ['Francia'], threadId: chat.id, closeThread: true,
+      topic: 'Offerta conclusa', message: 'Ritiriamo la nostra offerta: il mandato della delegazione è terminato.',
+      eventHeadline: 'Ritiro dell’offerta' }], {
+      turn: 8, fallbackDate: '1951-08-01', simulationId: 'close-offer-test', requireEventLink: true,
+      events: [{ headline: 'Ritiro dell’offerta', description: 'La Francia comunica al Giocatore il ritiro della propria offerta.', date: '1951-08-01' }],
+    });
+    expect(result.broadcasts[0].archived).toBe(true);
+    expect(result.acceptedStarts).toHaveLength(0);
+    expect(d.getChats().some((item: any) => item.id === chat.id)).toBe(false);
+    expect(d.getChats(true).find((item: any) => item.id === chat.id)?.archived).toBe(true);
+    expect(d.getChatMessages(chat.id)[0].content).toContain('Ritiriamo la nostra offerta');
+  });
+
+  it('non chiude una domanda inevasa senza evento e nota conclusiva validi', () => {
+    const d = makeService();
+    const chat = d.ensureChat(['Francia'], { subject: 'Offerta ancora valida' });
+    const result = d.openSimulationChats([{ participants: ['Francia'], threadId: chat.id, closeThread: true,
+      topic: 'Offerta ancora valida', message: 'Chiusura senza causa documentata.' }], {
+      turn: 9, fallbackDate: '1951-09-01', simulationId: 'unlinked-close-test',
+    });
+    expect(result.broadcasts).toHaveLength(0);
+    expect(d.getChats().find((item: any) => item.id === chat.id)?.archived).toBe(false);
+  });
+  it('non ripete a ogni salto lo stesso invito rimasto senza risposta', () => {
+    const d = makeService();
+    const start = [{ participants: ['Francia'], topic: 'Verifica congiunta dei transiti',
+      message: 'Proponiamo osservatori civili al valico.' }];
+    const first = d.openSimulationChats(start, { turn: 1, fallbackDate: '1951-01-01', simulationId: 'pending-repeat-1' });
+    const next = d.openSimulationChats(start, { turn: 2, fallbackDate: '1951-02-01', simulationId: 'pending-repeat-2' });
+    expect(next.broadcasts).toHaveLength(0);
+    expect(d.getChatMessages(first.broadcasts[0].chatId)).toHaveLength(1);
+  });
+
+  it('un suggerimento del modello non può aggiornare una chat di un’altra partita', () => {
+    db.prepare("INSERT INTO games (id, world_id, current_turn, current_date) VALUES ('dip-other', 'dip-world', 1, '1951-01-01')").run();
+    const foreign = makeService({ gameId: 'dip-other' }).ensureChat(['Francia'], { subject: 'Riservato altro gioco' });
+    const current = makeService();
+    const result = current.openSimulationChats([{ participants: ['Francia'], threadId: foreign.id,
+      topic: 'Verifica della nuova rotta', message: 'Una nuova richiesta.' }], { turn: 2, fallbackDate: '1951-02-01', simulationId: 'foreign-thread-test' });
+    expect(result.broadcasts[0].chatId).not.toBe(foreign.id);
+    expect(makeService({ gameId: 'dip-other' }).getChatMessages(foreign.id)).toHaveLength(0);
+  });
+  it('aggiorna il medesimo negoziato nei turni successivi e distingue una questione nuova', () => {
+    const d = makeService();
+    const open = (topic: string, turn: number, date: string, threadId?: string) => d.openSimulationChats([
+      { participants: ['Francia'], topic, message: `Intervento politico del turno ${turn}.`, threadId,
+        eventHeadline: `Sviluppo ${turn}` },
+    ], { turn, fallbackDate: date, simulationId: `continuity-${turn}` });
+    const first = open('Osservatori al valico di Praga', 1, '1951-01-01');
+    const id = first.broadcasts[0].chatId;
+    const second = open('Controlli al valico di Praga', 2, '1951-02-01');
+    expect(second.broadcasts[0].chatId).toBe(id);
+    const third = open('Mandato aggiornato della delegazione', 3, '1951-03-01', id);
+    expect(third.broadcasts[0].chatId).toBe(id);
+    expect(d.getChatMessages(id).map((m: any) => m.gameDate)).toEqual(['1951-01-01', '1951-02-01', '1951-03-01']);
+    const separate = open('Pagamenti dei debiti commerciali', 4, '1951-04-01');
+    expect(separate.broadcasts[0].chatId).not.toBe(id);
+  });
+
+  it('mantiene visibile una domanda letta ma inevasa e non tratta gli archivi come negoziati aperti', async () => {
+    const d = makeService();
+    const { chatRepository } = await import('../src/repositories');
+    const chat = d.ensureChat(['Francia'], { subject: 'Domanda ancora aperta' });
+    chatRepository.addMessage(chat.id, 'polity', 'Accettereste controlli civili?', 1, 'Francia', '1951-01-01');
+    d.markChatRead(chat.id);
+    expect(d.buildChatTranscripts()).toContain(`threadId=${chat.id}`);
+    expect(d.buildChatTranscripts()).toContain('IN ATTESA della risposta del giocatore');
+    d.archiveChat(chat.id);
+    expect(d.buildChatTranscripts()).not.toContain(`threadId=${chat.id}`);
+    const next = d.openSimulationChats([{ participants: ['Francia'], threadId: chat.id,
+      topic: 'Domanda ancora aperta', message: 'Una nuova comunicazione.' }], { turn: 2, fallbackDate: '1951-02-01', simulationId: 'archived-reopen-test' });
+    expect(next.broadcasts[0].chatId).not.toBe(chat.id);
+  });
+
 });

@@ -1,8 +1,8 @@
 /**
  * World Story — Thread diplomatici (logica pura)
  * ===========================================
- * Una chat è una DISCUSSIONE, non un canale permanente: quando le nazioni
- * tornano a parlare nasce una nuova chat e quella precedente va in archivio.
+ * Una chat è una DISCUSSIONE: gli sviluppi dello stesso negoziato proseguono
+ * nel suo thread anche nei turni successivi; questioni diverse restano separate.
  * Qui vivono le regole deterministiche condivise da repository, sessione e UI,
  * così il comportamento è testabile senza database.
  */
@@ -15,7 +15,8 @@ export function canonicalParticipantKey(ids: string[]): string {
 /**
  * Chiave di deduplicazione per una discussione avviata dalla simulazione.
  * Lo stesso evento (o salto) non deve generare due canali se il provider
- * ritenta la risposta; un evento diverso sì.
+ * ritenta la risposta. Per un evento diverso, il servizio può prima riusare
+ * la conversazione pertinente e conservare la cronologia del negoziato.
  */
 export function simulationThreadKey(parts: {
   simulationId?: string;

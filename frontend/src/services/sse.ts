@@ -44,6 +44,7 @@ interface UseSSEOptions {
   // Fase 3: messaggio in arrivo da una chat diplomatica
   onChatMessage?: (data: {
     chatId: string;
+    archived?: boolean;
     polityId: string;
     polityName: string;
     participants?: Array<{ id: string; name: string; color: string; role?: 'player' | 'polity' }>;

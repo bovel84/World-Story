@@ -376,6 +376,8 @@ export function parseSimulationResponse(text: string): SimulationResult {
           // Compatibilità con il percorso/provider precedente.
           polityName: legacyName || uniqueParticipants[0],
           participants: uniqueParticipants,
+          threadId: firstString(c.threadId, c.thread_id)?.substring(0, 100),
+          closeThread: c.closeThread === true || undefined,
           topic: (firstString(c.topic, c.argomento, c.message) || '').substring(0, 2_000),
           message: firstString(c.message, c.openingMessage, c.opening_message, c.diplomaticMessage),
           kind,

@@ -1992,6 +1992,8 @@ export const chatsApi = {
   send: (gameId: string, chatId: string, content: string): Promise<{
     message: ChatMessageData;
     reply: ChatMessageData;
+    replies?: ChatMessageData[];
+    continuationError?: string;
   }> => {
     return fetchApi(`/games/${gameId}/chats/${chatId}/messages`, {
       method: 'POST',

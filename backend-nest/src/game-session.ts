@@ -2665,7 +2665,7 @@ export class GameSession {
   /**
    * Invia un messaggio del giocatore (implementazione in DiplomacyService).
    */
-  async sendChatMessage(chatId: string, content: string): Promise<{ message: ChatMessageRecord; reply: ChatMessageRecord }> {
+  async sendChatMessage(chatId: string, content: string) {
     return this.diplomacy.sendChatMessage(chatId, content);
   }
 
