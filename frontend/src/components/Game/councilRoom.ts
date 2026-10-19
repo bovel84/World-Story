@@ -394,6 +394,18 @@ export function councilOpenQuestions(room: CouncilRoomState): string[] {
   const disagreements = room.participants.flatMap(seat => room.assessments[seat]?.disagreements ?? []);
   return [...new Set([...questions, ...disagreements])];
 }
+/** An attributed, substantive ministerial debate may initiate drafting before
+ * any machine-readable measure exists; it does not approve an act. */
+export function councilCanPrepare(room: CouncilRoomState): boolean {
+  if (activeProposal(room.sharedBoard)?.measures.some(measure => measure.status === 'proposed' || measure.status === 'accepted')) return true;
+  if (!room.topic.trim()) return false;
+  return room.participants.some(seat => {
+    const position = room.positions[seat];
+    if (!position || !['support', 'conditional'].includes(position.status) || position.reason.trim().length < 24) return false;
+    return room.messages.some(message => message.role === 'assistant' && message.kind === 'speech' && message.seat === seat);
+  });
+}
+
 export function councilDraft(room: CouncilRoomState, turn?: number): ProposalActDraft {
   const proposal = activeProposal(room.sharedBoard);
   const measures = proposal?.measures.filter(measure => measure.status !== 'rejected' && measure.status !== 'unresolved') ?? [];
