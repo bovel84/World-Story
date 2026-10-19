@@ -27,10 +27,11 @@ for (const width of [360, 390, 1280]) test(`trattative per argomento a ${width}p
     if (path.endsWith('/messages') && req.method() === 'POST') {
       const message = { id: 'm3', role: 'player', content: body.content, gameDate: '1951-02-01', seq: 3 };
       const reply = { ...messages[1], id: 'm4', content: 'Accettiamo di discuterne al vertice, alle condizioni indicate.', seq: 4 };
-      messages.push(message, reply); result = { message, reply };
+      const other = { ...messages[0], id: 'm4-b', content: 'Polonia, possiamo sostenere questa apertura se gli osservatori saranno civili.', seq: 5 };
+      messages.push(message, reply, other); result = { message, reply, replies: [reply, other] };
     } else if (path.endsWith('/messages')) result = { messages: path.includes('new-topic') ? [] : messages };
     else if (path.endsWith('/auto')) {
-      const reply = { ...messages[0], id: 'm5', content: 'Polonia, possiamo discutere i controlli congiunti al vertice di Praga.', seq: 5 };
+      const reply = { ...messages[0], id: 'm5', content: 'Polonia, possiamo discutere i controlli congiunti al vertice di Praga.', seq: 6 };
       messages.push(reply); result = { replies: [reply] };
     } else if (path.endsWith('/read')) result = { ok: true };
     else if (path.endsWith('/archive')) {
@@ -77,11 +78,12 @@ for (const width of [360, 390, 1280]) test(`trattative per argomento a ${width}p
   expect(box.y + box.height).toBeLessThanOrEqual(844);
   await composer.fill('Concordiamo sul vertice e chiediamo osservatori congiunti.');
   await page.getByRole('button', { name: 'Invia messaggio' }).click();
-  await expect(page.locator('.chat-bubble')).toHaveCount(4);
+  await expect(page.locator('.chat-bubble')).toHaveCount(5);
+  await expect(page.locator('.chat-bubble').last()).toContainText('osservatori saranno civili');
   await page.getByRole('button', { name: 'Mostra partecipanti e opzioni' }).click();
   await expect(page.locator('.chat-participants')).toContainText('Cecoslovacchia');
   await page.getByRole('button', { name: 'Prosegui dialogo' }).click();
-  await expect(page.locator('.chat-bubble')).toHaveCount(5);
+  await expect(page.locator('.chat-bubble')).toHaveCount(6);
   await page.getByRole('button', { name: 'Torna alle conversazioni' }).click();
   await page.getByRole('button', { name: 'Archivia la conversazione Accordo sui transiti commerciali' }).click();
   await expect(page.locator('.chat-item')).toHaveCount(1);

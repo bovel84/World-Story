@@ -49,6 +49,26 @@ beforeEach(() => {
 });
 
 describe('chatStore — ordine dei messaggi (fetch)', () => {
+  it('riceve la chiusura del thread via SSE senza archiviare un altro tavolo o perdere la cronologia', () => {
+    const original = useChatStore.getState().chats[0];
+    useChatStore.setState({ chats: [original, { ...original, id: 'other-open', archived: false }],
+      messagesByChat: { [CHAT]: [notaTurno3] } });
+    const payload = { chatId: CHAT, polityId: 'AUS', polityName: 'Impero d’Austria', archived: true,
+      message: { ...rispostaTurno4, id: 'closure', content: 'Ritiriamo la nostra offerta.' } };
+    useChatStore.getState().handleIncomingChatMessage(payload);
+    expect(useChatStore.getState().chats.find(chat => chat.id === CHAT)?.archived).toBe(true);
+    expect(useChatStore.getState().chats.find(chat => chat.id === 'other-open')?.archived).toBe(false);
+    expect(ids()).toEqual(['nota-3', 'closure']);
+    // Metadata from a delayed SSE must still apply if the message was fetched first.
+    useChatStore.setState(state => ({ chats: state.chats.map(chat => chat.id === CHAT ? { ...chat, archived: false } : chat) }));
+    useChatStore.getState().handleIncomingChatMessage(payload);
+    expect(useChatStore.getState().chats.find(chat => chat.id === CHAT)?.archived).toBe(true);
+    expect(ids()).toEqual(['nota-3', 'closure']);
+    useChatStore.getState().handleIncomingChatMessage({ ...payload, archived: false,
+      message: { ...notaTurno3, id: 'older-opening' } });
+    expect(useChatStore.getState().chats.find(chat => chat.id === CHAT)?.archived).toBe(true);
+    expect(ids().at(-1)).toBe('closure');
+  });
   it('setMessages ordina la timeline del mondo anche se il server manda un elenco disordinato', () => {
     useChatStore.getState().setMessages(CHAT, [rispostaTurno4, notaTurno3, ordineGiocatore]);
     expect(ids()).toEqual(['nota-3', 'ordine-4', 'risposta-4']);

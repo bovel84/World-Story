@@ -259,11 +259,11 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
     const isCurrent = () => useSimulationStore.getState().commandGeneration === commandGeneration
       && useChatStore.getState().gameId === gameId;
     try {
-      const { message, reply } = await chatsApi.send(gameId, chatId, text);
+      const { message, reply, replies, continuationError } = await chatsApi.send(gameId, chatId, text);
       if (!isCurrent()) return;
       appendMessage(chatId, message);
-      if (reply) appendMessage(chatId, reply);
-      setError('');
+      for (const response of replies?.length ? replies : reply ? [reply] : []) appendMessage(chatId, response);
+      setError(continuationError || '');
       try {
         await chatsApi.markRead(gameId, chatId);
         if (isCurrent()) markRead(chatId);

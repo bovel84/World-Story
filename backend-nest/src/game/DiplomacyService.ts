@@ -19,7 +19,8 @@ import { RelationshipMatrix, type RelationshipMap } from '../core/RelationshipMa
 import type { PolityResolver } from '../utils/name-resolver';
 import { shortId } from '../utils/short-id';
 import { chatRepository } from '../repositories';
-import { simulationThreadKey, reactionThreadKey } from '../core/chat/threads';
+import { simulationThreadKey, reactionThreadKey, canonicalParticipantKey } from '../core/chat/threads';
+import { addressedDelegations, sameDiplomaticTopic } from '../core/chat/dialogue';
 import { WorldStateEngine, type NationalAccount } from '../core/simulation/WorldStateEngine';
 import { currentStrategicPriorities, strategicProfileForPolity } from '../npc-agents';
 import { difficultyPromptBlock, type Difficulty } from '../prompts/difficulty';
@@ -270,6 +271,17 @@ export class DiplomacyService {
    * Apre i canali diplomatici richiesti dagli eventi applicati: ogni canale ha
    * già il messaggio d'apertura della controparte e non richiede LLM.
    */
+  private simulationConversation(ids: string[], topic: string, threadId?: string): ChatRecord | null {
+    const key = canonicalParticipantKey([this.ctx.playerPolityId(), ...ids]);
+    const matches = (chat: ChatRecord) => chat.gameId === this.ctx.gameId && !chat.archived
+      && canonicalParticipantKey(chat.participants.map(p => p.id)) === key;
+    const hinted = threadId ? chatRepository.getChatById(threadId) : null;
+    if (hinted && matches(hinted)) return hinted;
+    const related = chatRepository.getChatsByGame(this.ctx.gameId)
+      .find(chat => matches(chat) && sameDiplomaticTopic(chat.subject, topic));
+    return related ? chatRepository.getChatById(related.id) : null;
+  }
+
   openSimulationChats(
     starts: SimulationChatStart[] | undefined,
     options: {
@@ -405,14 +417,14 @@ export class DiplomacyService {
       };
 
       try {
-        // A narrated NPC reaction should FEED the existing live negotiation
-        // with the same participants rather than archive it and start over.
-        // New explicit invitations remain separate topics/conferences.
-        const liveThread = start.alreadyNarrated
-          ? chatRepository.getActiveChatByParticipantIds(
+        const liveThread = this.simulationConversation(validPolityIds, start.topic, start.threadId)
+          || (start.alreadyNarrated ? chatRepository.getActiveChatByParticipantIds(
             this.ctx.gameId, [this.ctx.playerPolityId(), ...validPolityIds],
-          )
-          : null;
+          ) : null);
+        if (start.closeThread && (!linkedEvent || !start.threadId || liveThread?.id !== start.threadId || !start.message?.trim())) {
+          console.warn('[Diplomacy] Chiusura ignorata: servono evento, thread attivo corrispondente e nota conclusiva.');
+          continue;
+        }
         const chat = liveThread || this.ensureChat(validPolityIds, {
           dedupeKey: simulationThreadKey({
             simulationId: options.simulationId,
@@ -436,7 +448,12 @@ export class DiplomacyService {
           : diplomaticOpeningText(topic, this.ctx.publicText(start.message));
         // Replayed SSE/checkpoints must not deliver the same dispatch twice
         // even when the reaction appended to a pre-existing bilateral thread.
-        const alreadyDelivered = chatRepository.getMessages(chat.id).some(message =>
+        const existingMessages = chatRepository.getMessages(chat.id);
+        const lastMessage = existingMessages[existingMessages.length - 1];
+        const sameNote = (text: string) => text.replace(/\s+/g, ' ').trim();
+        const repeatedPendingQuestion = !start.closeThread && start.kind !== 'ultimatum' && lastMessage?.role === 'polity' && lastMessage.senderName === sender.name
+          && sameNote(lastMessage.content) === sameNote(opening);
+        const alreadyDelivered = repeatedPendingQuestion || existingMessages.some(message =>
           message.role === 'polity' && message.turn === options.turn
           && message.gameDate === gameDate && message.senderName === sender.name
           && (message.content === opening || message.content === topic)
@@ -448,6 +465,7 @@ export class DiplomacyService {
         const firstMessage = chatRepository.addMessage(
           chat.id, 'polity', opening, options.turn, sender.name, gameDate,
         );
+        if (start.closeThread) chatRepository.archiveChat(chat.id);
         const group = validPolityIds.length > 1;
         const openingByKind: Record<string, string> = {
           meeting: group ? 'convoca una riunione multilaterale' : 'chiede una riunione',
@@ -472,7 +490,7 @@ export class DiplomacyService {
         const voce = {
           id: `chat-${firstMessage.id}`,
           date: gameDate,
-          headline: `${sender.name} ${openingByKind[kind] || openingByKind.negotiation}`,
+          headline: start.closeThread ? `${sender.name} chiude la trattativa` : `${sender.name} ${openingByKind[kind] || openingByKind.negotiation}`,
           detail: `${eventHeadline ? `In seguito a «${this.ctx.publicText(eventHeadline)}». ` : ''}${participantsText}${sender.name} dichiara: ${firstMessage.content}`,
           source: 'diplomacy' as const,
           simulationId: options.simulationId,
@@ -493,12 +511,13 @@ export class DiplomacyService {
           subject: chat.subject,
           senderName: sender.name,
           meetingKind: kind,
+          archived: !!start.closeThread,
           eventHeadline: eventHeadline || undefined,
           message: firstMessage,
         });
         validPolityIds.forEach(id => participantPolityIds.add(id));
         markDelivered();
-        acceptedStarts.push(start);
+        if (!start.closeThread) acceptedStarts.push(start);
       } catch (error) {
         console.warn('[GameSession] startChat: impossibile aprire il canale diplomatico:', requestedNames, error);
       }
@@ -513,7 +532,9 @@ export class DiplomacyService {
    * Invia un messaggio del giocatore: salva il messaggio, chiede all'LLM
    * (meccanica 'chat') CHI risponde e COSA, salva la replica e la broadcasta.
    */
-  async sendChatMessage(chatId: string, content: string): Promise<{ message: ChatMessageRecord; reply: ChatMessageRecord }> {
+  async sendChatMessage(chatId: string, content: string): Promise<{
+    message: ChatMessageRecord; reply: ChatMessageRecord; replies: ChatMessageRecord[]; continuationError?: string;
+  }> {
     const chat = chatRepository.getChatById(chatId);
     if (!chat || chat.gameId !== this.ctx.gameId) {
       throw new Error(`Chat not found: ${chatId}`);
@@ -541,7 +562,25 @@ export class DiplomacyService {
     // WS-JEV-W5 — SIDECAR: lo scambio entra nella memoria diplomatica (fatto
     // condiviso + viste). Best-effort: non lancia mai e non cambia la risposta.
     this.recordDiplomaticExchange(chat, content.trim(), reply);
-    return { message, reply };
+    const replies = [reply];
+    const delegates = chat.participants.filter(p => p.role !== 'player');
+    // A collective proposal receives a short political exchange. An explicitly
+    // addressed government answers alone. Never simulate the player's next words.
+    if (delegates.length > 1 && addressedDelegations(content, delegates).length !== 1) {
+      try {
+        const updatedHistory = [...history, { role: 'player', content: content.trim() },
+          { role: reply.senderName || chat.polityName, content: reply.content }];
+        const response = await this.generateChatReply(chat, updatedHistory, '', 'auto', fence);
+        this.recordDiplomaticExchange(chat, reply.content, response, reply.senderName);
+        replies.push(response);
+      } catch (error) {
+        this.ctx.assertFenceValid(fence);
+        console.warn('[Diplomacy] Second delegation could not complete its intervention:', error);
+        return { message, reply, replies,
+          continuationError: 'La prima risposta è stata ricevuta; un’altra delegazione non ha completato il suo intervento. Puoi usare Prosegui dialogo.' };
+      }
+    }
+    return { message, reply, replies };
   }
 
   /**
@@ -650,9 +689,10 @@ export class DiplomacyService {
     const participantsVars = this.chatParticipantVarsFor(chat, memoryQuery, history[history.length - 1]?.role);
 
     const lastSpeaker = history[history.length - 1]?.role;
-    const candidates = mode === 'auto' && participantsVars.length > 1
-      ? participantsVars.filter(p => p.name !== lastSpeaker)
-      : participantsVars;
+    const addressed = mode === 'reply' ? addressedDelegations(playerMessage, polityParticipants) : [];
+    const candidates = addressed.length === 1 ? participantsVars.filter(p => p.name === addressed[0])
+      : mode === 'auto' && participantsVars.length > 1
+        ? participantsVars.filter(p => p.name !== lastSpeaker) : participantsVars;
     let speakerName = candidates[0].name;
     if (candidates.length > 1) {
       const nextSpeakerPrompt = buildNextSpeakerPrompt({
@@ -849,7 +889,7 @@ export class DiplomacyService {
         militaryPower: this.ctx.nationalEffectiveMilitaryPower(polityId),
         playerMilitaryPower: this.ctx.nationalEffectiveMilitaryPower(this.ctx.playerPolityId()),
       })[0] || profile.baselinePriorities[0];
-      const chat = this.ensureChat([displayName], {
+      const chat = chatRepository.getActiveChatByParticipantIds(this.ctx.gameId, [this.ctx.playerPolityId(), polityId]) || this.ensureChat([displayName], {
         dedupeKey: reactionThreadKey(polityId, input.turn ?? this.ctx.currentTurn()),
         origin: 'simulation',
       });
@@ -921,7 +961,7 @@ export class DiplomacyService {
         // per i mondi provinciali, nome della regione per le politie singole.
         const displayName = this.ctx.publicPolityName(polityId);
         const reactionSubject = (input.eventHeadlines[0] || input.actionTexts[0] || '').trim().slice(0, 90);
-        const chat = this.ensureChat([displayName], {
+        const chat = this.simulationConversation([polityId], reactionSubject) || this.ensureChat([displayName], {
           dedupeKey: reactionThreadKey(polityId, input.turn ?? this.ctx.currentTurn()),
           subject: reactionSubject || undefined,
           origin: 'simulation',
@@ -1000,18 +1040,25 @@ export class DiplomacyService {
 
   /** Trascritti delle chat recenti per il prompt di simulazione (le trattative contano). */
   buildChatTranscripts(): string {
-    const chats = chatRepository.getChatsByGame(this.ctx.gameId, true).slice(0, 3);
-    const parts: string[] = [];
-
-    for (const chat of chats) {
-      const messages = chatRepository.getMessages(chat.id).slice(-15);
-      if (messages.length === 0) continue;
-      const lines = messages.map(m =>
-        m.role === 'player' ? `${this.ctx.publicPolityName(this.ctx.playerPolityId())}: ${m.content}` : `${m.senderName || chat.polityName}: ${m.content}`
-      );
-      parts.push(`[Trattative con ${chat.polityName}]\n${lines.join('\n')}`);
-    }
-
-    return parts.join('\n\n');
+    const conversations = chatRepository.getChatsByGame(this.ctx.gameId)
+      .map(chat => ({ chat, messages: chatRepository.getMessages(chat.id) }))
+      .filter(item => item.messages.length);
+    // Old unanswered questions remain visible to the simulation; read/unread is
+    // a UI notification and must never be mistaken for a political response.
+    conversations.sort((a, b) => {
+      const left = a.messages[a.messages.length - 1], right = b.messages[b.messages.length - 1];
+      return Number(right.role === 'polity') - Number(left.role === 'polity')
+        || (left.gameDate || '').localeCompare(right.gameDate || '');
+    });
+    return conversations.slice(0, 12).map(({ chat, messages }) => {
+      const last = messages[messages.length - 1];
+      const state = last.role === 'polity' ? 'IN ATTESA della risposta del giocatore; silenzio non equivale a consenso o rifiuto'
+        : 'La dichiarazione del giocatore richiede un seguito coerente';
+      const lines = messages.slice(-3).map(m => {
+        const text = m.content.length <= 600 ? m.content : `${m.content.slice(0, 295)} […] ${m.content.slice(-300)}`;
+        return `${m.gameDate || 'Data non registrata'} — ${m.role === 'player' ? this.ctx.publicPolityName(this.ctx.playerPolityId()) : m.senderName || chat.polityName}: ${text}`;
+      });
+      return `[Trattativa aperta threadId=${chat.id}; oggetto=${chat.subject || 'Consultazione'}; interlocutori=${chat.polityName}]\n${state}. Ultimo intervento: ${last.gameDate || 'data non registrata'}; data attuale: ${this.ctx.currentDate()}.\n${lines.join('\n')}\nPer sviluppi di questa questione usa lo stesso threadId e gli stessi partecipanti, senza ripetere l'invito.`;
+    }).join('\n\n');
   }
 }

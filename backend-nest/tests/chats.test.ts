@@ -14,6 +14,8 @@ let capturedPrompt = '';
 let capturedChatPrompt = '';
 let chatReply = 'Accettiamo il patto di non aggressione alle condizioni discusse.';
 let chatShouldFail = false;
+let chatResponseCount = 0;
+let chatResponsesBeforeFailure = Infinity;
 let stubStartChat: Array<{
   polityName?: string;
   participants?: string[];
@@ -64,6 +66,7 @@ const stubProvider: any = {
       if (user.includes('moderatore invisibile')) {
         return { content: JSON.stringify({ speaker: 'Cecoslovacchia' }) };
       }
+      if (++chatResponseCount > chatResponsesBeforeFailure) throw new Error('seconda delegazione temporaneamente indisponibile');
       capturedChatPrompt = user;
       return { content: JSON.stringify({ message: chatReply }) };
     }
@@ -118,6 +121,8 @@ beforeEach(() => {
   capturedChatPrompt = '';
   chatReply = 'Accettiamo il patto di non aggressione alle condizioni discusse.';
   chatShouldFail = false;
+  chatResponseCount = 0;
+  chatResponsesBeforeFailure = Infinity;
   stubStartChat = [];
   stubEventReactions = [];
   stubRelationshipChanges = [];
@@ -135,6 +140,34 @@ afterAll(() => {
 });
 
 describe('Chat diplomatiche', () => {
+  it('fa discutere due delegazioni dopo una proposta comune, con una sola nota del giocatore', async () => {
+    const { session } = createGame();
+    const chat = session.ensureChat(['Polonia', 'Cecoslovacchia'], { subject: 'Vertice congiunto' });
+    const result = await session.sendChatMessage(chat.id, 'Che ne pensate di controlli civili congiunti?');
+    expect(result.replies.map((reply: any) => reply.senderName)).toEqual(['Cecoslovacchia', 'Polonia']);
+    expect(result.reply.id).toBe(result.replies[0].id);
+    expect(session.getChatMessages(chat.id).filter((m: any) => m.role === 'player')).toHaveLength(1);
+    expect(capturedChatPrompt).toContain('Cecoslovacchia:');
+    expect(capturedChatPrompt).toContain('Ultimo punto posto da Germania Ovest: Che ne pensate');
+  });
+
+  it('riserva la risposta alla nazione direttamente interpellata', async () => {
+    const { session } = createGame();
+    const chat = session.ensureChat(['Polonia', 'Cecoslovacchia']);
+    const result = await session.sendChatMessage(chat.id, 'Polonia, quali verifiche proponete?');
+    expect(result.replies.map((reply: any) => reply.senderName)).toEqual(['Polonia']);
+    expect(session.getChatMessages(chat.id)).toHaveLength(2);
+  });
+
+  it('conserva la prima risposta quando la seconda delegazione non riesce a parlare', async () => {
+    const { session } = createGame();
+    const chat = session.ensureChat(['Polonia', 'Cecoslovacchia']);
+    chatResponsesBeforeFailure = 1;
+    const result = await session.sendChatMessage(chat.id, 'Confrontiamo le vostre posizioni.');
+    expect(result.replies).toHaveLength(1);
+    expect(result.continuationError).toContain('prima risposta');
+    expect(session.getChatMessages(chat.id)).toHaveLength(2);
+  });
   it('crea lo schema completo anche su un database nuovo', () => {
     const chatColumns = db.prepare('PRAGMA table_info(chats)').all().map((c: any) => c.name);
     const messageColumns = db.prepare('PRAGMA table_info(chat_messages)').all().map((c: any) => c.name);
@@ -539,7 +572,7 @@ describe('Chat diplomatiche', () => {
     await session.sendChatMessage(chat.id, 'Proponiamo un patto di non aggressione.');
 
     // Stile naturale: nessuna cifra o metrica nei messaggi.
-    expect(capturedChatPrompt).toContain('NON citare cifre, percentuali, punteggi');
+    expect(capturedChatPrompt).toContain('NON citare cifre o punteggi interni del simulatore');
     expect(capturedChatPrompt).toContain('giudizi politici naturali');
     // Coerenza: solo i partecipanti reali possono parlare.
     expect(capturedChatPrompt).toContain('Le sole nazioni presenti in questa trattativa sono: Polonia');
@@ -571,7 +604,7 @@ describe('Chat diplomatiche', () => {
     session.queueAction('Sviluppare l’economia');
     await session.processNextAction(30);
 
-    expect(capturedPrompt).toContain('Trattative con Polonia');
+    expect(capturedPrompt).toContain(`Trattativa aperta threadId=${chat.id}`);
     expect(capturedPrompt).toContain('trattato di difesa comune');
     expect(session.getRelationships().DEU.POL).toBe('ally');
   });

@@ -167,6 +167,10 @@ export type DiplomaticChatKind =
  * `participants` e collega l'apertura a un dispaccio canonico.
  */
 export interface SimulationChatStart {
+  /** Existing active conversation to update; the engine validates game and participants. */
+  threadId?: string;
+  /** Withdrawal/closure documented by the linked event, never an inferred player decision. */
+  closeThread?: boolean;
   polityName?: string;
   participants?: string[];
   topic: string;

@@ -64,7 +64,7 @@ export function archiveSiblingThreads<
   T extends { id: string; participants?: { id: string; role?: string }[]; archived?: boolean; subject?: string | null },
 >(chats: T[], chatId: string): T[] {
   const incoming = chats.find(chat => chat.id === chatId);
-  if (!incoming) return chats;
+  if (!incoming || incoming.archived) return chats;
   const key = participantSetKey(incoming.participants);
   if (!key) return chats;
   return chats.map(chat => (

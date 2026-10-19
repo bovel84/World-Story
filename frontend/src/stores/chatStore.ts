@@ -93,6 +93,7 @@ interface ChatState {
     polityName: string;
     participants?: ChatSummary['participants'];
     subject?: string | null;
+    archived?: boolean;
     message: ChatMessage;
   }) => void;
   addAdvisorMessage: (msg: AdvisorMessage) => void;
@@ -236,7 +237,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { chatId, message } = payload;
     const existing = state.messagesByChat[chatId] || [];
     const isDup = !!(message.id && existing.some(m => m.id === message.id));
-    if (isDup) return {};
+    if (isDup) return payload.archived === undefined || lastChatMessage(existing)?.id !== message.id ? {} : {
+      chats: state.chats.map(chat => chat.id === chatId ? { ...chat, archived: payload.archived } : chat),
+    };
     // Anche il percorso SSE passa dall'ordinatore: un messaggio consegnato in
     // ritardo (o appartenente a un turno precedente) va nella sua posizione
     // della timeline, non in coda.
@@ -260,6 +263,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         unread: 0,
       }),
       subject: payload.subject ?? known?.subject,
+      archived: latest.id === message.id ? payload.archived ?? known?.archived ?? false : known?.archived ?? false,
       lastMessage: latest.content,
       lastMessageAt: latest.createdAt || known?.lastMessageAt || new Date().toISOString(),
       lastMessageGameDate: latest.gameDate || known?.lastMessageGameDate,
