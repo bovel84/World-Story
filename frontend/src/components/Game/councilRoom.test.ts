@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createCouncilRoom, enterCouncil, receiveCouncilReply, councilHistory, councilRound,
-  appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilDraft, councilText, councilOpenQuestions, excludeCouncilMeasure, councilRoomMemory,
+  appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilCanPrepare, councilDraft, councilText, councilOpenQuestions, excludeCouncilMeasure, councilRoomMemory,
 } from './councilRoom';
 
 const create = () => createCouncilRoom({ id: 'room-1', scopeKey: 'game|branch|4', initiatorMinister: 'tesoro' });
@@ -14,6 +14,31 @@ describe('Sala del Consiglio — una questione, un filo, una tavola', () => {
     expect(room.sharedBoard.seat).toBe('council');
     expect(room.sharedBoard.proposals).toEqual([]);
     expect(room.messages).toEqual([]);
+  });
+
+  it('opens drafting from attributed conditional positions, not from an empty or opposed discussion', () => {
+    const initial = create();
+    expect(councilCanPrepare(initial)).toBe(false);
+    const withTopic = { ...initial, topic: 'Accordo egiziano' };
+    expect(councilCanPrepare(withTopic)).toBe(false);
+    const reply = [
+      'La garanzia civile va negoziata prima della firma.',
+      '```consiglio',
+      JSON.stringify({ position: { status: 'conditional', reason: 'Garanzia sulla componente civile da negoziare prima della firma.' }, agreements: [], disagreements: [] }),
+      '```',
+    ].join('\\n');
+    const withReply = receiveCouncilReply(withTopic, 'tesoro', reply, 'm1');
+    expect(withReply.sharedBoard.proposals).toEqual([]);
+    expect(councilCanPrepare(withReply)).toBe(true);
+    expect(councilDraft(withReply).text).not.toContain('Art. 1');
+
+    const opposed = receiveCouncilReply(withTopic, 'tesoro', [
+      'Mi oppongo.',
+      '```consiglio',
+      JSON.stringify({ position: { status: 'oppose', reason: 'Le verifiche previste non sono sufficienti per procedere.' } }),
+      '```',
+    ].join('\\n'), 'm2');
+    expect(councilCanPrepare(opposed)).toBe(false);
   });
 
   it('records a request without admitting a minister; the president admits them to the same room', () => {
