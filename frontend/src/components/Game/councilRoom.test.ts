@@ -26,7 +26,7 @@ describe('Sala del Consiglio — una questione, un filo, una tavola', () => {
       '```consiglio',
       JSON.stringify({ position: { status: 'conditional', reason: 'Garanzia sulla componente civile da negoziare prima della firma.' }, agreements: [], disagreements: [] }),
       '```',
-    ].join('\\n');
+    ].join('\n');
     const withReply = receiveCouncilReply(withTopic, 'tesoro', reply, 'm1');
     expect(withReply.sharedBoard.proposals).toEqual([]);
     expect(councilCanPrepare(withReply)).toBe(true);
@@ -37,7 +37,7 @@ describe('Sala del Consiglio — una questione, un filo, una tavola', () => {
       '```consiglio',
       JSON.stringify({ position: { status: 'oppose', reason: 'Le verifiche previste non sono sufficienti per procedere.' } }),
       '```',
-    ].join('\\n'), 'm2');
+    ].join('\n'), 'm2');
     expect(councilCanPrepare(opposed)).toBe(false);
   });
 
