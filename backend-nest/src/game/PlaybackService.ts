@@ -202,7 +202,7 @@ export class PlaybackService {
     // M06 µ5f (quarta revisione B2): closeReason vive FUORI dal try, così la
     // completion dell'ultimo evento è invocata DOPO il catch: un suo fault
     // non ripassa dal rollback pre-step sopra un run già chiuso 'failed'.
-    let closeReason: 'paused_budget' | 'completed' | 'game_over' | 'intervened' | null = null;
+    let closeReason: 'paused_budget' | 'completed' | 'game_over' | 'intervened' | 'diplomatic_contact' | null = null;
     const endingGuard = this.ctx.deferGameOver();
     try {
     // Effetti mappa dell’evento: solo ora la proposta diventa applicata.
@@ -383,7 +383,7 @@ export class PlaybackService {
       } else if (reactionChatBroadcasts.some(payload => payload.archived !== true)) {
         // The invitation is playable at this checkpoint. End the run here so
         // the player can answer; later proposals must be regenerated afterwards.
-        closeReason = 'intervened';
+        closeReason = 'diplomatic_contact';
       } else if (remainingEvents === 0) {
         if (state.incomplete) closeReason = 'paused_budget';
         else if (eventDate >= state.destination) closeReason = 'completed';
@@ -491,7 +491,7 @@ export class PlaybackService {
    */
   async completePausedRunUnlocked(
     state: PausedRunState,
-    reason: 'completed' | 'paused_budget' | 'intervened' | 'game_over',
+    reason: 'completed' | 'paused_budget' | 'intervened' | 'game_over' | 'diplomatic_contact',
   ): Promise<CompletedBatchResult> {
     this.ctx.orders.assertExecutableOrders(
       this.ctx.orders.queue().filter(action => state.batchActionIds.includes(action.id)), this.state.regions.values(),
@@ -535,13 +535,36 @@ export class PlaybackService {
     // Cronaca canonica del run: gli eventi applicati, con le loro date.
     const appliedRows = gameRepository.getSimulationEvents(this.ctx.gameId, runId);
     const appliedHeadlines = new Set(appliedRows.map(row => row.headline));
-    const voided = completion.voided || [];
+    // A diplomatic contact can end playback before later events exist. Only
+    // orders whose entire causal outcome has already occurred may be settled;
+    // all others remain queued for the next player-directed jump.
+    const queuedBatch = state.batchActionIds
+      .map(id => this.ctx.orders.queue().find(action => action.id === id))
+      .filter((action): action is PendingAction => !!action);
+    const linkedOutcomes = this.ctx.outcomesByActionId(
+      queuedBatch, completion.actionOutcomes, completion.convertedActions,
+    ) as Map<string, ActionOutcome>;
+    const settledActionIds = reason === 'diplomatic_contact'
+      ? state.batchActionIds.filter(id => {
+        const headlines = linkedOutcomes.get(id)?.eventHeadlines;
+        return !!headlines?.length
+          && headlines.every(headline => appliedHeadlines.has(this.ctx.publicText(headline)));
+      })
+      : state.batchActionIds;
+    const settledIdSet = new Set(settledActionIds);
+    const settledOutcomes = settledActionIds
+      .map(id => linkedOutcomes.get(id))
+      .filter((outcome): outcome is ActionOutcome => !!outcome);
+    const voided = reason === 'diplomatic_contact'
+      ? (completion.voided || []).filter((v: { action: string }) =>
+        queuedBatch.some(action => settledIdSet.has(action.id) && action.text === v.action))
+      : [...(completion.voided || [])];
     // La cassa segue le scelte del giocatore: gli ordini che il run ha eseguito
     // vengono regolati ora, prima che la cronaca li racconti. Chi non ha i
     // soldi vede l'ordine annullato dal motore, non dal narratore.
-    const orderTexts = new Map(state.batchActionIds
+    const orderTexts = new Map(settledActionIds
       .map(id => [id, this.ctx.orders.queue().find(action => action.id === id)?.text || ''] as const));
-    const orderCostSettlement = this.ctx.settleOrderCosts(completion.actionOutcomes, state.batchActionIds, orderTexts);
+    const orderCostSettlement = this.ctx.settleOrderCosts(settledOutcomes, settledActionIds, orderTexts);
     for (const order of orderCostSettlement.unfunded) {
       voided.push({ action: order.action, reason: order.reason });
       this.ctx.broadcast('action_voided', {
@@ -673,7 +696,9 @@ export class PlaybackService {
       simulationId: runId,
       turn: state.jumpTurn,
       narration,
-      countryResponse: completion.convertedActions.map((action: any) => action.text).join('\n'),
+      countryResponse: completion.convertedActions
+        .filter((action: any) => reason !== 'diplomatic_contact' || settledIdSet.has(action.actionId))
+        .map((action: any) => action.text).join('\n'),
       events: finalEvents,
       timelineEvents: finalTimelineEvents,
       date: finalDate,
@@ -684,7 +709,7 @@ export class PlaybackService {
     // Finalizzazione del lotto di ordini: esiti individuali collegati SOLO
     // agli eventi effettivamente applicati del run (§9.2: gli ordini emessi
     // non sono reinviati; un esito parziale resta un processo aperto).
-    batchActions = state.batchActionIds
+    batchActions = settledActionIds
       .map(id => this.ctx.orders.queue().find(action => action.id === id))
       .filter((action): action is PendingAction => !!action);
     const actionRecords: ActionRecord[] = batchActions.map(item => ({
@@ -710,7 +735,7 @@ export class PlaybackService {
       .filter(record => record.simulationId === runId)
       .flatMap(record => record.timelineEvents || []);
     const outcomes = this.ctx.outcomesByActionId(
-      batchActions, completion.actionOutcomes, completion.convertedActions,
+      batchActions, settledOutcomes, completion.convertedActions,
     );
     const settlementByActionId = new Map<string, OrderSettlementEntry>(
       (orderCostSettlement.entries || []).map((entry: OrderSettlementEntry) => [String(entry.actionId), entry]),
@@ -829,7 +854,7 @@ export class PlaybackService {
       sourceActionIds: event.sourceActionIds,
     })));
     this.ctx.enqueueOutboxRows(runId, finalCheckpointId, finalRevision, state.jumpTurn, finalTimelineEvents);
-    gameRepository.finishSimulationRun(runId, reason, {
+    gameRepository.finishSimulationRun(runId, reason === 'diplomatic_contact' ? 'intervened' : reason, {
       checkpointDate: finalDate,
       checkpointId: finalCheckpointId,
       turn: state.jumpTurn,
@@ -929,7 +954,7 @@ export class PlaybackService {
       newTurn: this.state.currentTurn,
       newDate: this.state.currentDate,
       changedRegions: state.changedRegions,
-      intervened: reason === 'intervened',
+      intervened: reason === 'intervened' || reason === 'diplomatic_contact',
       pausedBudget: reason === 'paused_budget',
       // PLAYBACK-INTERMEDIATE-OVER: il run chiuso dal collasso lo dichiara anche
       // nell'evento di fine turno, così il client non lo tratta come «Continua».
@@ -954,7 +979,7 @@ export class PlaybackService {
     console.log('[GameSession] §9.3: run scaglionato chiuso:', reason, '— data finale:', this.state.currentDate);
     return {
       paused: false,
-      type: reason === 'completed' ? 'run_completed' : reason,
+      type: reason === 'completed' ? 'run_completed' : reason === 'diplomatic_contact' ? 'intervened' : reason,
       simulationId: runId,
       actions: batchActions,
       result: {
