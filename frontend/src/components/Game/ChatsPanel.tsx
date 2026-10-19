@@ -77,6 +77,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
   const messagesRef = useRef<HTMLDivElement>(null);
   const followMessages = useRef(true);
   const openingRequest = useRef(0);
+  const detailsRef = useRef<HTMLDetailsElement>(null);
   const currentContext = () => {
     const generation = useSimulationStore.getState().commandGeneration;
     return () => useSimulationStore.getState().commandGeneration === generation
@@ -327,40 +328,42 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
   const activeChats = orderedChats.filter(c => !c.archived);
   const archivedChats = orderedChats.filter(c => c.archived);
 
-  // Colore del mittente dai partecipanti della chat attiva
-  const senderColor = (name: string): string => {
-    const p = activeChat?.participants?.find(pp => pp.name === name);
-    return p?.color || activeChat?.polityColor || '#888';
-  };
-
   const renderChatItem = (c: ChatSummary) => {
     const interlocutors = c.participants?.filter(p => p.role !== 'player') || [];
     const names = interlocutors.map(p => p.name).join(' · ') || c.polityName;
     const title = c.subject?.trim() || names || 'Trattativa diplomatica';
     return (
-      <button type="button" key={c.id} className={`chat-item${c.unread ? ' unread' : ''}${c.archived ? ' archived' : ''}`}
-        onClick={() => void openChat(c.id)} aria-label={`${title}${c.unread ? `, ${c.unread} messaggi non letti` : ''}`}>
-        <span className="chat-list-flags" aria-label={names}>
-          {(interlocutors.length ? interlocutors : [{ id: c.polityId, name: c.polityName }]).slice(0, 3).map((p, i) => (
-            <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
-          ))}
-          {interlocutors.length > 3 && <span className="chat-flags-more">+{interlocutors.length - 3}</span>}
-        </span>
-        <span className="chat-item-main">
-          <span className="chat-item-name">{title}</span>
-          <span className="chat-item-last">{c.lastMessage
-            ? publicNarrativeText(diplomaticMessageForDisplay(c.lastMessage, c.subject, 'polity'), playerPolityName)
-            : 'La trattativa è aperta. Scrivi il primo messaggio.'}</span>
-          <span className="chat-item-participants">{names}</span>
-        </span>
-        <span className="chat-item-end">
-          <time className="chat-item-time" dateTime={c.lastMessageGameDate || undefined}>
-            {formatChatStamp(c.lastMessageGameDate, c.lastMessageAt || c.createdAt)}
-          </time>
-          {!!c.unread && <span className="chat-unread-badge">{c.unread}</span>}
-          <span aria-hidden="true" className="chat-item-chevron">›</span>
-        </span>
-      </button>
+      <div key={c.id} className="chat-list-entry">
+        <button type="button" className={`chat-item${c.unread ? ' unread' : ''}${c.archived ? ' archived' : ''}`}
+          onClick={() => void openChat(c.id)} aria-label={`${title}${c.unread ? `, ${c.unread} messaggi non letti` : ''}`}>
+          <span className="chat-list-flags" aria-label={names}>
+            {(interlocutors.length ? interlocutors : [{ id: c.polityId, name: c.polityName }]).slice(0, 3).map((p, i) => (
+              <span key={p.id || i} className="chat-flag" title={p.name}>{flagForPolity(p.id, p.name)}</span>
+            ))}
+            {interlocutors.length > 3 && <span className="chat-flags-more">+{interlocutors.length - 3}</span>}
+          </span>
+          <span className="chat-item-main">
+            <span className="chat-item-name">{title}</span>
+            <span className="chat-item-last">{c.lastMessage
+              ? publicNarrativeText(diplomaticMessageForDisplay(c.lastMessage, c.subject, 'polity'), playerPolityName)
+              : 'La trattativa è aperta. Scrivi il primo messaggio.'}</span>
+            <span className="chat-item-participants">{names}</span>
+          </span>
+          <span className="chat-item-end">
+            <time className="chat-item-time" dateTime={c.lastMessageGameDate || undefined}>
+              {formatChatStamp(c.lastMessageGameDate, c.lastMessageAt || c.createdAt)}
+            </time>
+            {!!c.unread && <span className="chat-unread-badge">{c.unread}</span>}
+            <span aria-hidden="true" className="chat-item-chevron">›</span>
+          </span>
+        </button>
+        {!c.archived && <button type="button" className="chat-item-archive"
+          onClick={() => void archiveChat(c.id)} aria-label={`Archivia la conversazione ${title}`} title="Archivia conversazione">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 7h16v13H4zM3 3h18v4H3zM9 11h6" />
+          </svg>
+        </button>}
+      </div>
     );
   };
   const renderChatGroups = (items: ChatSummary[]) => groupChatsByGameDate(items).map(group => (
@@ -388,7 +391,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                 )}
               </time>
             </div>
-            <details className="chat-thread-details">
+            <details className="chat-thread-details" ref={detailsRef} id="diplomatic-participants">
               <summary title="Partecipanti e opzioni">
                 <span className="chat-details-accessible">Partecipanti e opzioni</span>
                 <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -439,8 +442,7 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
                 {(index === 0 || m.gameDate !== activeMessages[index - 1].gameDate) && (
                   <div className="chat-date-divider"><time dateTime={m.gameDate}>{messageMeta(m)}</time></div>
                 )}
-                <article className={`chat-msg-wrap ${m.role}`}
-                  style={{ '--nation-color': m.role === 'player' ? '#32644e' : senderColor(m.senderName || '') } as React.CSSProperties}>
+                <article className={`chat-msg-wrap ${m.role}`}>
                   <div className="chat-sender">
                     <span className="chat-sender-name">{m.role === 'player' ? `${playerPolityName} (tu)` : m.senderName || activeChat?.polityName}</span>
                   </div>
@@ -461,30 +463,43 @@ export const ChatsPanel: React.FC<ChatsPanelProps> = ({ gameId, regions, playerP
         </div>
 
         {error && <div className="chat-error" role="alert">{error}</div>}
-        <form className="chat-input-row" onSubmit={(event) => { event.preventDefault(); void handleSend(); }}>
-          <textarea
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder={activeChat?.archived ? 'Discussione archiviata — riaprila per scrivere' : 'Scrivi il tuo messaggio…'}
-            aria-label="Messaggio diplomatico"
-            rows={2}
-            disabled={sending || autoRunning || !!activeChat?.archived}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                void handleSend();
-              }
-            }}
-          />
-          <button
-            className="btn-chat-send"
-            type="submit"
-            disabled={!inputText.trim() || sending || autoRunning || !!activeChat?.archived}
-            title="Invia" aria-label="Invia messaggio"
-          >
-            {sending ? '…' : <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m21 3-7 18-4-7-7-4 18-7Z M10 14 21 3" /></svg>}
-          </button>
-        </form>
+        <div className="chat-composer">
+          {!activeChat?.archived && !sending && !autoRunning && activeMessages.length > 0 && activeMessages[activeMessages.length - 1].role === 'polity' && (
+            <p className="chat-turn-hint">Le delegazioni attendono la vostra risposta</p>
+          )}
+          <form className="chat-input-row" onSubmit={(event) => { event.preventDefault(); void handleSend(); }}>
+            <div className="chat-compose-field">
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder={activeChat?.archived ? 'Discussione archiviata — riaprila per scrivere' : 'Scrivi il tuo messaggio…'}
+                aria-label="Messaggio diplomatico"
+                rows={2}
+                disabled={sending || autoRunning || !!activeChat?.archived}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    void handleSend();
+                  }
+                }}
+              />
+              <button type="button" className="btn-chat-participants" aria-label="Mostra partecipanti e opzioni" aria-controls="diplomatic-participants"
+                onClick={() => { if (detailsRef.current) detailsRef.current.open = !detailsRef.current.open; }}>
+                <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+                  <circle cx="9" cy="8" r="3" /><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 4v2" />
+                </svg>
+              </button>
+            </div>
+            <button
+              className="btn-chat-send"
+              type="submit"
+              disabled={!inputText.trim() || sending || autoRunning || !!activeChat?.archived}
+              title="Invia" aria-label="Invia messaggio"
+            >
+              {sending ? '…' : <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m21 3-7 18-4-7-7-4 18-7Z M10 14 21 3" /></svg>}
+            </button>
+          </form>
+        </div>
       </div>
     );
   }

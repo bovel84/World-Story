@@ -181,6 +181,38 @@ describe('Chat diplomatiche', () => {
     expect(replies[0].senderName).toBe('Cecoslovacchia');
   });
 
+  it('persiste una replica articolata con la condizione conclusiva intatta', async () => {
+    const { session } = createGame();
+    const chat = session.ensureChat(['Polonia'], { subject: 'Verifica dei transiti' });
+    chatReply = `${'I convogli civili devono poter attraversare il confine senza alimentare nuove tensioni. '.repeat(12)}\n\nAccettiamo a condizione di poter verificare insieme gli accessi al valico.`;
+    const { reply } = await session.sendChatMessage(chat.id, 'Accettereste osservatori congiunti?');
+    expect(reply.content).toBe(chatReply);
+    expect(session.getChatMessages(chat.id).at(-1)?.content).toBe(chatReply);
+  });
+
+  it('ricorda lo scambio tra due NPC senza attribuire al giocatore parole mai pronunciate', async () => {
+    const enabled = process.env.JEV_MEMORY_ENABLED;
+    process.env.JEV_MEMORY_ENABLED = 'true';
+    try {
+      const { gameId, session } = createGame();
+      const chat = session.ensureChat(['Polonia', 'Cecoslovacchia'], { subject: 'Osservatori al valico' });
+      chatReply = 'Proponiamo osservatori civili congiunti al valico.';
+      await session.continueChat(chat.id, 2);
+      const { getDiplomaticMemory } = await import('../src/core/government/jev/jev-memory.service');
+      const branchId = session.fenceContext().branchId;
+      const memory = getDiplomaticMemory({ gameId, branchId, observer: 'POL', subject: 'CZE', query: 'osservatori valico' });
+      expect(memory.shared.text).toContain(chatReply);
+      expect(memory.shared.text).toContain('Cecoslovacchia');
+      expect(memory.shared.text).toContain('Polonia');
+      expect(memory.shared.text).not.toContain('Germania Ovest:');
+      await session.continueChat(chat.id, 1);
+      expect(capturedChatPrompt).toContain(memory.shared.ids[0]);
+    } finally {
+      if (enabled === undefined) delete process.env.JEV_MEMORY_ENABLED;
+      else process.env.JEV_MEMORY_ENABLED = enabled;
+    }
+  });
+
   it('mantiene trattative e bozze indipendenti per argomento con le stesse nazioni', async () => {
     const { session } = createGame();
     const trade = session.ensureChat(['Polonia'], { subject: 'Transiti commerciali' });

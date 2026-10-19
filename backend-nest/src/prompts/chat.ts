@@ -1,5 +1,3 @@
-import { COMPACT_CONVERSATION_STYLE } from './conversation-style';
-
 /**
  * World Story — Diplomazia stile Pax Historia
  * =========================================
@@ -13,6 +11,8 @@ export interface ChatParticipantVars {
   relationship: string;
   personality: string;
   interests: string;
+  /** Rapporti registrati con le altre delegazioni presenti, distinti da quello col giocatore. */
+  delegationRelations?: string;
 }
 
 export interface ChatHistoryItem {
@@ -55,6 +55,14 @@ function compact(value: unknown, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
 }
 
+/** Keep the closing condition when quoting a long statement within a fixed budget. */
+function dialogueExcerpt(value: string, maxChars: number): string {
+  const text = value.replace(/\s+/g, ' ').trim();
+  if (text.length <= maxChars) return text;
+  const head = Math.floor((maxChars - 5) / 2);
+  return `${text.slice(0, head).trimEnd()} […] ${text.slice(-(maxChars - head - 5)).trimStart()}`;
+}
+
 /** The reply needs the cause and consequence, not eight unrelated headlines.
  * Read only committed, dated events and keep the whole excerpt bounded. */
 export function diplomaticEventContext(input: {
@@ -83,9 +91,30 @@ export function diplomaticEventContext(input: {
 function renderHistory(history: ChatHistoryItem[], playerPolityName: string): string {
   if (history.length === 0) return '(La trattativa sta iniziando)';
   return history.slice(-12)
-    .map((m, index, tail) => `${m.role === 'player' ? `${playerPolityName} (voce ufficiale)` : m.role}: ${compact(m.content, index >= tail.length - 4 ? 1_200 : 480)}`)
+    .map((m, index, tail) => `${m.role === 'player' ? `${playerPolityName} (voce ufficiale)` : m.role}: ${dialogueExcerpt(m.content, index >= tail.length - 4 ? 1_200 : 480)}`)
     .join('\n');
 }
+
+/** Retrieve earlier terms verbatim: a concession must survive a long conversation.
+ * These are statements, never a derived agreement or a change to game state. */
+export function diplomaticPrecedents(history: ChatHistoryItem[], focus: string): ChatHistoryItem[] {
+  const words = (text: string) => text.toLocaleLowerCase('it').normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').match(/[a-z]{4,}/g) ?? [];
+  const ignored = new Set(['della', 'delle', 'dello', 'degli', 'nostro', 'nostra', 'nostri', 'nostre',
+    'vostro', 'vostra', 'vostri', 'vostre', 'questo', 'questa', 'quello', 'quella', 'siamo', 'avete',
+    'essere', 'possiamo', 'vorremmo', 'governo', 'proposta', 'trattativa', 'accordo', 'dopo', 'prima', 'anche']);
+  const terms = new Set(words(focus).filter(word => !ignored.has(word)));
+  return history.slice(-80, -12).map((item, index) => {
+    const matches = new Set(words(item.content).filter(word => terms.has(word))).size;
+    const hasTerms = /accett|conced|ritir|rinunci|purch[eé]|condizion|garanzi|rifiut|concord|impegn|in cambio/i.test(item.content);
+    return { item, index, score: matches ? matches * 2 + Number(hasTerms) : 0 };
+  }).filter(entry => entry.score > 0)
+    .sort((a, b) => b.score - a.score || b.index - a.index).slice(0, 3)
+    .sort((a, b) => a.index - b.index).map(entry => entry.item);
+}
+
+/** Diplomatic context needs room for the reason, offer and requested decision. */
+export const DIPLOMATIC_CONVERSATION_STYLE = `MISURA DELLA REPLICA: per aprire o sbloccare una trattativa sostanziale, 4–7 frasi (circa 80–150 parole), in uno o due paragrafi. Dai l'antefatto pertinente, spiega ciò che il tuo governo vuole salvaguardare e formula una proposta o una richiesta negoziabile: devono emergere da un discorso naturale. Per una conferma o una domanda semplice bastano 1–3 frasi. Non allungare una replica già completa e non sacrificare motivazioni, concessioni o condizioni per farne uno slogan. Niente titoli, elenchi, saluti ripetuti o rassegne stampa. Concludi il pensiero; non troncare la risposta.`;
 
 /**
  * Older simulation providers return only a newspaper-style `topic`. A new
@@ -95,7 +124,7 @@ function renderHistory(history: ChatHistoryItem[], playerPolityName: string): st
  */
 export function diplomaticOpeningText(topic: string, message?: string): string {
   const spoken = String(message || '').trim();
-  if (spoken) return compact(spoken, 1_200);
+  if (spoken) return spoken;
   const subject = String(topic || '').replace(/\s+/g, ' ').trim();
   if (!subject) return 'Desideriamo aprire un confronto con il vostro governo. Attendiamo la vostra posizione prima di discutere eventuali impegni.';
   if (/[.!?…]$/.test(subject) || /^(?:desideriamo|chiediamo|proponiamo|riteniamo|intendiamo|vorremmo|sollecitiamo|siamo|non possiamo)\b/i.test(subject)) {
@@ -149,8 +178,9 @@ export function buildChatPrompt(vars: ChatPromptVars): string {
   const opening = vars.history.find(item => item.role === speaker.name);
   const mandate = [
     vars.subject ? `Oggetto: ${compact(vars.subject, 180)}` : '',
-    opening ? `Posizione iniziale di ${speaker.name}: ${compact(opening.content, 700)}` : '',
+    opening ? `Posizione iniziale di ${speaker.name}: ${dialogueExcerpt(opening.content, 700)}` : '',
   ].filter(Boolean).join('\n');
+  const precedents = diplomaticPrecedents(vars.history, `${vars.subject || ''} ${vars.playerMessage || vars.history[vars.history.length - 1]?.content || ''}`);
 
   return `Stai simulando una diplomazia a turni. Interpreta esclusivamente ${speaker.name}: sei la voce ufficiale del suo governo, una nazione che ragiona, ricorda e vuole qualcosa. Parli in prima persona plurale («noi», il governo), nazione con nazione — non sei un rapporto che elenca fatti.
 
@@ -164,6 +194,7 @@ export function buildChatPrompt(vars: ChatPromptVars): string {
 - Carattere del governo: ${speaker.personality}
 - Retroterra decisionale — guida il tuo giudizio e basta: NON lo reciti, NON lo elenchi, NON lo riassumi nei messaggi: ${speaker.interests}
 - Relazione con ${vars.playerPolityName}: ${RELATIONSHIP_TEXT[speaker.relationship] || RELATIONSHIP_TEXT.neutral}
+- Rapporti con le altre delegazioni: ${speaker.delegationRelations || 'nessun rapporto aggiuntivo fornito; non presumere alleanze o rivalità'}
 - Altri interlocutori presenti: ${vars.participants.map(p => p.name).join(', ')}
 
 [Difficoltà della diplomazia]
@@ -189,6 +220,7 @@ Per decidere, usa prima obiettivi del preset, agenda in corso e impegni registra
 
 [Cronaca della trattativa]
 ${renderHistory(vars.history, vars.playerPolityName)}
+${precedents.length ? `\n[Precedenti pertinenti — dichiarazioni, non atti eseguiti]\n${precedents.map(item => `${item.role === 'player' ? vars.playerPolityName : item.role}: ${dialogueExcerpt(item.content, 1_200)}`).join('\n')}\nSono citazioni precedenti: le rettifiche e le intese successive nella cronaca prevalgono. Non trasformarle in accordi firmati.\n` : ''}
 ${latest}
 [Compito]
 ${modeRule}
@@ -200,6 +232,7 @@ ${modeRule}
 - Non enumerare mai il tuo retroterra come voci di un elenco. Forme VIETATE: «le nostre priorità sono…», «le nostre linee rosse includono…», «la nostra agenda prevede…», «dai nostri dati risulta…», «la nostra memoria recente…», «i nostri impegni in vigore…». Interessi, limiti, memoria e forza si lasciano intuire da ciò che chiedi, accetti o rifiuti: mai citati come categorie a parte.
 - Non fare la rassegna stampa della cronaca: citi solo il fatto che serve alla tua posizione, come farebbe una cancelleria («dopo quanto avvenuto a…»), mai l’elenco degli eventi recenti.
 - Il tuo stato d’animo verso la controparte — fiducia prudente, calcolo, stima, irritazione, delusione, distacco — si sente nella scelta delle parole senza essere dichiarato: un alleato deluso non parla come un rivale che alza la voce.
+- Il rapporto cresce o si deteriora attraverso fatti precisi: una concessione utile merita una concessione proporzionata; una promessa disattesa riduce la fiducia su quel punto. Ostilità non significa rifiutare ogni offerta, neutralità non significa assenza di crisi e alleanza non significa obbedienza. Non annunciare cambi di alleanza non registrati.
 - Rivolgiti alla controparte per nome e nel merito di ciò che ha appena detto: mai ripartire da zero con saluti e dichiarazioni generiche a ogni messaggio.
 
 [Come decidi — la sostanza della trattativa]
@@ -214,10 +247,11 @@ ${modeRule}
 
 [Esempio di tono — conta solo il registro, non il contenuto]
 ✗ da evitare: «Le nostre priorità includono la sicurezza dei confini e lo sviluppo commerciale. Le nostre linee rosse riguardano il transito militare. Proponiamo un patto di non aggressione e chiediamo garanzie sul rispetto dei confini.»
-✓ da imitare: «I vostri reggimenti ammassati alla frontiera non sono un dettaglio che ci sfugge. Se iniziano il ritiro entro la fine del mese, siamo pronti a riaprire i valichi commerciali da subito; in caso contrario questa trattativa si chiude qui, e le conseguenze ricadranno sul vostro governo.»
+✓ da imitare: «Comprendiamo la vostra esigenza di proteggere i convogli. Anche per noi riaprire il valico conta, ma senza controlli condivisi il traffico resterebbe esposto alle stesse tensioni. Proponiamo di discutere un presidio congiunto, limitato ai transiti civili, lasciando separata la questione militare. Se accettate questa distinzione, possiamo lavorare al protocollo; ci serve sapere quali verifiche siete disposti ad ammettere.»
+L'esempio mostra il nesso tra interessi, offerta e risposta attesa: non copiarne luoghi o condizioni. Una protesta può essere ferma; non convertire ogni scambio in minaccia.
 
 Scrivi in italiano, in prima persona plurale: una posizione e una conseguenza negoziale specifica. La risposta deve far avanzare il punto aperto, anche rispondendo a un altro governo.
-${COMPACT_CONVERSATION_STYLE}
+${DIPLOMATIC_CONVERSATION_STYLE}
 
 Rispondi SOLO con un oggetto JSON valido, senza markdown o testo attorno:
 {"message":"<replica diplomatica di ${speaker.name}>"}`;
@@ -225,18 +259,6 @@ Rispondi SOLO con un oggetto JSON valido, senza markdown o testo attorno:
 
 export interface ParsedChatResponse {
   message: string;
-}
-
-/** Do not let overlong free-model speeches bury the actionable position on mobile. */
-function diplomaticMessage(text: string): string {
-  const value = text.trim();
-  if (value.length <= 850) return value;
-  const prefix = value.slice(0, 850);
-  const sentences = [...prefix.matchAll(/[.!?](?=\s|$)/g)];
-  const end = sentences.length ? sentences[sentences.length - 1].index! + 1 : 0;
-  if (end >= 300) return prefix.slice(0, end).trim();
-  const space = prefix.lastIndexOf(' ');
-  return `${prefix.slice(0, space > 450 ? space : 850).trimEnd()}…`;
 }
 
 /** Parsing tollerante della replica {message}, con fallback al testo puro. */
@@ -253,11 +275,11 @@ export function parseChatResponse(text: string): ParsedChatResponse {
     try {
       const obj = JSON.parse(candidate);
       const message = typeof obj?.message === 'string' ? obj.message.trim() : '';
-      if (message) return { message: diplomaticMessage(message) };
+      if (message) return { message };
     } catch { /* prova il prossimo candidato */ }
   }
   const withoutFence = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-  return { message: diplomaticMessage(withoutFence) || '…' };
+  return { message: withoutFence || '…' };
 }
 
 function normalizedName(value: string): string {
