@@ -267,7 +267,7 @@ describe('CouncilRoomBoard — Tavola del Consiglio', () => {
         measures: proposal.measures.filter(measure => measure.status === 'rejected' || measure.status === 'unresolved'),
       })),
     };
-    const html = renderToStaticMarkup(<CouncilRoomBoard room={room} canPrepare onPrepare={() => {}} />);
+    const html = renderToStaticMarkup(<CouncilRoomBoard room={room} canPrepare={false} onPrepare={() => {}} />);
 
     expect(button(html, 'Prepara bozza comune')).toContain('disabled');
     expect(html).toContain('Nessuna misura definita');
