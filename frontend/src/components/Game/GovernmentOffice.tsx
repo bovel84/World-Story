@@ -27,7 +27,7 @@ import { governmentSessionId } from './governmentSession';
 import { nationalOperatingPicture } from './nationalOperatingPicture';
 import { nationOperatingPictureInput, type NationOperatingPictureSources } from './nationOperatingPictureInput';
 import { clientMandate, loadMemory, saveMemory, memoryScopeKey, seatRecords, withSeatRecords, recordMemory, queuedDecision, openQuestion, type MinisterMemoryStore } from './ministerMemory';
-import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilText, councilActionMessage, councilDiscussionIssue, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
+import { appendCouncilMessage, appendSignedActEvent, confirmCouncilProposal, councilContext, councilText, councilActionMessage, councilDiscussionIssue, councilCanPrepare, councilDraft, councilHistory, councilOpenQuestions, councilRound, councilRoomMemory, excludeCouncilMeasure, createCouncilRoom, enterCouncil, type CouncilRoomState } from './councilRoom';
 import { seatSpeaker } from './councilMeeting';
 import { resolveCouncilExecution } from './councilExecution';
 import { resolveCurrentRegionRef } from './meetingLocalization';
@@ -341,12 +341,16 @@ export function GovernmentOffice({ open, onClose, gameId, session,
   };
   const prepare = async (): Promise<void> => {
     if (!activeRoom || busy || operationRef.current || signatureRef.current || draftsRef.current[activeRoom.id]?.signatureAttempted) return;
-    const proposal = activeProposal(activeRoom.sharedBoard);
-    if (!proposal?.measures.some(measure => measure.status === 'proposed' || measure.status === 'accepted')) return;
+    // A real debate may initiate clause drafting before the model has emitted measures.
+    if (!councilCanPrepare(activeRoom)) return;
     const next = appendCouncilMessage({ ...activeRoom, phase: 'drafting' }, { id: crypto.randomUUID(), role: 'user', kind: 'speech', content: 'Prepariamo una bozza comune: proponete clausole concrete, tenendo conto dei pareri e dei vincoli discussi.' });
     updateRoom(next);
     const completed = await runRound(next, next.participants, 'Il Presidente apre la redazione comune. Proponi o aggiorna nella decisione una clausola concreta, rispondendo alle condizioni dei colleghi. Non firmare e non inventare consenso.');
     if (!completed || currentRef.current.activeId !== completed.id || currentRef.current.scopeKey !== completed.scopeKey || !currentRef.current.open) return;
+    if (!activeProposal(completed.sharedBoard)?.measures.some(measure => measure.status === 'proposed' || measure.status === 'accepted')) {
+      setNotice('I ministri hanno discusso le condizioni, ma non hanno formulato una misura concreta. Chiedi una clausola operativa e riprova: nessuna bozza vuota sarà preparata.');
+      return;
+    }
     const prepared: RoomDraft = { ...councilDraft(completed, currentTurn ?? 0), signatureKey: crypto.randomUUID() };
     setDrafts(previous => ({ ...previous, [completed.id]: prepared }));
     setNotice('Bozza comune preparata sulla Tavola. Leggila e correggila prima della firma.');
@@ -427,7 +431,7 @@ export function GovernmentOffice({ open, onClose, gameId, session,
   }, [activeRoom, failedTurn, busy, runRound]);
 
   const locked = busy || Boolean(signatureRef.current);
-  const board = activeRoom && <CouncilRoomBoard room={activeRoom} busy={locked} canPrepare={!draft?.signatureAttempted && Boolean(activeProposal(activeRoom.sharedBoard)?.measures.some(measure => measure.status === 'accepted' || measure.status === 'proposed'))}
+  const board = activeRoom && <CouncilRoomBoard room={activeRoom} busy={locked} canPrepare={!draft?.signatureAttempted && councilCanPrepare(activeRoom)}
     onConfirm={confirm} onExclude={label => {
       if (locked || operationRef.current) return;
       updateRoom(appendCouncilMessage(excludeCouncilMeasure(activeRoom, label, crypto.randomUUID()), { id: crypto.randomUUID(), role: 'user', kind: 'speech', content: `Escludo dalla proposta la misura «${label}».` }));
