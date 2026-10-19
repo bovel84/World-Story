@@ -172,7 +172,7 @@ export function useWorldAdvance({
           simulationId: result.simulationId || '',
           actions: result.actions,
           result: result.result,
-          newDate: result.newDate ?? currentGame.currentDate,
+          newDate: result.newDate ?? result.result?.periodEnd ?? currentGame.currentDate ?? '',
           newTurn: result.newTurn ?? currentGame.currentTurn,
         });
         publishEventDetails(result.result?.eventDetails || []);
