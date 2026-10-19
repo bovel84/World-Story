@@ -190,7 +190,8 @@ describe('DIPLOMACY — keep feeding the live bilateral conversation', () => {
 
   it('guards repeated deliveries of the same dated message in a reused conversation', () => {
     const src = read('src/game/DiplomacyService.ts');
-    expect(src).toContain('const alreadyDelivered = chatRepository.getMessages(chat.id).some(');
+    expect(src).toContain('const existingMessages = chatRepository.getMessages(chat.id);');
+    expect(src).toContain('const alreadyDelivered = repeatedPendingQuestion || existingMessages.some(');
     expect(src).toContain('message.gameDate === gameDate');
     expect(src).toContain('message.senderName === sender.name');
     expect(src).toContain('message.content === topic');
