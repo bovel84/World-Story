@@ -28,7 +28,6 @@ import { markOpeningSeen } from './openingFlag';
 import { useOpeningNarrative } from '../../hooks/useOpeningNarrative';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { deriveImpactAtDate } from './checkpointImpact';
-import { CompactBriefing } from './CompactBriefing';
 import type { NationSnapshot } from '../../hooks/useNationSnapshot';
 import type { WorldTimeline } from '../../hooks/useWorldTimeline';
 import type { Feed } from '../../hooks/useFeed';
@@ -552,7 +551,7 @@ export function GameScreen({ nation, timeline, feed, orders, playback, advance, 
               locationLabel={eventLocation?.label}
             />
           )}
-          <CompactBriefing briefing={briefing} onOpenDossier={() => openModule('nation')} />
+          {/* Le segnalazioni restano nel Dossier nazionale; niente riquadro sopra la mappa. */}
           {shell.isProcessingTurn && (
             <div className="turn-progress-banner" role="status" aria-live="polite">
               <span className="turn-progress-spinner" aria-hidden="true" />
